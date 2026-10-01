@@ -74,6 +74,8 @@ pub struct Settings {
     pub theme: String,
     pub font_size: u8,
     pub recent_files: Vec<String>,
+    #[serde(default)]
+    pub appearance_version: u8,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -81,8 +83,9 @@ impl Default for Settings {
             last_project: None,
             last_file: None,
             theme: "system".into(),
-            font_size: 17,
+            font_size: 19,
             recent_files: vec![],
+            appearance_version: 1,
         }
     }
 }
@@ -689,6 +692,30 @@ pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn settings_defaults_and_resolved_theme_roundtrip() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.theme, "system");
+        assert_eq!(defaults.font_size, 19);
+        assert_eq!(defaults.appearance_version, 1);
+        for theme in ["light", "dark"] {
+            let settings = Settings {
+                theme: theme.into(),
+                ..defaults.clone()
+            };
+            settings.validate().unwrap();
+            let stored = serde_json::to_vec(&settings).unwrap();
+            let restored: Settings = serde_json::from_slice(&stored).unwrap();
+            assert_eq!(restored.theme, theme);
+            assert_eq!(restored.font_size, 19);
+            assert_eq!(restored.appearance_version, 1);
+        }
+        let old: Settings = serde_json::from_str(r#"{"theme":"system","fontSize":17}"#).unwrap();
+        old.validate().unwrap();
+        assert_eq!(old.font_size, 17);
+        assert_eq!(old.appearance_version, 0);
+    }
+
     #[test]
     fn filesystem_safety_and_formats() {
         let directory = tempfile::tempdir().unwrap();

@@ -11,7 +11,7 @@
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind } from './editor.ts';
 
-  let { initialText, documentKey, readonly = false, sourceMode = false, fontSize = 16, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
+  let { initialText, documentKey, readonly = false, sourceMode = false, fontSize = 19, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
     initialText: string; documentKey: string | number; readonly?: boolean; sourceMode?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
@@ -204,7 +204,7 @@
   .editor-host :global(.nagori-table-wrap th) { background: var(--code-bg); color: var(--heading); text-align: left; }
   .editor-host :global(.nagori-image) { display: inline-block; max-width: 100%; color: var(--muted); font-size: .9em; cursor: text; }
   .editor-host :global(.nagori-image img) { max-width: 100%; max-height: 480px; display: block; border-radius: 12px; }
-  .editor-host :global(.nagori-find) { display: flex; align-items: center; gap: 8px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .editor-host :global(.nagori-find) { display: flex; align-items: center; gap: 8px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 13px; }
   .editor-host :global(.nagori-find input) { flex: 1; min-width: 100px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); }
   .editor-host :global(.nagori-find button), button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; cursor: pointer; }
   .editor-host :global(.cm-panels) { background: var(--bar); color: var(--text); border-color: var(--border); }
@@ -219,8 +219,8 @@
   .strong { font-weight: 750; } .italic { font-style: italic; font-family: Georgia, serif; } .strike { text-decoration: line-through; }
   .link-overlay { position: absolute; inset: 0; display: grid; place-items: center; z-index: 20; background: #14233e24; }
   .link-form { display: grid; gap: 14px; width: min(380px, 90%); padding: 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
-  .link-form label { display: grid; gap: 6px; font-size: 12px; }
+  .link-form label { display: grid; gap: 6px; font-size: 13px; }
   .link-form input { font: inherit; color: inherit; background: var(--surface); padding: 9px; border: 1px solid var(--border); border-radius: 8px; }
-  .link-form > div { display: flex; justify-content: flex-end; gap: 8px; } .link-form p { color: var(--danger); font-size: 12px; }
+  .link-form > div { display: flex; justify-content: flex-end; gap: 8px; } .link-form p { color: var(--danger); font-size: 13px; }
   @media (max-width: 760px) { .editor-host :global(.cm-content) { padding: 25px 28px 80px; } }
 </style>

@@ -13,10 +13,10 @@
   import { EditSession, failure, type OpenedDocument } from './lib/session';
   import { candidates, containsPath, renamedPath, parentPath, localLink, type Entry } from './lib/navigation';
 
-  type Settings={lastProject:string|null;lastFile:string|null;theme:'system'|'light'|'dark';fontSize:number;recentFiles:string[]};
+  import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
   type ImageData={mime:string;data:number[];width:number;height:number};
-  const defaults:Settings={lastProject:null,lastFile:null,theme:'system',fontSize:17,recentFiles:[]};
-  let settings=$state<Settings>({...defaults});
+  let settings=$state<Settings>({...defaults,theme:'light'});
+  let settingsLoaded=$state(false);
   let project=$state(''), current=$state<Entry|null>(null), initialText=$state(''), documentKey=$state(0);
   let session=$state.raw<EditSession|null>(null);
   let editor:EditorApi|null=null;
@@ -62,7 +62,7 @@
   }
   async function processChanges() {if(busy)return;const root=project,refreshImages=imagesQueued;treeQueued=false;imagesQueued=false;try{await refreshTree();if(root!==project||busy){treeQueued=true;imagesQueued ||= refreshImages;return;}if(refreshImages&&session){releaseImages();editor?.refreshImages();}if(refreshImages&&current?.kind==='image'){const target=current,key=documentKey;const result=await blobImage(target.path);if(current!==target||documentKey!==key){URL.revokeObjectURL(result.url);imageUrls.delete(result.url);}else{if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=result.url;imageDimensions=`${result.data.width} × ${result.data.height}`;}}await checkExternal();}catch(error){notify(failure(error).message);}}
   let settingsQueue=Promise.resolve();
-  function persist() {const snapshot=JSON.parse(JSON.stringify(settings));settingsQueue=settingsQueue.then(()=>invoke<void>('settings_save',{settings:snapshot})).catch(error=>notify('設定を保存できません: '+failure(error).message));return settingsQueue;}
+  function persist() {if(!settingsLoaded)return settingsQueue;const snapshot=JSON.parse(JSON.stringify(settings));settingsQueue=settingsQueue.then(()=>invoke<void>('settings_save',{settings:snapshot})).catch(error=>notify('設定を保存できません: '+failure(error).message));return settingsQueue;}
   async function list(path:string) {const root=project;const entries=await invoke<Entry[]>('workspace_list',{path});if(root===project)tree={...tree,[path]:entries};}
   async function refreshTree() {const root=project;for(const path of expanded){try{await list(path);}catch{if(path==='')throw new Error('プロジェクトフォルダを読み込めません。');tree={...tree,[path]:[]};}}const entries=await invoke<Entry[]>('workspace_index');if(root===project)index=entries;}
   async function toggle(entry:Entry) {if(expanded.includes(entry.path))expanded=expanded.filter(path=>path!==entry.path);else{try{await list(entry.path);expanded=[...expanded,entry.path];}catch(error){notify(failure(error).message);}}}
@@ -187,7 +187,9 @@
         unlisteners.push(await listen<string>('nagori:fs-error',event=>notify('ファイル監視のエラー: '+event.payload)));
         unlisteners.push(await listen('nagori:quit-requested',()=>void quit()));
         unlisteners.push(await listen<{action:string}>('nagori:menu',event=>void menuAction(event.payload.action)));
-        const saved=await invoke<Settings>('settings_get');settings={...defaults,...saved};settings.fontSize=Math.min(32,Math.max(12,settings.fontSize));
+        const saved=await invoke<Settings>('settings_get');
+        settings=startupSettings(saved,()=>window.matchMedia('(prefers-color-scheme: dark)').matches);settingsLoaded=true;
+        if(settings.theme!==saved.theme||settings.fontSize!==saved.fontSize||settings.appearanceVersion!==saved.appearanceVersion)await persist();
         if(settings.lastProject){const recent=settings.recentFiles, last=settings.lastFile;try{await openProject(settings.lastProject,last);settings.recentFiles=[...new Set([...(settings.lastFile?[settings.lastFile]:[]),...recent])];void persist();}catch(error){project='';notify('前回のプロジェクトを開けません: '+failure(error).message);}}
       }catch(error){notify(failure(error).message);}finally{starting=false;performance.mark('nagori-ready');}
     })();
@@ -206,7 +208,7 @@
     <button class="quick-button" onclick={()=>void quickOpen()} disabled={!project||busy} aria-label="ファイル名・パスで検索"><Icon name="search"/> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button>
     <div class="global-actions">
       <span class="status" class:problem={!!issue} aria-live="polite">{#if session}<span class="status-dot" class:unsaved={status==='dirty'||status==='saving'} aria-hidden="true"></span>{readonly?'読み取り専用':labels[status]}{#if issue}<button onclick={()=>void showProblem()}>対応する</button>{/if}{:else}<span class="local-label">ローカルのMarkdown</span>{/if}</span>
-      <details class="theme-menu"><summary class="icon-button" aria-label="テーマを変更" title="テーマを変更"><Icon name={settings.theme==='dark'?'moon':settings.theme==='light'?'sun':'monitor'}/></summary><div class="menu-popover theme-options"><span>テーマ</span>{#each [{value:'system',label:'システムに合わせる',icon:'monitor'},{value:'light',label:'ライト',icon:'sun'},{value:'dark',label:'ダーク',icon:'moon'}] as theme}<button class:chosen={settings.theme===theme.value} aria-pressed={settings.theme===theme.value} onclick={(event)=>{settings.theme=theme.value as Settings['theme'];void persist();const menu=event.currentTarget.closest('details');if(menu){menu.open=false;menu.querySelector('summary')?.focus();}}}><Icon name={theme.icon as 'monitor'|'sun'|'moon'} size={16}/>{theme.label}{#if settings.theme===theme.value}<Icon name="check" size={15}/>{/if}</button>{/each}</div></details>
+      <button class="icon-button" disabled={starting||!settingsLoaded} aria-label={settings.theme==='dark'?'ライトモードに切り替える':'ダークモードに切り替える'} title={settings.theme==='dark'?'ライトモードに切り替える':'ダークモードに切り替える'} onclick={()=>{settings.theme=nextTheme(settings.theme);void persist();}}><Icon name={settings.theme==='dark'?'moon':'sun'}/></button>
       <button class="icon-button" aria-label={sidebarVisible?'サイドバーを隠す':'サイドバーを表示'} title={sidebarVisible?'サイドバーを隠す':'サイドバーを表示'} aria-controls="file-sidebar" aria-expanded={sidebarVisible} onclick={()=>sidebarVisible=!sidebarVisible}><Icon name="sidebar"/></button>
     </div>
   </header>
@@ -224,7 +226,7 @@
       {/each}
       {#if project && !rows.length}<p class="tree-empty">まだファイルがありません。<br/>＋ から最初の記事を。</p>{/if}
     </nav>
-    <div class="sidebar-bottom"><button class="open-folder" onclick={()=>void chooseProject()} disabled={busy||starting}><Icon name="folder-open" size={17}/>{project?'別のフォルダを開く':'フォルダを開く'}</button><details class="settings"><summary>本文の表示設定 <Icon name="settings" size={16}/></summary><label>本文サイズ <output>{settings.fontSize}px</output><input type="range" min="12" max="32" step="1" bind:value={settings.fontSize} onchange={()=>void persist()}/></label></details><div class="sidebar-note">WRITE · EDIT · STAY WITH YOUR IDEAS</div></div>
+    <div class="sidebar-bottom"><button class="open-folder" onclick={()=>void chooseProject()} disabled={busy||starting}><Icon name="folder-open" size={17}/>{project?'別のフォルダを開く':'フォルダを開く'}</button><details class="settings"><summary>本文の表示設定 <Icon name="settings" size={16}/></summary><label>本文サイズ <output>{settings.fontSize}px</output><input type="range" min="12" max="32" step="1" disabled={starting||!settingsLoaded} bind:value={settings.fontSize} onchange={()=>void persist()}/></label></details><div class="sidebar-note">WRITE · EDIT · STAY WITH YOUR IDEAS</div></div>
   </aside>
   <main>
     <header class="editor-header"><div class="breadcrumb"><Icon name={current?.kind==='image'?'image':'file'} size={17}/><span>{project?projectName:'Nagori'}</span>{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}</div><div class="header-actions">{#if current?.kind==='markdown'&&session}<button class="mode-toggle" aria-pressed={sourceMode} title="表示の切り替え" onclick={()=>sourceMode=!sourceMode}>{sourceMode?'ソース':'Live Preview'}</button><details class="document-menu"><summary aria-label="記事の操作" title="記事の操作"><Icon name="more"/></summary><div class="menu-popover"><button disabled={readonly||busy} onclick={()=>void insertImage()}>画像を挿入…</button><button onclick={()=>editor?.find()}>記事内を検索 <kbd>⌘ F</kbd></button><button onclick={()=>void flush()}>保存 <kbd>⌘ S</kbd></button><hr/><button onclick={()=>editor?.format('bold')} disabled={readonly}>太字 <kbd>⌘ B</kbd></button><button onclick={()=>editor?.format('italic')} disabled={readonly}>斜体 <kbd>⌘ I</kbd></button><button onclick={()=>editor?.format('strike')} disabled={readonly}>取り消し線</button><button onclick={()=>editor?.format('code')} disabled={readonly}>インラインコード</button><button onclick={()=>editor?.format('link')} disabled={readonly}>リンク <kbd>⌘ K</kbd></button></div></details>{/if}</div></header>
