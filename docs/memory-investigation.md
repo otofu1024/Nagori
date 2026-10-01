@@ -43,3 +43,27 @@ WebKitにはIOSurfaceの再利用プールと未使用surfaceをvolatileにす�
 - 計測スクリプト：`/private/tmp/nagori-memory-investigation/measure.py`
 
 一時フォルダの生データと記事コピーはGitへ登録しない。この報告には測定条件・要点を残す。
+
+
+## UI変更後の追加観測：URL保持の対照ケース
+
+`80f90cf`のEditor・CSSを固定した専用診断アプリで、39枚を読み込み、約116秒でソース表示へ切り替えた。終了までBlob URL39件を保持し、revokeは行っていない。本体UI全体を再現する診断ではなく、Quick Openも使わないので`ce13132`の参照解放修正の効果測定ではない。
+
+| 採取できた範囲 | Summary Footprint |
+|---|---:|
+| スクロール中の最大サンプル | 483.9MiB |
+| 約180秒 | 約202.6MiB |
+| 終了直前の最終サンプル | 約182.3MiB |
+
+WebContentのuntagged VM_ALLOCATE(graphics)は約105.1MiBから約56.4MiBへ減少し、最終サンプルのIOSurface Dirty列は約7.7MiB、Reclaimable列は約264.2MiBだった。DirtyとReclaimableを足してfootprintとは呼ばない。URLをrevokeしなくても、ソース表示へ切り替えた後に描画メモリが減るケースを観測した。URL解放だけに原因を求める根拠は弱まるが、DOMから画像を除いた効果・時間経過・WebKitの回収をこの一回で区別できない。
+
+native PID92653、WebContent92656、GPU92654、Networking92655に限定して計測。起動時viewport1120×768、DPR2、Editorの高さ608pxだったが、ソース切り替え後の約136秒にはviewport1024×768へ変わっていた。約24.1〜26.1秒と26.6〜26.9秒に非表示になり、その後は終了まで可視だった。採取は約35.7〜214.8秒の36サンプルに限られ、起動idleや全期間の最大値は主張しない。
+
+計画したURL解放ケースとの比較は未実施。CUAのMac起動・AX取得が、30秒指定に反して長時間応答せずtimeoutになった。起動自体は遅れて成功したため片側の記録を回収できたが、可視履歴・viewport固定の条件を満たさず、厳密な対照比較は成立していない。GUI操作の再試行を止め、診断アプリの約219秒後の自動終了まで記録した。
+
+- 実験条件：`/private/tmp/nagori-memory-matched/README.md`
+- 可視状態・39枚読み込み・URL保持の記録：`/private/tmp/nagori-memory-matched/runs/retain-92653.jsonl`
+- footprint生データ：`/private/tmp/nagori-memory-investigation/matched-retain-1/`
+- 詳細な追加報告：`/private/tmp/nagori-memory-investigation/2026-10-01-ui-followup.md`
+
+新しい本体UIの通常使用量、Quick Open修正による削減量、以前の約222MiBの共有IOSurface残存の真因は、引き続き未確認。
