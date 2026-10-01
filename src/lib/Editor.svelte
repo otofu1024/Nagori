@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Icon from './Icon.svelte';
   import { Compartment, EditorState, Prec, Transaction, EditorSelection } from '@codemirror/state';
   import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
@@ -37,6 +38,8 @@
     if (!view || readonly || composition || view.composing || linkDialog || view.state.selection.main.empty || (!view.hasFocus && !toolbarFocused)) { toolbar = null; return; }
     const coords = view.coordsAtPos(view.state.selection.main.head);
     if (!coords) { toolbar = null; return; }
+    const viewport = view.scrollDOM.getBoundingClientRect();
+    if (coords.bottom <= viewport.top || coords.top >= viewport.bottom || coords.right <= viewport.left || coords.left >= viewport.right) { toolbar = null; return; }
     const bounds = root.getBoundingClientRect();
     toolbar = { top: Math.max(4, coords.top - bounds.top - 44), left: Math.max(8, Math.min(coords.left - bounds.left, bounds.width - 245)), plans: plans()! };
   }
@@ -105,7 +108,7 @@
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { toolbar = null; return false; } }),
+      EditorView.domEventHandlers({ compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           revision++;
@@ -151,7 +154,7 @@
   {#if toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${toolbar.top}px;left:${toolbar.left}px`} onmousedown={event => event.preventDefault()}>
       {#each kinds as kind}
-        <button type="button" disabled={!!toolbar.plans[kind].reason} title={toolbar.plans[kind].reason ?? labels[kind]} aria-label={labels[kind]} onclick={() => apply(kind)} class:strong={kind === 'bold'} class:italic={kind === 'italic'} class:strike={kind === 'strike'}>{kind === 'bold' ? 'B' : kind === 'italic' ? 'I' : kind === 'strike' ? 'S' : kind === 'link' ? '↗' : '</>'}</button>
+        <button type="button" disabled={!!toolbar.plans[kind].reason} title={toolbar.plans[kind].reason ?? labels[kind]} aria-label={labels[kind]} onclick={() => apply(kind)} class:strong={kind === 'bold'} class:italic={kind === 'italic'} class:strike={kind === 'strike'}>{#if kind === 'link' || kind === 'code'}<Icon name={kind} size={17}/>{:else}{kind === 'bold' ? 'B' : kind === 'italic' ? 'I' : 'S'}{/if}</button>
       {/each}
     </div>
   {/if}
@@ -168,48 +171,56 @@
 </div>
 
 <style>
-  .editor-root { position: relative; height: 100%; min-height: 0; color: var(--text, #242936); }
+  .editor-root { position: relative; height: 100%; min-height: 0; color: var(--text); }
   .editor-host { height: 100%; }
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
   .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; }
-  .editor-host :global(.cm-content) { padding: 36px max(30px, calc((100% - 780px) / 2)) 160px; caret-color: var(--accent, #7254d5); }
+  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px 100px; caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   .editor-host :global(.cm-focused) { outline: none; }
   .editor-host :global(.cm-activeLine) { background: transparent; }
-  .editor-host :global(.cm-selectionBackground), .editor-host :global(.cm-focused .cm-selectionBackground) { background: var(--selection, #a58bf54a); }
-  .editor-host :global(.nagori-bold) { font-weight: 700; }
+  .editor-host :global(.cm-editor .cm-selectionBackground), .editor-host :global(.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground) { background: var(--selection); }
+  .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
+  .editor-host :global(.nagori-bold) { font-weight: 700; color: var(--heading); }
   .editor-host :global(.nagori-italic) { font-style: italic; }
-  .editor-host :global(.nagori-strike) { text-decoration: line-through; }
-  .editor-host :global(.nagori-code), .editor-host :global(.nagori-code-line) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-soft, #f1eff7); border-radius: 4px; }
+  .editor-host :global(.nagori-strike) { text-decoration: line-through; color: var(--muted); }
+  .editor-host :global(.nagori-code), .editor-host :global(.nagori-code-line) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); border-radius: 5px; }
   .editor-host :global(.nagori-code) { padding: 2px 4px; font-size: .9em; }
   .editor-host :global(.nagori-code-line) { padding: 0 12px; }
-  .editor-host :global(.nagori-link) { color: var(--accent, #7254d5); text-decoration: underline; text-decoration-color: var(--border, #dcd6ec); }
-  .editor-host :global(.nagori-heading) { font-weight: 700; line-height: 1.5; padding: .35em 0 .2em; }
-  .editor-host :global(.nagori-h1) { font-size: 1.9em; }
-  .editor-host :global(.nagori-h2) { font-size: 1.55em; }
-  .editor-host :global(.nagori-h3) { font-size: 1.28em; }
+  .editor-host :global(.nagori-link) { color: var(--link); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  .editor-host :global(.nagori-heading) { font-weight: 750; line-height: 1.4; color: var(--heading); padding: .45em 0 .3em; letter-spacing: -.02em; }
+  .editor-host :global(.nagori-h1) { font-size: 2.1em; line-height: 1.25; letter-spacing: -.035em; }
+  .editor-host :global(.nagori-h2) { font-size: 1.48em; }
+  .editor-host :global(.nagori-h3) { font-size: 1.25em; }
   .editor-host :global(.nagori-h4), .editor-host :global(.nagori-h5), .editor-host :global(.nagori-h6) { font-size: 1.1em; }
-  .editor-host :global(.nagori-quote) { border-left: 3px solid var(--border, #dcd6ec); padding-left: 14px; color: var(--muted, #797382); }
+  .editor-host :global(.nagori-quote) { border-left: 4px solid var(--border); border-radius: 2px; padding-left: 15px; color: var(--muted); }
   .editor-host :global(.nagori-list-marker) { display: inline; }
-  .editor-host :global(input[type='checkbox']) { accent-color: var(--accent, #7254d5); vertical-align: middle; margin-right: 5px; }
-  .editor-host :global(.nagori-rule) { border: none; border-top: 1px solid var(--border, #dcd6ec); margin: 18px 0; cursor: text; }
+  .editor-host :global(input[type='checkbox']) { accent-color: var(--accent-bright); vertical-align: middle; margin-right: 7px; width: 16px; height: 16px; cursor: pointer; }
+  .editor-host :global(input[type='checkbox']:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .editor-host :global(.nagori-rule) { border: none; border-top: 1px solid var(--border); margin: 20px 0; cursor: text; }
   .editor-host :global(.nagori-table-wrap) { overflow-x: auto; padding: 10px 0; cursor: text; }
   .editor-host :global(.nagori-table-wrap table) { border-collapse: collapse; width: 100%; font-size: .94em; }
-  .editor-host :global(.nagori-table-wrap td), .editor-host :global(.nagori-table-wrap th) { border: 1px solid var(--border, #dcd6ec); padding: 8px 12px; }
-  .editor-host :global(.nagori-table-wrap th) { background: var(--surface-soft, #f1eff7); text-align: left; }
-  .editor-host :global(.nagori-image) { display: inline-block; max-width: 100%; color: var(--muted, #797382); font-size: .9em; cursor: text; }
-  .editor-host :global(.nagori-image img) { max-width: 100%; max-height: 480px; display: block; border-radius: 9px; }
-  .editor-host :global(.nagori-find) { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--surface, #fff); border-bottom: 1px solid var(--border, #dcd6ec); font-size: 13px; }
-  .editor-host :global(.nagori-find input) { flex: 1; min-width: 100px; padding: 6px 10px; border: 1px solid var(--border, #dcd6ec); border-radius: 6px; color: inherit; background: transparent; }
-  .editor-host :global(.nagori-find button), button { font: inherit; color: inherit; background: var(--surface, #fff); border: 1px solid var(--border, #dcd6ec); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
-  .floating-toolbar { position: absolute; z-index: 10; display: flex; gap: 2px; padding: 5px; border-radius: 10px; background: var(--surface, #fff); border: 1px solid var(--border, #dcd6ec); box-shadow: 0 4px 20px #0002; }
-  .floating-toolbar button { min-width: 35px; border: none; }
+  .editor-host :global(.nagori-table-wrap td), .editor-host :global(.nagori-table-wrap th) { border: 1px solid var(--border); padding: 9px 12px; }
+  .editor-host :global(.nagori-table-wrap th) { background: var(--code-bg); color: var(--heading); text-align: left; }
+  .editor-host :global(.nagori-image) { display: inline-block; max-width: 100%; color: var(--muted); font-size: .9em; cursor: text; }
+  .editor-host :global(.nagori-image img) { max-width: 100%; max-height: 480px; display: block; border-radius: 12px; }
+  .editor-host :global(.nagori-find) { display: flex; align-items: center; gap: 8px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .editor-host :global(.nagori-find input) { flex: 1; min-width: 100px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); }
+  .editor-host :global(.nagori-find button), button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+  .editor-host :global(.cm-panels) { background: var(--bar); color: var(--text); border-color: var(--border); }
+  .editor-host :global(.cm-tooltip) { background: var(--panel); border-color: var(--border); color: var(--text); }
+  .editor-host :global(.cm-searchMatch) { background: var(--accent-soft); }
+  .editor-host :global(.cm-searchMatch-selected) { background: var(--selection); }
+  .floating-toolbar { position: absolute; z-index: 10; display: flex; align-items: center; gap: 2px; padding: 5px 7px; border-radius: 13px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .floating-toolbar button { min-width: 33px; height: 32px; padding: 5px 8px; display: grid; place-items: center; border: none; border-radius: 7px; font-size: 16px; color: var(--text); }
+  .floating-toolbar button:hover { color: var(--accent); background: var(--accent-soft); }
   button:disabled { opacity: .35; cursor: default; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent, #7254d5); outline-offset: 2px; }
-  .strong { font-weight: bold; } .italic { font-style: italic; } .strike { text-decoration: line-through; }
-  .link-overlay { position: absolute; inset: 0; display: grid; place-items: center; z-index: 20; background: #0002; }
-  .link-form { display: grid; gap: 14px; width: min(380px, 90%); padding: 24px; border-radius: 14px; background: var(--surface, #fff); box-shadow: 0 12px 40px #0002; }
-  .link-form label { display: grid; gap: 6px; font-size: 13px; }
-  .link-form input { font: inherit; color: inherit; background: transparent; padding: 8px; border: 1px solid var(--border, #dcd6ec); border-radius: 6px; }
-  .link-form > div { display: flex; justify-content: flex-end; gap: 8px; } .link-form p { color: #c53e51; font-size: 13px; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .strong { font-weight: 750; } .italic { font-style: italic; font-family: Georgia, serif; } .strike { text-decoration: line-through; }
+  .link-overlay { position: absolute; inset: 0; display: grid; place-items: center; z-index: 20; background: #14233e24; }
+  .link-form { display: grid; gap: 14px; width: min(380px, 90%); padding: 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .link-form label { display: grid; gap: 6px; font-size: 12px; }
+  .link-form input { font: inherit; color: inherit; background: var(--surface); padding: 9px; border: 1px solid var(--border); border-radius: 8px; }
+  .link-form > div { display: flex; justify-content: flex-end; gap: 8px; } .link-form p { color: var(--danger); font-size: 12px; }
+  @media (max-width: 760px) { .editor-host :global(.cm-content) { padding: 25px 28px 80px; } }
 </style>
