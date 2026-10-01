@@ -64,7 +64,7 @@
   async function refreshTree() {const root=project;for(const path of expanded){try{await list(path);}catch{if(path==='')throw new Error('プロジェクトフォルダを読み込めません。');tree={...tree,[path]:[]};}}const entries=await invoke<Entry[]>('workspace_index');if(root===project)index=entries;}
   async function toggle(entry:Entry) {if(expanded.includes(entry.path))expanded=expanded.filter(path=>path!==entry.path);else{try{await list(entry.path);expanded=[...expanded,entry.path];}catch(error){notify(failure(error).message);}}}
   function releaseImages() {imageEpoch++;imageCache.clear();for(const url of imageUrls)URL.revokeObjectURL(url);imageUrls.clear();imageUrl='';}
-  function clearDocument() {cancelSave();session=null;editor=null;current=null;initialText='';issue=null;status='saved';readonly=false;chars=0;contentError='';documentKey++;releaseImages();}
+  function clearDocument() {cancelSave();quickFocus=null;session=null;editor=null;current=null;initialText='';issue=null;status='saved';readonly=false;chars=0;contentError='';documentKey++;releaseImages();}
   async function blobImage(path:string,documentPath?:string) {const data=await invoke<ImageData>('image_read',{path,documentPath});const url=URL.createObjectURL(new Blob([new Uint8Array(data.data)],{type:data.mime}));imageUrls.add(url);return {url,data};}
   async function resolveImage(ref:string) {
     const epoch=imageEpoch, path=current?.path;if(!path)throw new Error('記事を開いてください。');
@@ -94,8 +94,19 @@
     await refreshTree();void persist();
     if(restoreFile){const entry=index.find(item=>item.path===restoreFile);if(entry){const parent=parentPath(entry.path);const folders=parent.split('/').filter(Boolean);let built='';for(const name of folders){built=built?built+'/'+name:name;await list(built);expanded=[...expanded,built];}await loadEntry(entry);}}
   }
-  async function quickOpen() {if(!project||busy||errorDialog?.open||saveAsDialog?.open)return;try{quickFocus=document.activeElement as HTMLElement;const root=project;const entries=await invoke<Entry[]>('workspace_index');if(root!==project||busy)return;index=entries;query='';quickIndex=0;quick=true;await tick();quickDialog.showModal();quickInput?.focus();}catch(error){notify(failure(error).message);}}
-  function closeQuick(restore=true) {quick=false;quickDialog.close();if(restore)quickFocus?.focus();}
+  async function quickOpen() {
+    if(!project||busy||errorDialog?.open||saveAsDialog?.open)return;
+    const focus=document.activeElement as HTMLElement|null;
+    try {
+      const root=project,entries=await invoke<Entry[]>('workspace_index');
+      if(root!==project||busy)return;
+      index=entries;query='';quickIndex=0;quick=true;
+      await tick();quickDialog.showModal();
+      quickFocus=focus?.isConnected?focus:null;
+      quickInput?.focus();
+    } catch(error) {quickFocus=null;notify(failure(error).message);}
+  }
+  function closeQuick(restore=true) {const focus=quickFocus;quickFocus=null;quick=false;quickDialog.close();if(restore&&focus?.isConnected)focus.focus();}
   async function quickKey(event:KeyboardEvent) {if(event.key==='Escape'){event.preventDefault();closeQuick();}else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();quickIndex=Math.max(0,Math.min(results.length-1,quickIndex+(event.key==='ArrowDown'?1:-1)));document.getElementById('quick-'+quickIndex)?.scrollIntoView({block:'nearest'});}else if(event.key==='Enter'&&results[quickIndex]){event.preventDefault();const entry=results[quickIndex];closeQuick(false);await selectEntry(entry);}}
   function selectedFolder() {const entry=rows.find(item=>item.path===selected);return entry?.kind==='directory'?entry.path:parentPath(selected);}
   async function startName(kind:'markdown'|'directory'|'rename',entry?:Entry) {if(busy)return;const parent=kind==='rename'?parentPath(entry!.path):selectedFolder();if(parent&&!expanded.includes(parent)){await list(parent);expanded=[...expanded,parent];}naming={kind,parent,entry,value:kind==='rename'?entry!.name:kind==='markdown'?'untitled.md':'新しいフォルダ',error:''};await tick();renameInput?.focus();renameInput?.select();}
