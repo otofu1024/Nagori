@@ -122,7 +122,7 @@ function previewContext(state: EditorState): PreviewContext {
   return { tree, text, front: frontMatter(text), refs: references(tree, text) };
 }
 export function buildPreview(state: EditorState, options: Options, context?: PreviewContext): DecorationSet {
-  if (state.field(sourceField, false) || state.field(compositionField, false)) return Decoration.none;
+  if (state.field(sourceField, false)) return Decoration.none;
   const { tree, text, front, refs } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
   const active = (span: Span) => state.selection.ranges.some(r => touches(span, r));
   const hide = (from: number, to: number) => { if (from < to) ranges.push(Decoration.replace({}).range(from, to)); };
@@ -202,8 +202,10 @@ export function livePreview(options: Options): Extension {
     create: state => { cached = previewContext(state); return buildPreview(state, currentOptions, cached); },
     update: (value, tr) => {
       if (tr.effects.some(e => e.is(refreshImagesEffect))) currentOptions = { ...options, resolveImage: ref => resolver(ref) };
+      // The cursor's source is already exposed. Keep every other widget and the composing DOM stable until IME commits.
+      if (tr.state.field(compositionField)) return value.map(tr.changes);
       const parsedChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-      if (tr.docChanged || parsedChanged) cached = previewContext(tr.state);
+      if (tr.docChanged || parsedChanged || tr.startState.field(compositionField)) cached = previewContext(tr.state);
       return tr.docChanged || tr.selection || tr.effects.length || parsedChanged ? buildPreview(tr.state, currentOptions, cached) : value;
     },
     provide: field => EditorView.decorations.from(field)

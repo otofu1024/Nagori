@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { history, undo } from '@codemirror/commands';
+import { EditorView } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { frontMatter, markdownParser, markdownExtensions, walk, references, linkTarget, formatPlan, linkMarkdown, touches, codeDisplay } from '../src/lib/markdown.ts';
 import { livePreview, previewMode, compositionMode, buildPreview } from '../src/lib/livePreview.ts';
@@ -14,9 +15,10 @@ function editor(text: string, anchor = text.length) {
   state = state.update({ selection: { anchor } }).state;
   return state;
 }
-function decorationRanges(state: EditorState) {
+function decorationRanges(state: EditorState, rendered = false) {
   const result: { from: number; to: number; spec: Record<string, unknown> }[] = [];
-  buildPreview(state, options).between(0, state.doc.length, (from, to, value) => { result.push({ from, to, spec: value.spec }); });
+  const sets = rendered ? state.facet(EditorView.decorations) : [buildPreview(state, options)];
+  for (const set of sets) if (typeof set !== 'function') set.between(0, state.doc.length, (from, to, value) => { result.push({ from, to, spec: value.spec }); });
   return result;
 }
 test('front matter including empty block stays source while following Markdown parses', () => {
@@ -45,9 +47,48 @@ test('selection boundaries reveal nested syntax; display modes never mutate docu
   for (const effect of [previewMode.of(true), previewMode.of(false), compositionMode.of(true), compositionMode.of(false)]) state = state.update({ effects: effect }).state;
   assert.equal(state.doc.toString(), text + '!');
   assert.ok(undo({ state, dispatch: tr => { state = tr.state; } })); assert.equal(state.doc.toString(), text);
-  const composed = editor(text).update({ effects: compositionMode.of(true) }).state; assert.equal(decorationRanges(composed).length, 0);
+  const composed = editor(text).update({ effects: compositionMode.of(true) }).state; assert.ok(decorationRanges(composed, true).length > 0);
   assert.equal(syntaxTree(editor('~~strike~~')).toString().includes('Strikethrough'), true);
   assert.equal(syntaxTree(editor('www.example.com')).toString().includes('Autolink'), false);
+});
+test('IME retains other previews, maps their positions, and renders committed syntax without changing undo', () => {
+  const text = '入力: \n\n# 見出し\n\n**太字**\n\n| h |\n|---|\n| c |\n\n![alt](assets/a.png)';
+  const at = '入力: '.length, insert = '`日本語` ';
+  let state = editor(text, at);
+  const before = decorationRanges(state, true);
+  assert.ok(before.some(r => r.spec.widget && r.spec.block));
+  assert.ok(before.some(r => r.from === text.indexOf('**')));
+  state = state.update({ effects: compositionMode.of(true) }).state;
+  assert.deepEqual(decorationRanges(state, true), before);
+  state = state.update({ changes: { from: at, insert }, selection: { anchor: at + insert.length }, userEvent: 'input.type.compose' }).state;
+  const during = decorationRanges(state, true);
+  for (const original of before) {
+    const mapped = during.find(r => r.from === original.from + insert.length && r.to === original.to + insert.length);
+    assert.ok(mapped, `missing preview at ${original.from}`);
+    assert.equal(mapped.spec.widget, original.spec.widget);
+  }
+  assert.ok(!during.some(r => r.from < at + insert.length));
+  ensureSyntaxTree(state, state.doc.length, 1000);
+  state = state.update({ effects: compositionMode.of(false) }).state;
+  assert.ok(decorationRanges(state, true).some(r => r.spec.widget && r.from === at + 1 && r.to === at + 4));
+  assert.equal(state.doc.toString(), text.slice(0, at) + insert + text.slice(at));
+  assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
+  assert.equal(state.doc.toString(), text);
+});
+test('IME cancel restores normal selection preview and explicit source mode stays source', () => {
+  const text = '**太字**\n\n入力';
+  let state = editor(text, text.length);
+  state = state.update({ effects: compositionMode.of(true) }).state;
+  assert.ok(decorationRanges(state, true).some(r => r.from === 0 && r.to === 2));
+  state = state.update({ effects: compositionMode.of(false), selection: { anchor: 3 } }).state;
+  assert.ok(!decorationRanges(state, true).some(r => r.from === 0 && r.to === 2));
+  assert.equal(state.doc.toString(), text);
+  assert.equal(undo({ state, dispatch: () => {} }), false);
+  state = state.update({ effects: previewMode.of(true) }).state;
+  for (const active of [true, false]) {
+    state = state.update({ effects: compositionMode.of(active) }).state;
+    assert.equal(decorationRanges(state, true).length, 0);
+  }
 });
 test('format apply/remove is one source change, mixed selections are disabled', () => {
   for (const kind of ['bold', 'italic', 'strike'] as const) {

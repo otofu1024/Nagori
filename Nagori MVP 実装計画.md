@@ -69,7 +69,7 @@ Phase 0〜5の機能を実装し、Releaseアプリを生成済み。Phase 6の�
 - 表全体と画像要素を、表示からソースへ戻す試作。画像はアプリ同梱の小さな確認用画像を使い、実ファイル参照はPhase 4で接続する。
 - Live Preview / ソース表示の切り替え。
 - カーソル、選択範囲、親要素、要素境界から、記号を表示する範囲を決める処理。
-- IME変換中の装飾抑制、選択・コピー・Undoとの整合。
+- IME変換中は既存プレビューを維持し、装飾の再構築を確定まで止める。選択・コピー・Undoとの整合。
 
 **実装方法**
 
@@ -320,3 +320,16 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 - 型チェック0 errors / 0 warnings、Node 12件、Rust 4件成功。Releaseビルド成功、Nagori.appは13.57MiB。
 - ブラウザfixtureで初回OS Light一致、直接切替、OSがLightのままで保存Darkを再読み込みして維持することを確認。19→17px変更後の再読み込みで17px保持も確認し、試験後19pxへ戻した。fixture設定のみタブ内sessionStorageで保持し、実設定へのディスク保存・ネイティブアプリの終了/再起動はこの確認には含めない。OS Darkでの初回判定はNodeテストで検証。
 - Light / Darkの720×480pxで横方向のはみ出しなし。新UIのメモリ計測は今回の変更では実施していない。
+
+
+## 日本語変換中のLive Preview修正（2026-10-01）
+
+- ユーザーの再現条件は「変換中だけ文書全体が原文になる」。composition中に全Decorationを外していた処理を修正し、既存Decorationの位置だけを変更量に合わせて追従する。表・画像のWidgetも維持し、確定・キャンセル後に再構築する。
+- CodeMirrorの最終DOM変更同期より前に保存待ちを解除しないよう、composition終了のApp通知を既存microtask内へ移した。新規依存は追加していない。
+- Node 15件、Rust 4件成功。型チェック0 errors / 0 warnings、macOS Releaseビルド成功。Nagori.appは13.57MiB。
+- 一時的なブラウザfixtureで実Editor.svelteへcompositionイベントと未確定・確定DOM変更を送信。変換中の画像・表DOMの同一性、ほかの見出し・太字のプレビュー維持、確定本文のonChangeがonComposition(false)より先に届くことを確認した。ブラウザerror/warnなし。fixtureは実ファイルや設定を変更しない。
+- 保存中に変換を開始した場合も、その時点の保存だけを認め、新しい変換中の世代を未保存に保ち、確定した日本語を次回保存する回帰チェックを追加した。
+- Cmd＋Q／Cmd＋Wのメニュー、Window CloseRequested、RunEvent ExitRequestedは共通の終了前flushへ進むことをコードで確認。実際のMacのIME候補・再変換・キャンセル操作、各終了経路とディスク保存を合わせた実機合格判定は未完了。
+- 並行調査でユーザー試用中の修正前アプリを約1分・13サンプル計測し、174.61〜174.71MiBだった。利用条件を揃えた性能判定や改善量ではない。詳細は[メモリ調査](docs/memory-investigation.md)へ記録。
+
+ブラウザ検証画面とコードは `/private/tmp/nagori-ui-preview/ime.html`、`ime-main.ts`、`ImeFixture.svelte`。画面記録は `ime-during.jpg`、`ime-committed.jpg`。これらはMacの実際のIMEを検証済みとする根拠には使わない。

@@ -67,3 +67,21 @@ native PID92653、WebContent92656、GPU92654、Networking92655に限定して計
 - 詳細な追加報告：`/private/tmp/nagori-memory-investigation/2026-10-01-ui-followup.md`
 
 新しい本体UIの通常使用量、Quick Open修正による削減量、以前の約222MiBの共有IOSurface残存の真因は、引き続き未確認。
+
+
+## 最新の起動中アプリ：操作せず採取した値
+
+2026-10-01 22:48:00〜22:49:02 JSTに、ユーザーが試用していたNagoriから13サンプルを約5秒間隔で読み取った。native PID97510、responsible WebContent97513／GPU97511／Networking97512を限定し、共有領域を重複加算しないSummary Footprintは174.61〜174.71MiB、中央値174.63MiBだった。採取開始時は起動から約8分37秒。アプリや記事を操作せず、設定も変更していない。
+
+最終サンプルの個別footprintはWebContent96.52MiB、native53.45MiB、GPU19.64MiB、Networking5.30MiB。WebContentのDirty列はIOSurface約34.94MiB、untagged VM_ALLOCATE(graphics)約0.70MiB、WebKit malloc約42.66MiBだった。IOSurface Reclaimable約291.28MiBはDirty・Summaryへ加えて占有RAMとは扱わない。
+
+この約1分の時間帯には以前のWebContent graphics約332MiBの残存値は再現していない。ただし、表示記事・画像数・操作履歴・window実寸・可視状態・idle条件を確認していないため、通常baselineや100MB目標の判定、以前との差の改善量には使わない。Quick Open参照解放の効果や、並行して修正中のIME問題の効果も未測定。
+
+確認時のソースHEADは`b100283f7eed6039b2886faaed9d3ccd4e0c2d0c`でgit clean。App／Editor／Live Preview／CSSのSHAとディスク上のbundle実行ファイルSHAを生データへ保存した。計測対象はIME修正反映前の起動プロセスとして扱う。macOS26.6.2、WebKit21624.5.1.11.3。
+
+固定条件の最新専用コピーは、ネイティブGUI起動のAX取得が以前長時間ブロックしたため今回は起動せず未測定。ブラウザRAMや旧診断binaryの値を最新本体の値として代用していない。collectorとvmmapは終了済みで、調査用常駐プロセスは残していない。
+
+- 13サンプルと生footprint：`/private/tmp/nagori-memory-investigation/live-b100283-1/`
+- 条件・PID・ソースhash・binary hash：同フォルダの`inventory.json`
+- 集計・短い報告：同フォルダの`summary.json`、`report.md`
+- 読み取りの補足分類：同フォルダの`webcontent-vmmap-summary.txt`、`native-vmmap-summary.txt`

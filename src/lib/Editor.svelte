@@ -73,9 +73,15 @@
   }
   function dismissLink() { linkDialog = false; pendingLink = undefined; view?.focus(); updateToolbar(); }
   function setComposition(active: boolean) {
-    composition = active; toolbar = null; onComposition(active);
-    // Run outside CodeMirror's DOM composition handler, so the view has settled its own composition state.
-    queueMicrotask(() => { view?.dispatch({ effects: compositionMode.of(active) }); if (!active) updateToolbar(); });
+    composition = active; toolbar = null;
+    if (active) onComposition(true);
+    const editor = view;
+    // CodeMirror queues its final DOM flush first. Rebuild preview and resume saves only after that flush.
+    queueMicrotask(() => {
+      if (!editor || view !== editor || composition !== active) return;
+      editor.dispatch({ effects: compositionMode.of(active) });
+      if (!active) { onComposition(false); updateToolbar(); }
+    });
   }
   function searchPanel(editor: EditorView): Panel {
     const dom = document.createElement('div'); dom.className = 'nagori-find';
