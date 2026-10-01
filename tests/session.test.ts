@@ -36,3 +36,27 @@ test('IME starting during a write leaves the composing generation unsaved until 
   assert.deepEqual(writes, ['before composition', '確定した日本語']);
   assert.equal(session.status, 'saved');
 });
+
+
+test('failed shared flush blocks switching callers and retains the latest edits until an explicit retry', async () => {
+  const writes: Array<{text:string;baseline:string}> = [];
+  let rejectWrite: (error:unknown)=>void = () => {}, fail = true;
+  const session = new EditSession({path:'a.md',text:'original',baseline:'loaded',readonly:false}, async (_path,text,baseline) => {
+    writes.push({text,baseline});
+    if (fail) await new Promise((_resolve,reject) => {rejectWrite=reject;});
+    return {baseline:'saved'};
+  }, () => {});
+  session.edit('first edit');
+  const autosave=session.flush(), switching=session.flush();
+  session.edit('latest edit');
+  rejectWrite({code:'IO',message:'disk is full'});
+  assert.equal(await autosave,false);
+  assert.equal(await switching,false);
+  assert.equal(session.text,'latest edit');
+  assert.equal(session.dirty,true);
+  assert.equal(await session.flush(),false);
+  assert.equal(writes.length,1);
+  fail=false;session.retry();
+  assert.equal(await session.flush(),true);
+  assert.deepEqual(writes,[{text:'first edit',baseline:'loaded'},{text:'latest edit',baseline:'loaded'}]);
+});

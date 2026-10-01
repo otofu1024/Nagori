@@ -701,13 +701,20 @@ mod tests {
         for theme in ["light", "dark"] {
             let settings = Settings {
                 theme: theme.into(),
+                last_project: Some("/fixture/project".into()),
+                last_file: Some("posts/note.md".into()),
+                recent_files: vec!["posts/note.md".into(), "other.md".into()],
+                font_size: 17,
                 ..defaults.clone()
             };
             settings.validate().unwrap();
             let stored = serde_json::to_vec(&settings).unwrap();
             let restored: Settings = serde_json::from_slice(&stored).unwrap();
             assert_eq!(restored.theme, theme);
-            assert_eq!(restored.font_size, 19);
+            assert_eq!(restored.font_size, 17);
+            assert_eq!(restored.last_project, settings.last_project);
+            assert_eq!(restored.last_file, settings.last_file);
+            assert_eq!(restored.recent_files, settings.recent_files);
             assert_eq!(restored.appearance_version, 1);
         }
         let old: Settings = serde_json::from_str(r#"{"theme":"system","fontSize":17}"#).unwrap();
@@ -837,6 +844,141 @@ mod tests {
                 .any(|e| e.unwrap().file_name() == "B.md"));
         }
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn renamed_parent_and_case_only_paths_keep_saving_without_clobber() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        create(root, "Posts", "directory").unwrap();
+        let original = b"\xef\xbb\xbf# original\r\n";
+        fs::write(root.join("Posts/Note.md"), original).unwrap();
+        fs::set_permissions(
+            root.join("Posts/Note.md"),
+            fs::Permissions::from_mode(0o640),
+        )
+        .unwrap();
+        let opened = open(root, "Posts/Note.md").unwrap();
+        let renamed = rename(root, "Posts", "Archive").unwrap();
+        assert_eq!(renamed.path, "Archive");
+        assert_eq!(renamed.kind, "directory");
+        assert_eq!(
+            save(root, "Posts/Note.md", "edit\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "MISSING"
+        );
+        assert!(!root.join("Posts").exists());
+        let saved = save(root, "Archive/Note.md", "edit\n", &opened.baseline).unwrap();
+        assert_eq!(
+            fs::read(root.join("Archive/Note.md")).unwrap(),
+            b"\xef\xbb\xbfedit\r\n"
+        );
+        assert_eq!(
+            fs::metadata(root.join("Archive/Note.md"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o640
+        );
+
+        rename(root, "Archive", "archive").unwrap();
+        rename(root, "archive/Note.md", "note.md").unwrap();
+        assert!(fs::read_dir(root)
+            .unwrap()
+            .any(|e| e.unwrap().file_name() == "archive"));
+        assert!(fs::read_dir(root.join("archive"))
+            .unwrap()
+            .any(|e| e.unwrap().file_name() == "note.md"));
+        save(
+            root,
+            "archive/note.md",
+            "after case rename\n",
+            &saved.baseline,
+        )
+        .unwrap();
+        let edited = fs::read(root.join("archive/note.md")).unwrap();
+        fs::write(root.join("archive/existing.md"), b"do not replace").unwrap();
+        assert_eq!(
+            rename(root, "archive/note.md", "existing.md")
+                .unwrap_err()
+                .code,
+            "EXISTS"
+        );
+        assert_eq!(fs::read(root.join("archive/note.md")).unwrap(), edited);
+        assert_eq!(
+            fs::read(root.join("archive/existing.md")).unwrap(),
+            b"do not replace"
+        );
+        create(root, "Occupied", "directory").unwrap();
+        fs::write(root.join("Occupied/keep.md"), b"keep folder").unwrap();
+        assert_eq!(
+            rename(root, "archive", "Occupied").unwrap_err().code,
+            "EXISTS"
+        );
+        assert_eq!(
+            fs::read(root.join("Occupied/keep.md")).unwrap(),
+            b"keep folder"
+        );
+        assert_eq!(fs::read(root.join("archive/note.md")).unwrap(), edited);
+        assert!(fs::read_dir(root).unwrap().all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".nagori-save-")));
+    }
+
+    #[test]
+    fn vanished_workspace_does_not_recreate_and_recovers_with_baseline_checks() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("note.md"), b"original\n").unwrap();
+        let opened = open(&root, "note.md").unwrap();
+        let detached = directory.path().join("detached");
+        fs::rename(&root, &detached).unwrap();
+        assert_eq!(list(&root, "").unwrap_err().code, "MISSING");
+        assert_eq!(index(&root).unwrap_err().code, "MISSING");
+        assert_eq!(
+            save(&root, "note.md", "pending\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "MISSING"
+        );
+        assert_eq!(
+            create(&root, "new.md", "markdown").unwrap_err().code,
+            "MISSING"
+        );
+        assert!(!root.exists());
+        assert_eq!(fs::read(detached.join("note.md")).unwrap(), b"original\n");
+        fs::write(detached.join("note.md"), b"external while absent\n").unwrap();
+        fs::rename(&detached, &root).unwrap();
+        assert_eq!(index(&root).unwrap().len(), 1);
+        assert_eq!(
+            save(&root, "note.md", "pending\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "CONFLICT"
+        );
+        let fresh = open(&root, "note.md").unwrap();
+        assert_eq!(fresh.text, "external while absent\n");
+        save_as(&root, "note.md", "rescued.md", "pending\n").unwrap();
+        assert_eq!(
+            fs::read(root.join("note.md")).unwrap(),
+            b"external while absent\n"
+        );
+        let saved = save(
+            &root,
+            "note.md",
+            "accepted fresh baseline\n",
+            &fresh.baseline,
+        )
+        .unwrap();
+        assert_eq!(open(&root, "note.md").unwrap().baseline, saved.baseline);
+        assert_eq!(fs::read(root.join("rescued.md")).unwrap(), b"pending\n");
+    }
+
     #[test]
     fn staged_save_failure_keeps_disk_contents() {
         let directory = tempfile::tempdir().unwrap();

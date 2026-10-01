@@ -33,7 +33,8 @@
     "category": "Productivity",
     "shortDescription": "A calm Markdown editor for local blog projects.",
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-"
     },
     "icon": [
       "icons/icon.icns",

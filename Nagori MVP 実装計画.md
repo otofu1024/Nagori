@@ -333,3 +333,10 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 - 並行調査でユーザー試用中の修正前アプリを約1分・13サンプル計測し、174.61〜174.71MiBだった。利用条件を揃えた性能判定や改善量ではない。詳細は[メモリ調査](docs/memory-investigation.md)へ記録。
 
 ブラウザ検証画面とコードは `/private/tmp/nagori-ui-preview/ime.html`、`ime-main.ts`、`ImeFixture.svelte`。画面記録は `ime-during.jpg`、`ime-committed.jpg`。これらはMacの実際のIMEを検証済みとする根拠には使わない。
+
+
+## 受け入れ条件の追加検証（2026-10-02）
+
+外部読み取りとIME開始の競合を修正し、監視と画像更新も変換終了後へ保留した。Mac実ファイルでRename・Workspace復帰と保存の安全性チェックを拡充し、Node16件・Rust6件・型チェックが成功した。固定100KiB記事・1,000ファイルでproduction UIのブラウザ参考計測も実施。残るネイティブ確認と生データへのリンクは[検証状況](docs/acceptance-status.md)へ集約する。Phase 6の実機合格判定は保留。
+
+ローカルbundleの署名整合も修正した。Tauriのad-hoc署名設定でアプリ全体を署名し、strict検証が成功。最終Nagori.appは13.52MiB。起動中のユーザーアプリは操作していない。
