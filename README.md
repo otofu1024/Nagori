@@ -21,7 +21,7 @@ open src-tauri/target/release/bundle/macos/Nagori.app
 
 ビルド対象はこのMacのApple Silicon（arm64）。バンドルの最低OS設定はmacOS 13、フロントエンドのビルド対象はSafari 16です。開発・確認環境はmacOS 26.6.2 / arm64であり、過去のmacOSやIntelで動作確認済みという意味ではありません。署名・公証・DMG・自動更新は外部配布時に追加します。
 
-現在のUIは機能確認用の仮デザインです。提供予定のイメージ画像を受け取ってから、見た目を調整します。
+ユーザー提供の[デザイン参考](design/README.md)に合わせてUIを調整しています。File TreeとEditorの2ペインを維持し、白・濃紺・ミント／シアンの色、余白、アイコン、浮動ツールバーを取り入れます。
 
 ## 使い方
 
