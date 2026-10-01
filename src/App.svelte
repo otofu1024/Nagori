@@ -6,6 +6,9 @@
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/Editor.svelte';
   import Icon from './lib/Icon.svelte';
+  import nagoriIcon from './lib/assets/nagori-icon.png';
+  import nagoriWordmark from './lib/assets/nagori-wordmark.png';
+  import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
   import type { EditorApi } from './lib/editor';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
   import { candidates, containsPath, renamedPath, parentPath, localLink, type Entry } from './lib/navigation';
@@ -195,7 +198,11 @@
 <svelte:window onkeydown={keydown}/>
 <div class="app-shell" class:working={busy} class:sidebar-hidden={!sidebarVisible}>
   <header class="global-bar">
-    <div class="brand">Nagori<span class="brand-dot" aria-hidden="true"></span></div>
+    <div class="brand">
+      <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36"/>
+      <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36"/>
+      <img class="brand-wordmark brand-wordmark-dark" src={nagoriWordmarkDark} alt="Nagori" width="108" height="36"/>
+    </div>
     <button class="quick-button" onclick={()=>void quickOpen()} disabled={!project||busy} aria-label="ファイル名・パスで検索"><Icon name="search"/> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button>
     <div class="global-actions">
       <span class="status" class:problem={!!issue} aria-live="polite">{#if session}<span class="status-dot" class:unsaved={status==='dirty'||status==='saving'} aria-hidden="true"></span>{readonly?'読み取り専用':labels[status]}{#if issue}<button onclick={()=>void showProblem()}>対応する</button>{/if}{:else}<span class="local-label">ローカルのMarkdown</span>{/if}</span>

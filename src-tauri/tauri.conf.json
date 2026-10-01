@@ -36,6 +36,7 @@
       "minimumSystemVersion": "13.0"
     },
     "icon": [
+      "icons/icon.icns",
       "icons/icon.png"
     ]
   }
