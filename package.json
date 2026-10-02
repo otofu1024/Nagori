@@ -8,7 +8,9 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "release:sign": "sh scripts/release-sign.sh",
+    "release:sign:check": "sh scripts/release-sign.sh --check"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

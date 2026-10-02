@@ -58,7 +58,8 @@ Nagori/
 │       └── cli.rs             CLI登録・解除
 ├── scripts/
 │   ├── nagori                 macOSのopenを呼ぶ起動スクリプト
-│   └── cli-link.sh            CLIリンクの作成・解除
+│   ├── cli-link.sh            CLIリンクの作成・解除
+│   └── release-sign.sh        外部配布用の署名・公証ビルド
 ├── tests/                     Node標準テスト
 ├── test-documents/            手動閲覧用Markdown
 ├── design/                    提供されたブランド・UI資料
