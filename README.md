@@ -87,7 +87,7 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-2026-10-02時点：型チェック0エラー・0警告、Nodeテスト27件、Rustテスト8件、Releaseアプリのビルドが成功しています。Releaseアプリは15.43MiBで、ad-hoc署名のstrict検証も成功しました。Mac画面操作ツールのAX取得が以前タイムアウトしており、実機操作の合格判定は保留です。専用アプリの再測定では通常記事約142MiB、数式記事約247MiB、通常記事へ戻した後は約206〜301MiBでした。100MiBの目標は未達で、原因の判定は保留です。[測定条件と結果](docs/memory-investigation.md)を参照してください。
+2026-10-02時点：型チェック0エラー・0警告、Nodeテスト27件、Rustテスト8件、Releaseアプリのビルドが成功しています。Releaseアプリは15.43MiBで、ad-hoc署名のstrict検証も成功しました。Mac画面操作ツールのAX取得が以前タイムアウトしており、実機操作の合格判定は保留です。専用アプリの再測定では通常記事約142MiB、数式記事約247MiB、通常記事へ戻した後は約206〜301MiBでした。100MiBの目標は未達で、原因の判定は保留です。[測定条件と結果](docs/performance/memory.md)を参照してください。
 
 自動チェックは保存世代・直列化・消失時の停止・変換中の保存停止とプレビュー維持・確定後の更新とUndo・検索・パス・Markdown/Formatting、Rustの読み書き・競合・非上書き・画像安全性を確認します。日本語IME、全終了経路、実際のFinder・ゴミ箱、長文の操作感はネイティブアプリでの確認が必要です。自動テスト成功だけをもってそれらを検証済みとしません。
 
@@ -95,7 +95,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 性能確認用に`performance`へ`nagori-ready`（起動時の初期処理完了）を記録します。候補評価時間は固定fixture側で計測し、製品には検索ごとの計測記録を蓄積しません。起動やWebViewを含むメモリ使用量はReleaseアプリで別途測定し、未測定項目を達成済みとは扱いません。
 
-現在の確認済み範囲・残る実機確認・固定データの参考性能は[検証状況](docs/acceptance-status.md)を参照してください。
+現在の確認済み範囲・残る実機確認・固定データの参考性能は[検証状況](docs/verification.md)を参照してください。
 
 ## ローカル試用用DMG
 
@@ -106,3 +106,7 @@ npm run tauri build -- --bundles app,dmg --ci
 生成先は`src-tauri/target/release/bundle/dmg/Nagori_0.1.0_aarch64.dmg`です。DMG内にNagori.appとApplicationsへのリンクを入れています。2026-10-02の生成物は8.50MiB。チェックサム、読み取り専用マウント、製品識別子、署名、同梱CLIを確認しました。Finderでのインストール操作は未検証です。
 
 今回のDMGはad-hoc署名のローカル試用版です。Developer ID Application証明書がなく、公証情報も未設定のため、外部配布用の署名・公証は完了していません。mainへの反映、リリースタグ、GitHub Releaseの公開は行いません。外部配布前に署名・公証を設定し、Macの未確認操作と性能の判断を終えてください。
+
+## 開発資料
+
+[docsの目次](docs/README.md)から、[仕様書](docs/specification.md)、[アーキテクチャ](docs/architecture.md)、[実装計画](docs/implementation-plan.md)、[検証状況](docs/verification.md)を参照できます。性能測定はdocs/performance、過去の記録はdocs/historyへまとめています。
