@@ -2,6 +2,7 @@ mod files;
 use files::{Entry, Error, Image, InsertedImage, OpenedDocument, Result, Saved, Settings};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -29,7 +30,140 @@ struct Backend {
     // ponytail: one lock serializes project operations; split read locks only if measured UI throughput requires it.
     workspace: Arc<Mutex<Workspace>>,
     allow_exit: Arc<AtomicBool>,
+    open_requests: Arc<Mutex<VecDeque<Result<OpenRequest>>>>,
 }
+#[derive(Debug, serde::Serialize)]
+struct OpenRequest {
+    workspace: String,
+    path: Option<String>,
+}
+
+fn open_request(urls: Vec<url::Url>) -> Result<OpenRequest> {
+    if urls.is_empty() || urls.len() > 2 {
+        return Err(Error::new(
+            "INVALID",
+            "フォルダ、またはフォルダとファイルを指定してください。",
+        ));
+    }
+    let paths = urls
+        .into_iter()
+        .map(|url| {
+            let path = url
+                .to_file_path()
+                .map_err(|_| Error::new("INVALID", "ローカルファイルのみ開けます。"))?;
+            Ok(std::fs::canonicalize(path)?)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let (root, file): (&Path, Option<&PathBuf>) = if paths[0].is_dir() {
+        (&paths[0], paths.get(1))
+    } else if paths.len() == 1 && paths[0].is_file() {
+        (
+            paths[0]
+                .parent()
+                .ok_or_else(|| Error::new("INVALID", "親フォルダがありません。"))?,
+            Some(&paths[0]),
+        )
+    } else {
+        return Err(Error::new(
+            "INVALID",
+            "フォルダまたは通常ファイルを指定してください。",
+        ));
+    };
+    let path = file
+        .map(|file| {
+            if !file.is_file() {
+                return Err(Error::new("INVALID", "通常ファイルを指定してください。"));
+            }
+            let relative = files::relative(root, file)?;
+            files::resolve(root, &relative, false)?;
+            Ok(relative)
+        })
+        .transpose()?;
+    Ok(OpenRequest {
+        workspace: root
+            .to_str()
+            .ok_or_else(|| Error::new("INVALID", "UTF-8で表現できないパスです。"))?
+            .to_owned(),
+        path,
+    })
+}
+
+#[tauri::command]
+fn open_request_take(state: State<'_, Backend>) -> Result<Option<OpenRequest>> {
+    state
+        .open_requests
+        .lock()
+        .map_err(|_| Error::new("INTERNAL", "起動要求のロックに失敗しました。"))?
+        .pop_front()
+        .transpose()
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+
+    #[test]
+    fn native_open_requests_validate_and_preserve_workspace() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temporary.path()).unwrap();
+        let child = root.join("日本語 # notes");
+        std::fs::create_dir(&child).unwrap();
+        let file = child.join("test file.md");
+        std::fs::write(&file, "# Test").unwrap();
+        let dir_url = url::Url::from_directory_path(&root).unwrap();
+        let file_url = url::Url::from_file_path(&file).unwrap();
+        let folder = open_request(vec![dir_url.clone()]).unwrap();
+        assert_eq!(folder.workspace, root.to_str().unwrap());
+        assert!(folder.path.is_none());
+        let request = open_request(vec![dir_url.clone(), file_url.clone()]).unwrap();
+        assert_eq!(request.workspace, root.to_str().unwrap());
+        assert_eq!(request.path.as_deref(), Some("日本語 # notes/test file.md"));
+        let alone = open_request(vec![file_url.clone()]).unwrap();
+        assert_eq!(alone.workspace, child.to_str().unwrap());
+        assert_eq!(alone.path.as_deref(), Some("test file.md"));
+        assert!(open_request(vec![]).is_err());
+        assert!(open_request(vec![file_url, dir_url.clone()]).is_err());
+        assert!(open_request(vec![url::Url::parse("https://example.com").unwrap()]).is_err());
+        assert!(open_request(vec![dir_url.clone(), dir_url.clone()]).is_err());
+        assert!(open_request(vec![dir_url.clone(), dir_url.clone(), dir_url.clone()]).is_err());
+        let missing = url::Url::from_file_path(root.join("missing.md")).unwrap();
+        assert!(open_request(vec![dir_url.clone(), missing]).is_err());
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        assert_eq!(
+            open_request(vec![
+                dir_url.clone(),
+                url::Url::from_file_path(outside.path()).unwrap()
+            ])
+            .unwrap_err()
+            .code,
+            "OUTSIDE"
+        );
+        std::fs::create_dir(root.join(".git")).unwrap();
+        let excluded = root.join(".git/config");
+        std::fs::write(&excluded, "secret").unwrap();
+        assert_eq!(
+            open_request(vec![dir_url, url::Url::from_file_path(excluded).unwrap()])
+                .unwrap_err()
+                .code,
+            "EXCLUDED"
+        );
+        let backend = Backend::default();
+        backend.open_requests.lock().unwrap().extend([
+            Ok(folder),
+            Err(Error::new("INVALID", "invalid")),
+            Ok(alone),
+        ]);
+        let mut queue = backend.open_requests.lock().unwrap();
+        assert!(queue.pop_front().unwrap().unwrap().path.is_none());
+        assert!(queue.pop_front().unwrap().is_err());
+        assert_eq!(
+            queue.pop_front().unwrap().unwrap().path.as_deref(),
+            Some("test file.md")
+        );
+        assert!(queue.is_empty());
+    }
+}
+
 async fn work<T: Send + 'static>(
     state: &Backend,
     task: impl FnOnce(&mut Workspace) -> Result<T> + Send + 'static,
@@ -324,12 +458,12 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
     let strike = action("strike", "取り消し線", None)?;
     let code = action("code", "インラインコード", None)?;
     let format = Submenu::with_items(app, "書式", true, &[&bold, &italic, &strike, &link, &code])?;
-    let source = action(
-        "source",
-        "Live Preview / ソース表示",
+    let preview = action(
+        "preview-toggle",
+        "Live Preview / Preview",
         Some("CmdOrCtrl+Shift+L"),
     )?;
-    let view = Submenu::with_items(app, "表示", true, &[&source])?;
+    let view = Submenu::with_items(app, "表示", true, &[&preview])?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
 pub fn run() {
@@ -361,6 +495,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            open_request_take,
             workspace_open,
             workspace_list,
             workspace_index,
@@ -381,6 +516,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Nagori could not start");
     app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = &event {
+            let request = open_request(urls.clone());
+            if let Ok(mut queue) = app.state::<Backend>().open_requests.lock() {
+                queue.push_back(request);
+            }
+            let _ = app.emit("nagori:open-requested", ());
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
             if !app.state::<Backend>().allow_exit.load(Ordering::SeqCst) {
                 api.prevent_exit();

@@ -1,19 +1,27 @@
 import { mathExpressions, type MathExpression } from './markdownMath.ts';
 import type { MathRender } from './mathjax.ts';
-import { StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
+import { StateEffect, StateField, EditorState, type Extension, type Range } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
 export const refreshImagesEffect = StateEffect.define<void>();
-export const previewMode = StateEffect.define<boolean>();
+export const previewOnlyMode = StateEffect.define<boolean>();
 export const compositionMode = StateEffect.define<boolean>();
-export const sourceField = StateField.define({ create: () => false, update: (value, tr) => tr.effects.reduce((v, e) => e.is(previewMode) ? e.value : v, value) });
+export const previewOnlyField = StateField.define({
+  create: () => false,
+  update: (value, tr) => tr.effects.reduce((v, e) => e.is(previewOnlyMode) ? e.value : v, value),
+  provide: field => [
+    EditorState.readOnly.computeN([field], state => state.field(field) ? [true] : []),
+    EditorView.editable.computeN([field], state => state.field(field) ? [false] : []),
+  ],
+});
 const compositionField = StateField.define({ create: () => false, update: (value, tr) => tr.effects.reduce((v, e) => e.is(compositionMode) ? e.value : v, value) });
 type Options = { resolveImage(reference: string): Promise<string>; onLink(href: string): void };
 const inlineClasses: Record<string, string> = { StrongEmphasis: 'nagori-bold', Emphasis: 'nagori-italic', Strikethrough: 'nagori-strike', InlineCode: 'nagori-code', Link: 'nagori-link', Autolink: 'nagori-link' };
 function selectSource(view: EditorView, position: number) {
+  if (view.state.field(previewOnlyField)) return;
   view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'nearest' }) });
   view.focus();
 }
@@ -41,21 +49,23 @@ class TaskWidget extends WidgetType {
   }
 }
 class RuleWidget extends WidgetType {
+  readonly previewOnly: boolean;
   readonly position: number;
-  constructor(position: number) { super(); this.position = position; }
-  eq(other: RuleWidget) { return this.position === other.position; }
+  constructor(position: number, previewOnly = false) { super(); this.previewOnly = previewOnly; this.position = position; }
+  eq(other: RuleWidget) { return this.position === other.position && this.previewOnly === other.previewOnly; }
   toDOM(view: EditorView) { const hr = document.createElement('hr'); hr.className = 'nagori-rule'; hr.addEventListener('click', () => selectSource(view, this.position)); return hr; }
   ignoreEvent() { return true; }
 }
 class ImageWidget extends WidgetType {
+  readonly previewOnly: boolean;
   readonly position: number;
   readonly ref: string;
   readonly alt: string;
   readonly resolveImage: Options['resolveImage'];
-  constructor(position: number, ref: string, alt: string, resolveImage: Options['resolveImage']) { super(); this.position = position; this.ref = ref; this.alt = alt; this.resolveImage = resolveImage; }
-  eq(other: ImageWidget) { return this.position === other.position && this.ref === other.ref && this.alt === other.alt && this.resolveImage === other.resolveImage; }
+  constructor(position: number, ref: string, alt: string, resolveImage: Options['resolveImage'], previewOnly = false) { super(); this.previewOnly = previewOnly; this.position = position; this.ref = ref; this.alt = alt; this.resolveImage = resolveImage; }
+  eq(other: ImageWidget) { return this.position === other.position && this.ref === other.ref && this.alt === other.alt && this.resolveImage === other.resolveImage && this.previewOnly === other.previewOnly; }
   toDOM(view: EditorView) {
-    const container = document.createElement('span'); container.className = 'nagori-image'; container.tabIndex = 0; container.setAttribute('role', 'button'); container.setAttribute('aria-label', `画像の記法を編集: ${this.alt || this.ref}`); container.textContent = `画像: ${this.ref}`;
+    const container = document.createElement('span'); container.className = 'nagori-image'; container.tabIndex = this.previewOnly ? -1 : 0; container.setAttribute('role', this.previewOnly ? 'group' : 'button'); container.setAttribute('aria-label', this.previewOnly ? `画像: ${this.alt || this.ref}` : `画像の記法を編集: ${this.alt || this.ref}`); container.textContent = `画像: ${this.ref}`;
     container.addEventListener('click', () => selectSource(view, this.position)); container.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); });
     // Only URLs created by the parent's validated local-image resolver enter an img element.
     let reference = this.ref; try { reference = decodeURIComponent(reference); } catch { /* Invalid percent escape stays literal and resolver reports the path error. */ }
@@ -81,17 +91,18 @@ function mathError(element: HTMLElement, source: string, error: unknown) {
   const reason = document.createElement('span'); reason.className = 'nagori-math-reason'; reason.textContent = '（数式エラー）'; element.append(reason);
 }
 class MathWidget extends WidgetType {
+  readonly previewOnly: boolean;
   readonly position: number;
   readonly source: string;
   readonly display: boolean;
   readonly context: MathContext;
-  constructor(position: number, source: string, display: boolean, context: MathContext) { super(); this.position = position; this.source = source; this.display = display; this.context = context; }
-  eq(other: MathWidget) { return this.position === other.position && this.source === other.source && this.display === other.display && this.context === other.context; }
+  constructor(position: number, source: string, display: boolean, context: MathContext, previewOnly = false) { super(); this.previewOnly = previewOnly; this.position = position; this.source = source; this.display = display; this.context = context; }
+  eq(other: MathWidget) { return this.position === other.position && this.source === other.source && this.display === other.display && this.context === other.context && this.previewOnly === other.previewOnly; }
   toDOM(view: EditorView) {
     const element = document.createElement(this.display ? 'div' : 'span');
     element.className = this.display ? 'nagori-math nagori-math-display' : 'nagori-math'; element.textContent = this.source;
-    element.tabIndex = 0; element.setAttribute('role', 'group'); element.setAttribute('aria-label', '数式（EnterでLaTeX記法を編集）');
-    element.addEventListener('mousedown', event => event.preventDefault());
+    element.tabIndex = this.previewOnly ? -1 : 0; element.setAttribute('role', 'group'); element.setAttribute('aria-label', this.previewOnly ? '数式' : '数式（EnterでLaTeX記法を編集）');
+    if (!this.previewOnly) element.addEventListener('mousedown', event => event.preventDefault());
     element.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); selectSource(view, this.position); });
     element.addEventListener('keydown', event => { if ((event as KeyboardEvent).key === 'Enter' || (event as KeyboardEvent).key === ' ') { event.preventDefault(); event.stopPropagation(); selectSource(view, this.position); } });
     const context = this.context; context.mounts.add(element); mathMounts.set(element, context);
@@ -129,10 +140,10 @@ function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs:
       else renderInline(element, child, text, refs, options, view, math);
       parent.append(element);
     } else if (child.name === 'InlineMath' || child.name === 'DisplayMath') {
-      parent.append(new MathWidget(child.from, text.slice(child.from, child.to), child.name === 'DisplayMath', math).toDOM(view));
+      parent.append(new MathWidget(child.from, text.slice(child.from, child.to), child.name === 'DisplayMath', math, view.state.field(previewOnlyField)).toDOM(view));
     } else if (child.name === 'Image') {
       const target = linkTarget(child, text, refs);
-      if (target) parent.append(new ImageWidget(child.from, target, text.slice(inlineContent(child).from, inlineContent(child).to), options.resolveImage).toDOM(view));
+      if (target) parent.append(new ImageWidget(child.from, target, text.slice(inlineContent(child).from, inlineContent(child).to), options.resolveImage, view.state.field(previewOnlyField)).toDOM(view));
       else parent.append(document.createTextNode(text.slice(child.from, child.to)));
     } else if (child.name === 'HardBreak') parent.append(document.createElement('br'));
     else if (child.name === 'Escape' || child.name === 'Entity') parent.append(document.createTextNode(decodeMarkdown(text.slice(child.from, child.to))));
@@ -142,16 +153,17 @@ function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs:
   if (at < content.to) parent.append(document.createTextNode(decodeMarkdown(text.slice(at, content.to))));
 }
 class TableWidget extends WidgetType {
+  readonly previewOnly: boolean;
   readonly position: number;
   readonly node: SyntaxNode;
   readonly text: string;
   readonly options: Options;
   readonly refs: Map<string, string>;
   readonly math: MathContext;
-  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext) { super(); this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
-  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math; }
+  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext, previewOnly = false) { super(); this.previewOnly = previewOnly; this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
+  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math && this.previewOnly === other.previewOnly; }
   toDOM(view: EditorView) {
-    const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap'; wrapper.tabIndex = 0; wrapper.setAttribute('role', 'button'); wrapper.setAttribute('aria-label', '表のMarkdownを編集');
+    const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap'; wrapper.tabIndex = this.previewOnly ? -1 : 0; wrapper.setAttribute('role', this.previewOnly ? 'group' : 'button'); wrapper.setAttribute('aria-label', this.previewOnly ? '表' : '表のMarkdownを編集');
     const table = document.createElement('table'); const rows = children(this.node).filter(n => n.name === 'TableHeader' || n.name === 'TableRow');
     const delimiter = children(this.node).find(n => n.name === 'TableDelimiter');
     const align = delimiter ? this.text.slice(delimiter.from, delimiter.to).replace(/^\||\|$/g, '').split('|').map(s => s.trim()) : [];
@@ -177,9 +189,9 @@ function previewContext(state: EditorState, previous?: PreviewContext): PreviewC
   return { tree, text, front: frontMatter(text), refs: references(tree, text), math };
 }
 export function buildPreview(state: EditorState, options: Options, context?: PreviewContext): DecorationSet {
-  if (state.field(sourceField, false)) return Decoration.none;
+  const previewOnly = state.field(previewOnlyField, false) ?? false;
   const { tree, text, front, refs, math } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
-  const active = (span: Span) => state.selection.ranges.some(r => touches(span, r));
+  const active = (span: Span) => !previewOnly && state.selection.ranges.some(r => touches(span, r));
   const hide = (from: number, to: number) => { if (from < to) ranges.push(Decoration.replace({}).range(from, to)); };
   const mark = (from: number, to: number, className: string, attributes?: Record<string, string>) => { if (from < to) ranges.push(Decoration.mark({ class: className, attributes }).range(from, to)); };
   const line = (position: number, className: string) => ranges.push(Decoration.line({ class: className }).range(state.doc.lineAt(position).from));
@@ -195,17 +207,17 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       if (!active(node)) {
         const current = state.doc.lineAt(node.from);
         const block = node.name === 'MathBlock' || (node.name === 'DisplayMath' && text.slice(current.from, node.from).trim() === '' && text.slice(node.to, state.doc.lineAt(node.to).to).trim() === '');
-        ranges.push(Decoration.replace({ widget: new MathWidget(node.from, text.slice(node.from, node.to), node.name !== 'InlineMath', math), block }).range(node.from, node.to));
+        ranges.push(Decoration.replace({ widget: new MathWidget(node.from, text.slice(node.from, node.to), node.name !== 'InlineMath', math, previewOnly), block }).range(node.from, node.to));
       }
       return false;
     }
     if (node.name === 'Table') {
-      if (!active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs, math), block: true }).range(node.from, node.to)); return false; }
+      if (!active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs, math, previewOnly), block: true }).range(node.from, node.to)); return false; }
       line(node.from, 'nagori-table-source');
     }
     if (node.name === 'Image') {
       const ref = linkTarget(node, text, refs);
-      if (ref && !active(node)) ranges.push(Decoration.replace({ widget: new ImageWidget(node.from, ref, text.slice(inlineContent(node).from, inlineContent(node).to), options.resolveImage) }).range(node.from, node.to));
+      if (ref && !active(node)) ranges.push(Decoration.replace({ widget: new ImageWidget(node.from, ref, text.slice(inlineContent(node).from, inlineContent(node).to), options.resolveImage, previewOnly) }).range(node.from, node.to));
       return false;
     }
     if (inlineClasses[node.name]) {
@@ -235,7 +247,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       }
       return false;
     }
-    if (node.name === 'HorizontalRule') { if (!active(node)) ranges.push(Decoration.replace({ widget: new RuleWidget(node.from), block: true }).range(node.from, node.to)); return false; }
+    if (node.name === 'HorizontalRule') { if (!active(node)) ranges.push(Decoration.replace({ widget: new RuleWidget(node.from, previewOnly), block: true }).range(node.from, node.to)); return false; }
     if (node.name === 'Blockquote') { for (let n = state.doc.lineAt(node.from).number; n <= state.doc.lineAt(node.to).number; n++) line(state.doc.line(n).from, 'nagori-quote'); }
     if (node.name === 'QuoteMark') hideMarker(node);
     if (node.name === 'ListMark') {
@@ -273,7 +285,7 @@ export function livePreview(options: Options): Extension {
     },
     provide: field => EditorView.decorations.from(field)
   });
-  return [sourceField, compositionField, field, EditorView.domEventHandlers({ click(event) {
+  return [previewOnlyField, compositionField, field, EditorState.changeFilter.of(tr => !tr.startState.field(previewOnlyField)), EditorView.domEventHandlers({ click(event) {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-href]');
     if (target && event.metaKey) { event.preventDefault(); options.onLink(target.dataset.href!); return true; }
     return false;

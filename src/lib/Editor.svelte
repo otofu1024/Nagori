@@ -7,12 +7,12 @@
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree } from '@codemirror/language';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
-  import { livePreview, previewMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
+  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind } from './editor.ts';
 
-  let { initialText, documentKey, readonly = false, sourceMode = false, fontSize = 19, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
-    initialText: string; documentKey: string | number; readonly?: boolean; sourceMode?: boolean; fontSize?: number;
+  let { initialText, documentKey, readonly = false, busy = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
   } = $props();
@@ -35,7 +35,7 @@
   }
   function updateToolbar() {
     const toolbarFocused = !!root?.querySelector('.floating-toolbar')?.contains(document.activeElement);
-    if (!view || readonly || composition || view.composing || linkDialog || view.state.selection.main.empty || (!view.hasFocus && !toolbarFocused)) { toolbar = null; return; }
+    if (!view || view.state.readOnly || composition || view.composing || linkDialog || view.state.selection.main.empty || (!view.hasFocus && !toolbarFocused)) { toolbar = null; return; }
     const coords = view.coordsAtPos(view.state.selection.main.head);
     if (!coords) { toolbar = null; return; }
     const viewport = view.scrollDOM.getBoundingClientRect();
@@ -44,7 +44,7 @@
     toolbar = { top: Math.max(4, coords.top - bounds.top - 44), left: Math.max(8, Math.min(coords.left - bounds.left, bounds.width - 245)), plans: plans()! };
   }
   function apply(kind: FormatKind) {
-    if (!view || readonly || composition || view.composing || linkDialog) return;
+    if (!view || view.state.readOnly || composition || view.composing || linkDialog) return;
     const plan = plans()?.[kind];
     if (!plan || plan.reason) return;
     if (kind === 'link') { pendingLink = plan; pendingRevision = revision; linkText = plan.linkText ?? ''; linkUrl = plan.existingLink ?? ''; linkError = ''; linkDialog = true; toolbar = null; return; }
@@ -53,7 +53,7 @@
   }
   function finishLink(event: SubmitEvent) {
     event.preventDefault();
-    if (!view || !pendingLink || readonly || composition) return;
+    if (!view || !pendingLink || view.state.readOnly || composition || view.composing) return;
     if (pendingRevision !== revision) { dismissLink(); return; }
     try {
       const insert = linkMarkdown(linkText, linkUrl);
@@ -104,7 +104,7 @@
       markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
       livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
       search({ literal: true, regexp: false, caseSensitive: true, createPanel: searchPanel }),
-      readOnlyConfig.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]),
+      readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       Prec.highest(keymap.of([
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
@@ -130,7 +130,7 @@
   }
   onMount(() => {
     view = new EditorView({ state: createState(initialText), parent: host });
-    view.dispatch({ effects: previewMode.of(sourceMode) });
+    view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
     onReady({
       getText: () => view!.state.doc.toString(),
       replaceText: text => {
@@ -138,11 +138,11 @@
         linkDialog = false; pendingLink = undefined; linkError = ''; revision++;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
-        old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewMode.of(sourceMode) });
+        old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
         old.scrollDOM.scrollTop = scroll; toolbar = null;
       },
       insertText: text => {
-        if (!view || composition || view.composing) return;
+        if (!view || readonly || previewOnly || composition || view.composing) return;
         view.dispatch(view.state.replaceSelection(text), { userEvent: 'input' }); view.focus();
       },
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
@@ -151,11 +151,20 @@
     });
     return () => { view?.destroy(); view = undefined; };
   });
-  $effect(() => { const enabled = sourceMode; if (view) { view.dispatch({ effects: previewMode.of(enabled) }); view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) }); } });
-  $effect(() => { const disabled = readonly; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
+  $effect(() => {
+    const enabled = previewOnly;
+    if (enabled) { toolbar = null; linkDialog = false; pendingLink = undefined; }
+    if (view) {
+      const editor = view, scroll = editor.scrollDOM.scrollTop;
+      editor.dispatch({ effects: previewOnlyMode.of(enabled) });
+      editor.scrollDOM.scrollTop = scroll;
+      editor.requestMeasure({ read: () => scroll, write: () => { if (view === editor) editor.scrollDOM.scrollTop = scroll; } });
+    }
+  });
+  $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
 
-<div class="editor-root" onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px`} data-document={documentKey}>
+<div class="editor-root" class:preview-only={previewOnly} onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px`} data-document={documentKey}>
   <div class="editor-host" bind:this={host}></div>
   {#if toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${toolbar.top}px;left:${toolbar.left}px`} onmousedown={event => event.preventDefault()}>
@@ -187,6 +196,8 @@
   .editor-host :global(.cm-activeLine) { background: transparent; }
   .editor-host :global(.cm-editor .cm-selectionBackground), .editor-host :global(.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground) { background: var(--selection); }
   .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
+  .preview-only :global(.cm-content) { caret-color: transparent; }
+  .preview-only :global(.cm-cursor) { display: none; }
   .editor-host :global(.nagori-bold) { font-weight: 700; color: var(--heading); }
   .editor-host :global(.nagori-italic) { font-style: italic; }
   .editor-host :global(.nagori-strike) { text-decoration: line-through; color: var(--muted); }

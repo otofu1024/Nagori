@@ -8,7 +8,7 @@ import { history, undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { frontMatter, markdownParser, markdownExtensions, walk, references, linkTarget, formatPlan, linkMarkdown, touches, codeDisplay } from '../src/lib/markdown.ts';
-import { livePreview, previewMode, compositionMode, buildPreview } from '../src/lib/livePreview.ts';
+import { livePreview, previewOnlyMode, compositionMode, buildPreview } from '../src/lib/livePreview.ts';
 
 const options = { resolveImage: async () => 'blob:approved', onLink: () => {} };
 function editor(text: string, anchor = text.length) {
@@ -46,7 +46,7 @@ test('selection boundaries reveal nested syntax; display modes never mutate docu
   const selected = decorationRanges(editor(text, 10)); assert.ok(!selected.some(r => r.from === 0 && r.to === 2));
   assert.equal(touches({ from: 2, to: 8 }, { from: 8, to: 8 }), true);
   let state = editor(text).update({ changes: { from: text.length, insert: '!' } }).state;
-  for (const effect of [previewMode.of(true), previewMode.of(false), compositionMode.of(true), compositionMode.of(false)]) state = state.update({ effects: effect }).state;
+  for (const effect of [previewOnlyMode.of(true), previewOnlyMode.of(false), compositionMode.of(true), compositionMode.of(false)]) state = state.update({ effects: effect }).state;
   assert.equal(state.doc.toString(), text + '!');
   assert.ok(undo({ state, dispatch: tr => { state = tr.state; } })); assert.equal(state.doc.toString(), text);
   const composed = editor(text).update({ effects: compositionMode.of(true) }).state; assert.ok(decorationRanges(composed, true).length > 0);
@@ -77,7 +77,7 @@ test('IME retains other previews, maps their positions, and renders committed sy
   assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
   assert.equal(state.doc.toString(), text);
 });
-test('IME cancel restores normal selection preview and explicit source mode stays source', () => {
+test('IME cancel restores editing selection preview while Preview retains rendering', () => {
   const text = '**太字**\n\n入力';
   let state = editor(text, text.length);
   state = state.update({ effects: compositionMode.of(true) }).state;
@@ -86,10 +86,10 @@ test('IME cancel restores normal selection preview and explicit source mode stay
   assert.ok(!decorationRanges(state, true).some(r => r.from === 0 && r.to === 2));
   assert.equal(state.doc.toString(), text);
   assert.equal(undo({ state, dispatch: () => {} }), false);
-  state = state.update({ effects: previewMode.of(true) }).state;
+  state = state.update({ effects: previewOnlyMode.of(true) }).state;
   for (const active of [true, false]) {
     state = state.update({ effects: compositionMode.of(active) }).state;
-    assert.equal(decorationRanges(state, true).length, 0);
+    assert.ok(decorationRanges(state, true).some(r => r.from === 0 && r.to === 2));
   }
 });
 test('format apply/remove is one source change, mixed selections are disabled', () => {
@@ -161,7 +161,7 @@ test('math leaves currency, escaped dollars, code, HTML blocks and front matter 
     assert.equal(state.doc.toString(), source);
   }
 });
-test('math source reveal, source mode and IME preserve source and undo', () => {
+test('math source reveal, Preview and IME preserve source and undo', () => {
   const source = '入力\n\n$x^2$\n\n$$\ny^2\n$$\n\nend', mathAt = source.indexOf('$');
   let state = editor(source);
   assert.ok(decorationRanges(state, true).some(r => r.from === mathAt && r.spec.widget));
@@ -177,7 +177,7 @@ test('math source reveal, source mode and IME preserve source and undo', () => {
   for (const range of before) assert.equal(decorationRanges(state, true).find(r => r.from === range.from + 3 && r.to === range.to + 3)?.spec.widget, range.spec.widget);
   ensureSyntaxTree(state, state.doc.length, 1000);
   state = state.update({ effects: compositionMode.of(false) }).state;
-  for (const active of [true, false]) { state = state.update({ effects: previewMode.of(active) }).state; if (active) assert.equal(decorationRanges(state, true).length, 0); }
+  for (const active of [true, false]) { state = state.update({ effects: previewOnlyMode.of(active) }).state; if (active) assert.ok(decorationRanges(state, true).some(r => r.from === mathAt + 3 && r.spec.widget)); }
   assert.equal(state.doc.toString(), '日本語' + source);
   assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
   assert.equal(state.doc.toString(), source);
@@ -248,4 +248,50 @@ test('long documents resolve offscreen labels before CodeMirror parses the tail 
   state = state.update({ changes: { from: text.length, insert: '\n' } }).state;
   assert.notEqual(context(), initial);
   assert.equal(context().expressions.length, 2);
+});
+
+
+test('Preview keeps all syntax rendered through cursor/search selections and blocks edits without losing undo', () => {
+  let locked = EditorState.create({ doc: '**locked**', extensions: [livePreview(options), EditorState.readOnly.of(true), EditorView.editable.of(false)] });
+  for (const active of [false, true, false]) {
+    locked = locked.update({ effects: previewOnlyMode.of(active) }).state;
+    assert.equal(locked.readOnly, true);
+    assert.equal(locked.facet(EditorView.editable), false);
+  }
+  // An authorized image-import result may change a temporarily busy (readOnly) editor; Preview must still reject it.
+  locked = locked.update({ changes: { from: locked.doc.length, insert: '\n![image](assets/a.png)' }, userEvent: 'input' }).state;
+  assert.equal(locked.doc.toString(), '**locked**\n![image](assets/a.png)');
+  locked = locked.update({ effects: previewOnlyMode.of(true) }).state;
+  const busyText = locked.doc.toString();
+  locked = locked.update({ changes: { from: locked.doc.length, insert: '\n![image](assets/b.png)' }, userEvent: 'input' }).state;
+  assert.equal(locked.doc.toString(), busyText);
+  const source = '# Heading\n\n**bold** *italic* ~~strike~~ `code` [link](a.md)\n\n> quote\n\n- [ ] task\n\n| h |\n|---|\n| c |\n\n![alt](a.png)\n\n$x^2$\n\n---\n\n```js\ncode\n```';
+  let state = editor(source, 0).update({ changes: { from: source.length, insert: '\nend' } }).state;
+  const edited = state.doc.toString(), selection = state.selection;
+  state = state.update({ effects: previewOnlyMode.of(true) }).state;
+  assert.equal(state.readOnly, true);
+  assert.equal(state.facet(EditorView.editable), false);
+  assert.ok(state.selection.eq(selection));
+  const baseline = decorationRanges(state, true).map(r => ({ from: r.from, to: r.to, class: r.spec.class, block: r.spec.block, widget: !!r.spec.widget }));
+  assert.ok(baseline.some(r => r.from === 0 && r.to === 2));
+  for (const marker of ['**bold**', '*italic*', '~~strike~~', '`code`', '[link]', '| h |', '![alt]', '$x^2$', '- [ ]', '---', '```']) {
+    const at = edited.indexOf(marker);
+    state = state.update({ selection: EditorSelection.range(at, at + marker.length) }).state;
+    assert.deepEqual(decorationRanges(state, true).map(r => ({ from: r.from, to: r.to, class: r.spec.class, block: r.spec.block, widget: !!r.spec.widget })), baseline, marker);
+  }
+  const task = decorationRanges(state, true).find(r => r.from === edited.indexOf('[ ]'))!.spec.widget as { disabled: boolean };
+  assert.equal(task.disabled, true);
+  for (const userEvent of ['input', 'input.paste', 'input.drop', 'input.format', 'delete', 'undo']) {
+    state = state.update(state.replaceSelection('changed'), { userEvent }).state;
+    assert.equal(state.doc.toString(), edited);
+  }
+  assert.equal(undo({ state, dispatch: tr => { state = tr.state; } }), false);
+  const lastSelection = state.selection;
+  state = state.update({ effects: previewOnlyMode.of(false) }).state;
+  assert.equal(state.readOnly, false);
+  assert.equal(state.facet(EditorView.editable), true);
+  assert.ok(state.selection.eq(lastSelection));
+  assert.ok(!decorationRanges(state, true).some(r => r.from === edited.indexOf('```') && r.to > r.from));
+  assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
+  assert.equal(state.doc.toString(), source);
 });

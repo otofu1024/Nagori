@@ -14,6 +14,7 @@
   import { candidates, containsPath, renamedPath, parentPath, localLink, type Entry } from './lib/navigation';
 
   import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
+  type OpenRequest={workspace:string;path:string|null};
   type ImageData={mime:string;data:number[];width:number;height:number};
   let settings=$state<Settings>({...defaults,theme:'light'});
   let settingsLoaded=$state(false);
@@ -24,10 +25,11 @@
   let tree=$state<Record<string,Entry[]>>({}), expanded=$state<string[]>(['']), selected=$state('');
   let index=$state<Entry[]>([]), busy=$state(false), starting=$state(true), notice=$state(''), contentError=$state('');
   let sidebarVisible=$state(true);
-  let sourceMode=$state(false), imageUrl=$state(''), imageDimensions=$state('');
-  let composing=false, compositionWaiters:Array<()=>void>=[], autosave:ReturnType<typeof setTimeout>|undefined;
+  let previewOnly=$state(false), imageUrl=$state(''), imageDimensions=$state('');
+  let composing=$state(false), compositionWaiters:Array<()=>void>=[], autosave:ReturnType<typeof setTimeout>|undefined;
   let fsTimer:ReturnType<typeof setTimeout>|undefined, noticeTimer:ReturnType<typeof setTimeout>|undefined;
   let externalQueued=false, externalChecking=false;
+  let openRequestsQueued=false, openingRequest=false;
   const imageUrls=new Set<string>();
   const imageCache=new Map<string,Promise<string>>();
   let imageEpoch=0, treeQueued=false, imagesQueued=false;
@@ -58,7 +60,29 @@
     await settleComposition();
     if(busy)return;
     busy=true;
-    try {if(needsSave&&!await flush())return;await action();} catch(error) {notify(failure(error).message);} finally {busy=false;if(treeQueued)void processChanges();if(externalQueued){externalQueued=false;void checkExternal();}}
+    try {if(needsSave&&!await flush())return false;await action();return true;} catch(error) {notify(failure(error).message);return false;} finally {busy=false;if(treeQueued)void processChanges();if(externalQueued){externalQueued=false;void checkExternal();}if(openRequestsQueued&&!openingRequest)void drainOpenRequests();}
+  }
+  async function drainOpenRequests() {
+    if(!openRequestsQueued||starting||busy||openingRequest||session?.issue||errorDialog?.open||saveAsDialog?.open)return;
+    openingRequest=true;
+    if(quick)closeQuick(false);
+    try {
+      while(openRequestsQueued) {
+        openRequestsQueued=false;
+        let empty=false;
+        const opened=await operation(async()=>{
+          let request:OpenRequest|null;
+          try {request=await invoke<OpenRequest|null>('open_request_take');}
+          catch(error) {if(failure(error).code==='INTERNAL')throw error;notify(failure(error).message);return;}
+          if(!request){empty=true;return;}
+          try {await openProject(request.workspace,request.path);if(request.path&&current?.path!==request.path)throw new Error('指定されたファイルを開けません: '+request.path);}
+          catch(error) {notify(failure(error).message);}
+        });
+        if(empty){if(openRequestsQueued)queueMicrotask(()=>void drainOpenRequests());break;}
+        openRequestsQueued=true;
+        if(!opened)break;
+      }
+    } finally {openingRequest=false;}
   }
   async function processChanges() {if(busy||composing)return;const root=project,refreshImages=imagesQueued;treeQueued=false;imagesQueued=false;try{await refreshTree();if(root!==project||busy||composing){treeQueued=true;imagesQueued ||= refreshImages;return;}if(refreshImages&&session){releaseImages();editor?.refreshImages();}if(refreshImages&&current?.kind==='image'){const target=current,key=documentKey;const result=await blobImage(target.path);if(current!==target||documentKey!==key){URL.revokeObjectURL(result.url);imageUrls.delete(result.url);}else{if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=result.url;imageDimensions=`${result.data.width} × ${result.data.height}`;}}await checkExternal();}catch(error){notify(failure(error).message);}}
   let settingsQueue=Promise.resolve();
@@ -137,7 +161,7 @@
     const menu=await Menu.new({items:[{id:'reveal',text:'Finderで表示',action:()=>void reveal(entry)},{id:'rename',text:'名前を変更（参照は更新しません）',enabled:entry.kind!=='symlink',action:()=>void startName('rename',entry)},{id:'trash',text:entry.kind==='directory'?'フォルダと配下をゴミ箱へ移動':'ゴミ箱へ移動',enabled:entry.kind!=='symlink',action:()=>void trash(entry)}]});
     try{await menu.popup();}finally{await menu.close();}
   }
-  async function insertImage() {if(!session||session.readonly)return;await operation(async()=>{const picked=await open({multiple:false,title:'画像を挿入',filters:[{name:'画像',extensions:['png','jpg','jpeg','gif','webp']}]});if(typeof picked!=='string')return;const result=await invoke<{path:string;markdown:string}>('image_insert',{sourcePath:picked,documentPath:session!.path});editor?.insertText(result.markdown);await refreshTree();},false);}
+  async function insertImage() {if(!session||session.readonly||previewOnly)return;await operation(async()=>{const picked=await open({multiple:false,title:'画像を挿入',filters:[{name:'画像',extensions:['png','jpg','jpeg','gif','webp']}]});if(typeof picked!=='string')return;const result=await invoke<{path:string;markdown:string}>('image_insert',{sourcePath:picked,documentPath:session!.path});editor?.insertText(result.markdown);await refreshTree();},false);}
   async function link(href:string) {try{if(/^https?:\/\//i.test(href)){await invoke('external_open',{url:href});return;}if(!current)return;const path=localLink(current.path,href);await selectEntry({path,name:path.split('/').at(-1)!,kind:'markdown'});}catch(error){notify(failure(error).message);}}
   async function showProblem() {
     const target=session;if(!target?.issue)return;issue=target.issue;disk=null;diskLabel='';
@@ -159,7 +183,7 @@
   async function commitSaveAs() {
     if(!session||busy)return;await settleComposition();if(!session||busy)return;busy=true;
     try {const text=session.text,gen=session.generation;const opened=await invoke<OpenedDocument>('document_save_as',{sourcePath:session.path,path:saveAsPath,text});session.path=opened.path;session.baseline=opened.baseline;session.savedGeneration=gen;session.issue=null;session.readonly=opened.readonly;current={path:opened.path,name:opened.path.split('/').at(-1)!,kind:'markdown'};selected=opened.path;releaseImages();editor?.refreshImages();settings.lastFile=opened.path;settings.recentFiles=[opened.path,...settings.recentFiles.filter(path=>path!==opened.path)].slice(0,30);syncSession();saveAsDialog.close();saveAs=false;errorDialog.close();await refreshTree();void persist();if(session.dirty)scheduleSave();notify('別名で保存しました。');}
-    catch(error) {saveAsError=failure(error).message;}finally{busy=false;}
+    catch(error) {saveAsError=failure(error).message;}finally{busy=false;if(openRequestsQueued)void drainOpenRequests();}
   }
   async function discardAndClose() {const target=session;if(!target)return;if(target.dirty&&!await confirm('未保存の編集内容を破棄して閉じます。',{title:'未保存内容を破棄',kind:'warning',okLabel:'破棄して閉じる',cancelLabel:'キャンセル'}))return;if(session!==target)return;clearDocument();settings.lastFile=null;errorDialog.close();void persist();}
   async function checkExternal() {
@@ -176,7 +200,8 @@
     if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void flush();}
     if(event.key==='Escape'&&naming)naming=null;
   }
-  async function menuAction(action:string) {if(errorDialog?.open||saveAsDialog?.open||quick)return;if(action==='open-project')await chooseProject();else if(action==='new-markdown')await startName('markdown');else if(action==='new-folder')await startName('directory');else if(action==='image-insert')await insertImage();else if(action==='quick-open')await quickOpen();else if(action==='save')await flush();else if(action==='find')editor?.find();else if(action==='source')sourceMode=!sourceMode;else if(['bold','italic','strike','code','link'].includes(action))editor?.format(action as 'bold'|'italic'|'strike'|'code'|'link');}
+  function togglePreview() {if(!busy&&!composing&&current?.kind==='markdown'&&session)previewOnly=!previewOnly;}
+  async function menuAction(action:string) {if(errorDialog?.open||saveAsDialog?.open||quick)return;if(action==='open-project')await chooseProject();else if(action==='new-markdown')await startName('markdown');else if(action==='new-folder')await startName('directory');else if(action==='image-insert')await insertImage();else if(action==='quick-open')await quickOpen();else if(action==='save')await flush();else if(action==='find')editor?.find();else if(action==='preview-toggle')togglePreview();else if(['bold','italic','strike','code','link'].includes(action))editor?.format(action as 'bold'|'italic'|'strike'|'code'|'link');}
   onMount(()=>{
     const unlisteners:Array<()=>void>=[];
     const focused=()=>void checkExternal();window.addEventListener('focus',focused);
@@ -186,12 +211,15 @@
         unlisteners.push(await listen<{paths:string[];project:string}>('nagori:fs-changed',event=>{if(event.payload.project!==project)return;treeQueued=true;imagesQueued ||= event.payload.paths.some(path=>/\.(png|jpe?g|gif|webp)$/i.test(path));clearTimeout(fsTimer);fsTimer=setTimeout(()=>void processChanges(),150);}));
         unlisteners.push(await listen<string>('nagori:fs-error',event=>notify('ファイル監視のエラー: '+event.payload)));
         unlisteners.push(await listen('nagori:quit-requested',()=>void quit()));
+        unlisteners.push(await listen('nagori:open-requested',()=>{openRequestsQueued=true;void drainOpenRequests();}));
         unlisteners.push(await listen<{action:string}>('nagori:menu',event=>void menuAction(event.payload.action)));
         const saved=await invoke<Settings>('settings_get');
         settings=startupSettings(saved,()=>window.matchMedia('(prefers-color-scheme: dark)').matches);settingsLoaded=true;
         if(settings.theme!==saved.theme||settings.fontSize!==saved.fontSize||settings.appearanceVersion!==saved.appearanceVersion)await persist();
-        if(settings.lastProject){const recent=settings.recentFiles, last=settings.lastFile;try{await openProject(settings.lastProject,last);settings.recentFiles=[...new Set([...(settings.lastFile?[settings.lastFile]:[]),...recent])];void persist();}catch(error){project='';notify('前回のプロジェクトを開けません: '+failure(error).message);}}
-      }catch(error){notify(failure(error).message);}finally{starting=false;performance.mark('nagori-ready');}
+        const requested=await invoke<OpenRequest|null>('open_request_take');
+        if(requested){await openProject(requested.workspace,requested.path);if(requested.path&&current?.path!==requested.path)throw new Error('指定されたファイルを開けません: '+requested.path);}
+        else if(settings.lastProject){const recent=settings.recentFiles, last=settings.lastFile;try{await openProject(settings.lastProject,last);settings.recentFiles=[...new Set([...(settings.lastFile?[settings.lastFile]:[]),...recent])];void persist();}catch(error){project='';notify('前回のプロジェクトを開けません: '+failure(error).message);}}
+      }catch(error){notify(failure(error).message);}finally{starting=false;performance.mark('nagori-ready');openRequestsQueued=true;void drainOpenRequests();}
     })();
     return ()=>{unlisteners.forEach(unlisten=>unlisten());window.removeEventListener('focus',focused);cancelSave();clearTimeout(fsTimer);releaseImages();};
   });
@@ -229,11 +257,11 @@
     <div class="sidebar-bottom"><button class="open-folder" onclick={()=>void chooseProject()} disabled={busy||starting}><Icon name="folder-open" size={17}/>{project?'別のフォルダを開く':'フォルダを開く'}</button><details class="settings"><summary>本文の表示設定 <Icon name="settings" size={16}/></summary><label>本文サイズ <output>{settings.fontSize}px</output><input type="range" min="12" max="32" step="1" disabled={starting||!settingsLoaded} bind:value={settings.fontSize} onchange={()=>void persist()}/></label></details><div class="sidebar-note">WRITE · EDIT · STAY WITH YOUR IDEAS</div></div>
   </aside>
   <main>
-    <header class="editor-header"><div class="breadcrumb"><Icon name={current?.kind==='image'?'image':'file'} size={17}/><span>{project?projectName:'Nagori'}</span>{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}</div><div class="header-actions">{#if current?.kind==='markdown'&&session}<button class="mode-toggle" aria-pressed={sourceMode} title="表示の切り替え" onclick={()=>sourceMode=!sourceMode}>{sourceMode?'ソース':'Live Preview'}</button><details class="document-menu"><summary aria-label="記事の操作" title="記事の操作"><Icon name="more"/></summary><div class="menu-popover"><button disabled={readonly||busy} onclick={()=>void insertImage()}>画像を挿入…</button><button onclick={()=>editor?.find()}>記事内を検索 <kbd>⌘ F</kbd></button><button onclick={()=>void flush()}>保存 <kbd>⌘ S</kbd></button><hr/><button onclick={()=>editor?.format('bold')} disabled={readonly}>太字 <kbd>⌘ B</kbd></button><button onclick={()=>editor?.format('italic')} disabled={readonly}>斜体 <kbd>⌘ I</kbd></button><button onclick={()=>editor?.format('strike')} disabled={readonly}>取り消し線</button><button onclick={()=>editor?.format('code')} disabled={readonly}>インラインコード</button><button onclick={()=>editor?.format('link')} disabled={readonly}>リンク <kbd>⌘ K</kbd></button></div></details>{/if}</div></header>
+    <header class="editor-header"><div class="breadcrumb"><Icon name={current?.kind==='image'?'image':'file'} size={17}/><span>{project?projectName:'Nagori'}</span>{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}</div><div class="header-actions">{#if current?.kind==='markdown'&&session}<button class="mode-toggle" aria-pressed={previewOnly} aria-label={previewOnly?'Live Previewで編集する':'Previewで閲覧する'} title={previewOnly?'Live Previewで編集する':'Previewで閲覧する'} disabled={busy||composing} onclick={togglePreview}>{previewOnly?'Preview':'Live Preview'}</button><details class="document-menu"><summary aria-label="記事の操作" title="記事の操作"><Icon name="more"/></summary><div class="menu-popover"><button disabled={readonly||previewOnly||busy} onclick={()=>void insertImage()}>画像を挿入…</button><button onclick={()=>editor?.find()}>記事内を検索 <kbd>⌘ F</kbd></button><button onclick={()=>void flush()}>保存 <kbd>⌘ S</kbd></button><hr/><button onclick={()=>editor?.format('bold')} disabled={readonly||previewOnly||busy}>太字 <kbd>⌘ B</kbd></button><button onclick={()=>editor?.format('italic')} disabled={readonly||previewOnly||busy}>斜体 <kbd>⌘ I</kbd></button><button onclick={()=>editor?.format('strike')} disabled={readonly||previewOnly||busy}>取り消し線</button><button onclick={()=>editor?.format('code')} disabled={readonly||previewOnly||busy}>インラインコード</button><button onclick={()=>editor?.format('link')} disabled={readonly||previewOnly||busy}>リンク <kbd>⌘ K</kbd></button></div></details>{/if}</div></header>
     <section class="content" aria-label="記事の編集とプレビュー">
       {#if starting}<div class="empty-state"><span class="welcome-mark"><Icon name="file" size={44}/></span><p>書く場所を、準備しています。</p></div>
       {:else if contentError}<div class="empty-state"><span class="state-icon"><Icon name="file" size={42}/></span><h1>{current?.name??'Nagori'}</h1><p>{contentError}</p>{#if project}<button onclick={()=>void reveal(current??undefined)}>Finderで表示</button>{/if}</div>
-      {:else if current?.kind==='markdown'&&session}<Editor {initialText} {documentKey} readonly={readonly||busy} {sourceMode} fontSize={settings.fontSize} onChange={changed} onComposition={composition} onSave={()=>void flush()} onLink={(href)=>void link(href)} {resolveImage} onReady={(api)=>editor=api}/>
+      {:else if current?.kind==='markdown'&&session}<Editor {initialText} {documentKey} {readonly} {busy} {previewOnly} fontSize={settings.fontSize} onChange={changed} onComposition={composition} onSave={()=>void flush()} onLink={(href)=>void link(href)} {resolveImage} onReady={(api)=>editor=api}/>
       {:else if current?.kind==='image'}<div class="image-preview"><img src={imageUrl} alt={current.name}/><p>{current.name}<span>{imageDimensions}</span></p></div>
       {:else}<div class="empty-state welcome"><span class="welcome-mark"><Icon name="file" size={44}/></span><div class="eyebrow">A LITTLE SPACE TO WRITE</div><h1>言葉の、居場所。</h1><p>{project?'左のファイルを選ぶか、最初の記事を作ってみましょう。':'いつものフォルダで、思考をほどく。\nMarkdownを書くための、静かな場所。'}</p><button class="primary" onclick={()=>project?void startName('markdown'):void chooseProject()} disabled={busy}>{project?'＋ 新しい記事':'フォルダを開く'}</button><small>{project?'⌘ P で、記事をすばやく探せます。':'Markdown · ローカル保存 · macOS'}</small></div>{/if}
     </section>
@@ -242,5 +270,5 @@
 </div>
 {#if notice}<div class="toast" role="status">{notice}<button aria-label="通知を閉じる" onclick={()=>notice=''}><Icon name="close" size={15}/></button></div>{/if}
 <dialog class="quick-panel" bind:this={quickDialog} oncancel={(event)=>{event.preventDefault();closeQuick();}} aria-label="Quick Open"><div class="quick-input"><Icon name="search" size={20}/><input bind:this={quickInput} bind:value={query} oninput={()=>quickIndex=0} placeholder="ファイル名やパスで検索…" aria-label="ファイルを検索"/><kbd>esc</kbd></div><div class="quick-label">{query?'検索結果':'最近開いたファイル'}</div><div class="quick-results">{#each results as entry,i}<button id={'quick-'+i} class:highlighted={i===quickIndex} onclick={()=>{closeQuick(false);void selectEntry(entry);}}><span class="file-icon"><Icon name={entry.kind==='markdown'?'file':'image'}/></span><span><strong>{entry.name}</strong><small>{entry.path}</small></span>{#if i===quickIndex}<kbd>↵</kbd>{/if}</button>{/each}{#if !results.length}<p>{query?'一致するファイルがありません。':'最近開いたファイルはありません。名前を入力して検索できます。'}</p>{/if}</div><div class="quick-hint">↑ ↓ 選択　 ↵ 開く <span>プロジェクト内のMarkdownと画像</span></div></dialog>
-<dialog class="error-dialog" bind:this={errorDialog} onclose={()=>editor?.focus()}><h2>{issue?.code==='CONFLICT'?'外部の変更と競合しています':issue?.code==='MISSING'?'ファイルが見つかりません':'保存できませんでした'}</h2><p>{issue?.message}</p><p class="muted">編集中の内容は、この画面に保持しています。</p>{#if diskLabel}<details><summary>ディスク側の最新内容（先頭部分）</summary><pre>{diskLabel}</pre></details>{/if}<div class="dialog-actions">{#if issue?.code==='CONFLICT'}<button onclick={()=>void reloadDisk()}>ディスク内容を採用</button><button class="danger" disabled={!disk} onclick={()=>void overwriteDisk()}>編集内容で上書き</button>{:else if issue?.code!=='MISSING'}<button onclick={()=>void retrySave()}>再試行</button>{/if}<button class="primary" onclick={()=>void beginSaveAs()}>別名保存…</button><button onclick={()=>void discardAndClose()}>記事を閉じる…</button><button onclick={()=>errorDialog.close()}>あとで対応</button></div></dialog>
-<dialog class="save-as-dialog" bind:this={saveAsDialog} onclose={()=>saveAs=false}><form onsubmit={(event)=>{event.preventDefault();void commitSaveAs();}}><h2>別名で保存</h2><p>プロジェクト内の相対パスを入力してください。既存ファイルは上書きしません。</p><input aria-label="保存先の相対パス" bind:this={saveAsInput} bind:value={saveAsPath}/>{#if saveAsError}<p class="error-text">{saveAsError}</p>{/if}<div class="dialog-actions"><button type="button" onclick={()=>saveAsDialog.close()}>キャンセル</button><button class="primary" type="submit" disabled={busy}>保存</button></div></form></dialog>
+<dialog class="error-dialog" bind:this={errorDialog} onclose={()=>{editor?.focus();if(openRequestsQueued)void drainOpenRequests();}}><h2>{issue?.code==='CONFLICT'?'外部の変更と競合しています':issue?.code==='MISSING'?'ファイルが見つかりません':'保存できませんでした'}</h2><p>{issue?.message}</p><p class="muted">編集中の内容は、この画面に保持しています。</p>{#if diskLabel}<details><summary>ディスク側の最新内容（先頭部分）</summary><pre>{diskLabel}</pre></details>{/if}<div class="dialog-actions">{#if issue?.code==='CONFLICT'}<button onclick={()=>void reloadDisk()}>ディスク内容を採用</button><button class="danger" disabled={!disk} onclick={()=>void overwriteDisk()}>編集内容で上書き</button>{:else if issue?.code!=='MISSING'}<button onclick={()=>void retrySave()}>再試行</button>{/if}<button class="primary" onclick={()=>void beginSaveAs()}>別名保存…</button><button onclick={()=>void discardAndClose()}>記事を閉じる…</button><button onclick={()=>errorDialog.close()}>あとで対応</button></div></dialog>
+<dialog class="save-as-dialog" bind:this={saveAsDialog} onclose={()=>{saveAs=false;if(openRequestsQueued)void drainOpenRequests();}}><form onsubmit={(event)=>{event.preventDefault();void commitSaveAs();}}><h2>別名で保存</h2><p>プロジェクト内の相対パスを入力してください。既存ファイルは上書きしません。</p><input aria-label="保存先の相対パス" bind:this={saveAsInput} bind:value={saveAsPath}/>{#if saveAsError}<p class="error-text">{saveAsError}</p>{/if}<div class="dialog-actions"><button type="button" onclick={()=>saveAsDialog.close()}>キャンセル</button><button class="primary" type="submit" disabled={busy}>保存</button></div></form></dialog>

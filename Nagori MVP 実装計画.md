@@ -347,3 +347,16 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 ユーザー承認済みのMathJax 4.1.3へ移行し、学術的な既存Markdownの閲覧に対応した。式番号・参照・記事内マクロ、ローカル資産の遅延読み込み、記事切り替え時の参照解放を実装。macOSタイトルバーを既存ヘッダーに重ね、タイトルの二重表示をなくす。
 
 Node24件・Rust6件・型チェック成功、Releaseアプリ15.35MiB、ad-hoc署名strict検証成功。ブラウザで確認できた範囲とポリシー拒否による未完了確認、残るネイティブ操作・メモリ再計測は[検証状況](docs/acceptance-status.md)に記録。Phase 6の実機合格判定は保留。
+
+
+## 閲覧専用Previewへの切り替え（2026-10-02）
+
+ユーザーの指示により、全記法を表示するSourceモードを廃止し、Live Preview / Previewの2モードに変更する。Previewは既存のCodeMirror装飾を使い、選択による記法の露出と本文変更を禁止する。既存の編集・検索・Undoモデルを共用し、別のHTMLレンダラーや依存は追加しない。検証結果は[検証状況](docs/acceptance-status.md)へ追記する。
+
+
+## macOSのnagoriコマンド（2026-10-02）
+
+macOS標準のopenとTauriのOpenedイベントで、`nagori .`／`nagori test.md`を既存ウィンドウへ渡す。起動前の要求はRust側に保持し、フロントエンドの準備後に読み取る。起動後は既存の保存付き操作処理を通す。CLIはシェルスクリプトとしてPATH内へ登録し、追加ランタイムや常駐サーバーは導入しない。
+
+
+Preview・CLIの統合チェック：Node26件・Rust7件、型チェック0エラー・0警告、シェル構文チェック成功。Releaseアプリ15.35MiB、ad-hoc署名のstrict検証成功。macOSでの一連の起動・閲覧・保存確認は引き続き未完了。詳細は[検証状況](docs/acceptance-status.md)へ記録。
