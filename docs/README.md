@@ -8,6 +8,7 @@
 | ファイル構成、各処理の担当、データの流れ | [アーキテクチャ](architecture.md) |
 | 実装した範囲と今後の作業順 | [実装計画](implementation-plan.md) |
 | 確認済みの範囲と残るMac実機確認 | [検証状況](verification.md) |
+| Mac実機で順に確認する手順と記入欄 | [Mac実機QA手順書](mac-qa-checklist.md) |
 | 最新のメモリ測定と未確定事項 | [メモリ調査](performance/memory.md) |
 | ブラウザ上の入力・検索の参考値 | [ブラウザ参考性能](performance/browser-baseline.md) |
 
