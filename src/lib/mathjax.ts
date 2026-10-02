@@ -15,6 +15,7 @@ import '@mathjax/src/js/input/tex/ams/AmsConfiguration.js';
 import '@mathjax/src/js/input/tex/newcommand/NewcommandConfiguration.js';
 import '@mathjax/src/js/input/tex/mathtools/MathtoolsConfiguration.js';
 import { MAX_MATH_LENGTH, type MathExpression } from './markdownMath.ts';
+import { countRenderStart } from './mathStats.ts';
 
 const adaptor = liteAdaptor({ fontSize: 16 });
 AssistiveMmlHandler(RegisterHTMLHandler(adaptor));
@@ -37,6 +38,7 @@ let queue: Promise<void> = Promise.resolve();
 export function renderMath(expressions: MathExpression[], active: () => boolean = () => true): Promise<MathRender | null> {
   const job = queue.then(async () => {
     if (!active()) return null;
+    countRenderStart();
     if (expressions.length > 512 || expressions.reduce((size, item) => size + item.expression.length, 0) > 262144) throw new Error('この文書の数式表示上限を超えました');
     const errors = new WeakMap<object, string>();
     // A fresh TeX instance gives each revision its own macros, equation numbers and labels.
