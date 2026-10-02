@@ -1,5 +1,6 @@
 import { mathExpressions, type MathExpression } from './markdownMath.ts';
 import type { MathRender } from './mathjax.ts';
+import { countDiscard } from './mathStats.ts';
 import { StateEffect, StateField, EditorState, type Extension, type Range } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
@@ -83,7 +84,7 @@ const mathMounts = new WeakMap<HTMLElement, MathContext>();
 function releaseMath(element: HTMLElement) {
   const context = mathMounts.get(element); if (!context) return;
   mathMounts.delete(element); context.mounts.delete(element);
-  if (!context.mounts.size) { context.epoch++; context.result = undefined; }
+  if (!context.mounts.size) { context.epoch++; context.result = undefined; countDiscard(); }
 }
 function mathError(element: HTMLElement, source: string, error: unknown) {
   element.textContent = source; element.classList.add('nagori-math-error');

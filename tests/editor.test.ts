@@ -1,5 +1,6 @@
 import test from 'node:test';
 import { renderMath } from '../src/lib/mathjax.ts';
+import { readMathStats, resetMathStats } from '../src/lib/mathStats.ts';
 import { MAX_MATH_LENGTH, mathExpressions, type MathExpression } from '../src/lib/markdownMath.ts';
 import assert from 'node:assert/strict';
 import { EditorState, EditorSelection } from '@codemirror/state';
@@ -294,4 +295,51 @@ test('Preview keeps all syntax rendered through cursor/search selections and blo
   assert.ok(!decorationRanges(state, true).some(r => r.from === edited.indexOf('```') && r.to > r.from));
   assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
   assert.equal(state.doc.toString(), source);
+});
+
+test('数式の計測は無効時に記録せず、全mount撤去後の再表示で再処理が起きる', async () => {
+  const flag = globalThis as { __NAGORI_MATH_STATS__?: boolean };
+  // 最小限のDOM代替。MathWidgetのtoDOMとdestroyが触る範囲だけ用意する。
+  const makeElement = () => {
+    const el = { className: '', textContent: '', tabIndex: 0, isConnected: true, classList: { add() {} }, title: '',
+      setAttribute() {}, addEventListener() {}, append() {}, replaceChildren() {} };
+    return el as unknown as HTMLElement;
+  };
+  const saved = (globalThis as { document?: unknown }).document;
+  (globalThis as { document?: unknown }).document = { createElement: makeElement, getElementById: () => ({ textContent: '' }), fonts: { ready: Promise.resolve() } };
+  try {
+    const source = '$x^2$\n\n$y$\n';
+    const widgets = (state: EditorState) => decorationRanges(state, true).filter(r => r.spec.widget).map(r => r.spec.widget as { toDOM(view: unknown): HTMLElement; destroy(el: HTMLElement): void });
+    const view = { state: { field: () => false }, requestMeasure() {} };
+    const settle = () => new Promise(resolve => setTimeout(resolve, 300));
+
+    // 無効時は描画しても数えない
+    flag.__NAGORI_MATH_STATS__ = false; resetMathStats();
+    await renderMath([{ from: 0, expression: 'x', display: false }]);
+    assert.deepEqual(readMathStats(), { renderStarts: 0, discards: 0 });
+
+    // 有効時: 同じ本文のContextで、mountを増やしても描画は1回
+    flag.__NAGORI_MATH_STATS__ = true; resetMathStats();
+    const state = editor(source, source.length);
+    const [first, second] = widgets(state);
+    const a = first.toDOM(view), b = second.toDOM(view);
+    await settle();
+    assert.deepEqual(readMathStats(), { renderStarts: 1, discards: 0 });
+
+    // 一部だけ撤去しても破棄されない
+    first.destroy(a); await settle();
+    assert.deepEqual(readMathStats(), { renderStarts: 1, discards: 0 });
+
+    // 全mount撤去で破棄され、本文不変のまま再表示すると再処理される
+    second.destroy(b);
+    assert.equal(readMathStats().discards, 1);
+    const c = first.toDOM(view); await settle();
+    assert.deepEqual(readMathStats(), { renderStarts: 2, discards: 1 });
+    first.destroy(c);
+    assert.equal(readMathStats().discards, 2);
+  } finally {
+    delete flag.__NAGORI_MATH_STATS__; resetMathStats();
+    (globalThis as { document?: unknown }).document = saved;
+    if (saved === undefined) delete (globalThis as { document?: unknown }).document;
+  }
 });
