@@ -1,3 +1,4 @@
+mod cli;
 mod files;
 use files::{Entry, Error, Image, InsertedImage, OpenedDocument, Result, Saved, Settings};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -463,7 +464,12 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         "Live Preview / Preview",
         Some("CmdOrCtrl+Shift+L"),
     )?;
-    let view = Submenu::with_items(app, "表示", true, &[&preview])?;
+    let palette = action(
+        "command-palette",
+        "コマンドパレット…",
+        Some("CmdOrCtrl+Shift+P"),
+    )?;
+    let view = Submenu::with_items(app, "表示", true, &[&palette, &preview])?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
 pub fn run() {
@@ -495,6 +501,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            cli::cli_status,
+            cli::cli_install,
+            cli::cli_uninstall,
             open_request_take,
             workspace_open,
             workspace_list,

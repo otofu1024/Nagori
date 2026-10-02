@@ -41,15 +41,22 @@ else
     fail 'ディレクトリまたは通常ファイルを指定してください。'
 fi
 script=$(resolve_path "$0") || fail 'コマンドのパスを解決できません。'
-project=$(dirname "$(dirname "$script")")
-app=$project/src-tauri/target/release/bundle/macos/Nagori.app
-if [ ! -d "$app" ]; then
-    app=$HOME/Applications/Nagori.app
-    [ -d "$app" ] || app=/Applications/Nagori.app
-fi
+case "$script" in
+    */Contents/Resources/cli/nagori)
+        app=${script%/Contents/Resources/cli/nagori}
+        ;;
+    *)
+        project=$(dirname "$(dirname "$script")")
+        app=$project/src-tauri/target/release/bundle/macos/Nagori.app
+        if [ ! -d "$app" ]; then
+            app=$HOME/Applications/Nagori.app
+            [ -d "$app" ] || app=/Applications/Nagori.app
+        fi
+        ;;
+esac
 [ -d "$app" ] || fail 'Nagori.appがありません。先にMac用アプリをビルドまたはインストールしてください。'
 if [ -d "$target" ]; then
-    exec open -a "$app" "$workspace"
+    exec /usr/bin/open -a "$app" "$workspace"
 else
-    exec open -a "$app" "$workspace" "$target"
+    exec /usr/bin/open -a "$app" "$workspace" "$target"
 fi
