@@ -11,6 +11,7 @@
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
   import type { EditorApi } from './lib/editor';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
+  import { AppFlow } from './lib/appFlow';
   import { candidates, containsPath, renamedPath, parentPath, localLink, type Entry } from './lib/navigation';
 
   import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
@@ -29,7 +30,6 @@
   let previewOnly=$state(false), imageUrl=$state(''), imageDimensions=$state('');
   let composing=$state(false), compositionWaiters:Array<()=>void>=[], autosave:ReturnType<typeof setTimeout>|undefined;
   let fsTimer:ReturnType<typeof setTimeout>|undefined, noticeTimer:ReturnType<typeof setTimeout>|undefined;
-  let externalQueued=false, externalChecking=false;
   let openRequestsQueued=false, openingRequest=false;
   const imageUrls=new Set<string>();
   const imageCache=new Map<string,Promise<string>>();
@@ -60,18 +60,12 @@
   function notify(message:string) {notice=message;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>notice='',5000);}
   function syncSession() {if(!session)return;status=session.status;issue=session.issue;readonly=session.readonly;chars=session.text.length;}
   function cancelSave() {clearTimeout(autosave);autosave=undefined;}
-  function scheduleSave() {cancelSave();if(!session||session.issue||composing)return;autosave=setTimeout(()=>{void session?.flush().then(ok=>{if(!ok&&session?.issue)void showProblem();if(externalQueued&&!busy&&!composing){externalQueued=false;void checkExternal();}});},500);}
+  function scheduleSave() {cancelSave();if(!session||session.issue||composing)return;autosave=setTimeout(()=>{void session?.flush().then(ok=>{if(!ok&&session?.issue)void showProblem();flow.resumeExternal();});},500);}
   function changed(text:string) {session?.edit(text);scheduleSave();}
-  function composition(active:boolean) {composing=active;if(session)session.composing=active;if(active)cancelSave();else{for(const resolve of compositionWaiters.splice(0))resolve();scheduleSave();if(treeQueued&&!busy)void processChanges();if(externalQueued&&!busy){externalQueued=false;void checkExternal();}}}
+  function composition(active:boolean) {composing=active;if(session)session.composing=active;if(active)cancelSave();else{for(const resolve of compositionWaiters.splice(0))resolve();scheduleSave();if(treeQueued&&!busy)void processChanges();flow.resumeExternal();}}
   async function settleComposition() {if(composing)await new Promise<void>(resolve=>compositionWaiters.push(resolve));}
-  async function flush() {cancelSave();await settleComposition();if(!session)return true;const ok=await session.flush();if(!ok&&session.issue)await showProblem();return ok;}
-  async function operation(action:()=>Promise<void>, needsSave=true) {
-    if(busy)return;
-    await settleComposition();
-    if(busy)return;
-    busy=true;
-    try {if(needsSave&&!await flush())return false;await action();return true;} catch(error) {notify(failure(error).message);return false;} finally {busy=false;if(treeQueued)void processChanges();if(externalQueued){externalQueued=false;void checkExternal();}if(openRequestsQueued&&!openingRequest)void drainOpenRequests();}
-  }
+  function flush() {return flow.flush();}
+  function operation(action:()=>Promise<void>, needsSave=true) {return flow.operation(action,needsSave);}
   async function drainOpenRequests() {
     if(!openRequestsQueued||starting||busy||openingRequest||session?.issue||errorDialog?.open||saveAsDialog?.open)return;
     openingRequest=true;
@@ -97,6 +91,15 @@
   }
   async function processChanges() {if(busy||composing)return;const root=project,refreshImages=imagesQueued;treeQueued=false;imagesQueued=false;try{await refreshTree();if(root!==project||busy||composing){treeQueued=true;imagesQueued ||= refreshImages;return;}if(refreshImages&&session){releaseImages();editor?.refreshImages();}if(refreshImages&&current?.kind==='image'){const target=current,key=documentKey;const result=await blobImage(target.path);if(current!==target||documentKey!==key){URL.revokeObjectURL(result.url);imageUrls.delete(result.url);}else{if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=result.url;imageDimensions=`${result.data.width} × ${result.data.height}`;}}await checkExternal();}catch(error){notify(failure(error).message);}}
   let settingsQueue=Promise.resolve();
+  const flow=new AppFlow({
+    getSession:()=>session,isBusy:()=>busy,setBusy:value=>busy=value,isComposing:()=>composing,
+    cancelSave,settleComposition,showProblem,openDocument:path=>invoke<OpenedDocument>('document_open',{path}),
+    replaceText:text=>editor?.replaceText(text),notify,closePalette:()=>closePalette(false),isPaletteOpen:()=>palette,
+    persist:async()=>{await persist();},settingsQueue:()=>settingsQueue,exitApp:()=>invoke('app_exit'),
+    resumeTree:()=>{if(treeQueued)void processChanges();},
+    resumeOpenRequests:()=>{if(openRequestsQueued&&!openingRequest)void drainOpenRequests();},
+    defer:run=>void setTimeout(run,0),
+  });
   function persist() {if(!settingsLoaded)return settingsQueue;const snapshot=JSON.parse(JSON.stringify(settings));settingsQueue=settingsQueue.then(()=>invoke<void>('settings_save',{settings:snapshot})).catch(error=>notify('設定を保存できません: '+failure(error).message));return settingsQueue;}
   async function list(path:string) {const root=project;const entries=await invoke<Entry[]>('workspace_list',{path});if(root===project)tree={...tree,[path]:entries};}
   async function refreshTree() {const root=project;for(const path of expanded){try{await list(path);}catch{if(path==='')throw new Error('プロジェクトフォルダを読み込めません。');tree={...tree,[path]:[]};}}const entries=await invoke<Entry[]>('workspace_index');if(root===project)index=entries;}
@@ -224,13 +227,8 @@
     catch(error) {saveAsError=failure(error).message;}finally{busy=false;if(openRequestsQueued)void drainOpenRequests();}
   }
   async function discardAndClose() {const target=session;if(!target)return;if(target.dirty&&!await confirm('未保存の編集内容を破棄して閉じます。',{title:'未保存内容を破棄',kind:'warning',okLabel:'破棄して閉じる',cancelLabel:'キャンセル'}))return;if(session!==target)return;clearDocument();settings.lastFile=null;errorDialog.close();void persist();}
-  async function checkExternal() {
-    if(busy||externalChecking||composing){externalQueued=true;return;}
-    const target=session;if(!target)return;const baseline=target.baseline,generation=target.generation;externalChecking=true;
-    try {if(target.isSaving){externalQueued=true;return;};const fresh=await invoke<OpenedDocument>('document_open',{path:target.path});if(session!==target||busy)return;if(composing){externalQueued=true;return;}if(target.isSaving||target.baseline!==baseline||target.generation!==generation){externalQueued=true;return;}if(fresh.baseline===target.baseline)return;if(target.dirty||target.issue){target.block({code:'CONFLICT',message:'ディスク側に変更があります。自動保存を停止しました。'});cancelSave();await showProblem();}else{target.reload(fresh);editor?.replaceText(fresh.text);notify('外部の変更を読み込みました。');}}
-    catch(error){if(session===target&&!busy&&target.baseline===baseline&&target.generation===generation&&!target.isSaving){if(composing){externalQueued=true;return;}target.block(error);cancelSave();await showProblem();}}finally{externalChecking=false;if(externalQueued&&!busy&&!composing&&session?.status!=='saving'){externalQueued=false;setTimeout(()=>void checkExternal(),0);}}
-  }
-  async function quit() {if(palette)closePalette(false);await operation(async()=>{await persist();await settingsQueue;await invoke('app_exit');});}
+  function checkExternal() {return flow.checkExternal();}
+  function quit() {return flow.quit();}
   function keydown(event:KeyboardEvent) {
     if(palette){paletteKey(event);return;}
     if(event.isComposing||event.keyCode===229)return;
