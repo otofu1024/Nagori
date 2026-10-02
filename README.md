@@ -107,6 +107,19 @@ npm run tauri build -- --bundles app,dmg --ci
 
 今回のDMGはad-hoc署名のローカル試用版です。Developer ID Application証明書がなく、公証情報も未設定のため、外部配布用の署名・公証は完了していません。mainへの反映、リリースタグ、GitHub Releaseの公開は行いません。外部配布前に署名・公証を設定し、Macの未確認操作と性能の判断を終えてください。
 
+## 外部配布用の署名と公証
+
+外部配布用のDeveloper ID署名と公証は、環境変数で証明書と資格情報を渡した時だけ実行します。資格情報や証明書はリポジトリに書きません。
+
+```sh
+npm run release:sign:check   # 環境変数と証明書の確認だけ。ビルドしない
+npm run release:sign         # 署名・公証つきでアプリとDMGを生成し、検証する
+```
+
+必要な環境変数は次のとおりです。APPLE_SIGNING_IDENTITYにはキーチェーンにあるDeveloper ID Applicationの証明書名を入れます。公証の資格情報は、APPLE_ID・APPLE_PASSWORD（App用パスワード）・APPLE_TEAM_IDの組か、APPLE_API_ISSUER・APPLE_API_KEY・APPLE_API_KEY_PATHの組のどちらかを渡します。
+
+どれかが足りない場合や証明書がキーチェーンにない場合、スクリプトは何も署名・ビルドせず、案内を出して終了コード2で終わります。ビルド後の検証は、codesignのstrict検証、spctlの評価、staplerの検証の順です。通常のビルド（ad-hoc署名）は、これらの環境変数を設定しない限り従来と同じです。この環境には証明書がないため、署名と公証は実行していません。
+
 ## 開発資料
 
 [docsの目次](docs/README.md)から、[仕様書](docs/specification.md)、[アーキテクチャ](docs/architecture.md)、[実装計画](docs/implementation-plan.md)、[検証状況](docs/verification.md)を参照できます。性能測定はdocs/performance、過去の記録はdocs/historyへまとめています。
