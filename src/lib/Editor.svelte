@@ -7,6 +7,7 @@
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree } from '@codemirror/language';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
+  import { restoredScrollTop } from './scrollRestore.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind } from './editor.ts';
@@ -155,10 +156,11 @@
     const enabled = previewOnly;
     if (enabled) { toolbar = null; linkDialog = false; pendingLink = undefined; }
     if (view) {
-      const editor = view, scroll = editor.scrollDOM.scrollTop;
+      const editor = view, dom = editor.scrollDOM, before = { scrollTop: dom.scrollTop, clientHeight: dom.clientHeight, scrollHeight: dom.scrollHeight };
+      const restore = () => { if (view === editor) dom.scrollTop = restoredScrollTop(before, dom); };
       editor.dispatch({ effects: previewOnlyMode.of(enabled) });
-      editor.scrollDOM.scrollTop = scroll;
-      editor.requestMeasure({ read: () => scroll, write: () => { if (view === editor) editor.scrollDOM.scrollTop = scroll; } });
+      restore();
+      editor.requestMeasure({ read: () => 0, write: restore });
     }
   });
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
