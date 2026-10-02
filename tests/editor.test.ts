@@ -1,4 +1,6 @@
 import test from 'node:test';
+import { renderMath } from '../src/lib/mathjax.ts';
+import { MAX_MATH_LENGTH, mathExpressions, type MathExpression } from '../src/lib/markdownMath.ts';
 import assert from 'node:assert/strict';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
@@ -120,4 +122,130 @@ test('safe link generation handles spaces/brackets and rejects dangerous schemes
   assert.throws(() => linkMarkdown('x', 'javascript:alert(1)'));
   assert.throws(() => linkMarkdown('x', 'file:///etc/passwd'));
   assert.throws(() => linkMarkdown('x', 'foo\nbar'));
+});
+
+
+test('math syntax includes inline, display, blank-line blocks and table cells without consuming following prose', () => {
+  const source = 'Inline $x_1+\\frac{1}{2}$ and \\(y^2\\).\n\n$$z^2$$\n\n\\[w^2\\]\n\n$$\n\\begin{aligned}\na&=b+c\\\\\n\n&=d\n\\end{aligned}\n$$  \n\n\\[\n\\begin{matrix}a&b\\\\c&d\\end{matrix}\n\\]\n\n| h | math |\n|---|---|\n| x | $x^2$ |\n\nend';
+  const nodes: string[] = []; walk(markdownParser.parse(source).topNode, node => { if (/^(InlineMath|DisplayMath|MathBlock)$/.test(node.name)) nodes.push(node.name); });
+  assert.deepEqual(nodes, ['InlineMath', 'InlineMath', 'DisplayMath', 'DisplayMath', 'MathBlock', 'MathBlock', 'InlineMath']);
+  const state = editor(source), ranges = decorationRanges(state);
+  assert.equal(ranges.filter(r => r.spec.widget && !r.spec.block).length, 2);
+  assert.equal(ranges.filter(r => r.spec.widget && r.spec.block).length, 5); // Four display expressions and a table.
+  assert.equal(state.doc.toString(), source);
+});
+test('table math source selection reveals exactly the targeted expression', () => {
+  const source = '| h | math |\n|---|---|\n| first | $x^2$ |\n| second | **$\\sqrt{x}$** |\n\nend';
+  for (const expression of ['$x^2$', '$\\sqrt{x}$']) {
+    const at = source.indexOf(expression), state = editor(source, at);
+    const ranges = decorationRanges(state, true);
+    assert.ok(!ranges.some(r => r.spec.widget && r.from <= at && r.to > at));
+    const other = source.indexOf(expression === '$x^2$' ? '$\\sqrt{x}$' : '$x^2$');
+    assert.ok(ranges.some(r => r.spec.widget && r.from === other));
+    assert.equal(state.selection.main.head, at);
+    assert.equal(state.doc.toString(), source);
+  }
+});
+test('math leaves currency, escaped dollars, code, HTML blocks and front matter as source', () => {
+  for (const source of [
+    'Costs $5 and $10, then $20.00.', '\\$x$', '$ x $', '$x $', '$x$2',
+    '`$x$`\n\n```tex\n$$\nx\n$$\n\\(y\\)\n```',
+    '    $x$\n\n<div>\n$x$\n\\[x\\]\n</div>',
+    '---\nmath: $x$\n---\n\nend',
+    '$$\nx\nnot closed',
+    '$x\ny$'
+  ]) {
+    const state = editor(source), math: string[] = [];
+    walk(syntaxTree(state).topNode, node => { if (/^(InlineMath|DisplayMath|MathBlock)$/.test(node.name)) math.push(node.name); });
+    assert.deepEqual(math, [], source);
+    assert.equal(state.doc.toString(), source);
+  }
+});
+test('math source reveal, source mode and IME preserve source and undo', () => {
+  const source = '入力\n\n$x^2$\n\n$$\ny^2\n$$\n\nend', mathAt = source.indexOf('$');
+  let state = editor(source);
+  assert.ok(decorationRanges(state, true).some(r => r.from === mathAt && r.spec.widget));
+  state = state.update({ selection: { anchor: mathAt + 2 } }).state;
+  assert.ok(!decorationRanges(state, true).some(r => r.from === mathAt && r.spec.widget));
+  state = state.update({ selection: EditorSelection.range(mathAt - 1, mathAt + 1) }).state;
+  assert.ok(!decorationRanges(state, true).some(r => r.from === mathAt && r.spec.widget));
+  assert.ok(formatPlan(source, { from: mathAt + 1, to: mathAt + 2 }, 'bold').reason);
+  state = state.update({ selection: { anchor: 0 } }).state;
+  const before = decorationRanges(state, true);
+  state = state.update({ effects: compositionMode.of(true) }).state;
+  state = state.update({ changes: { from: 0, insert: '日本語' }, selection: { anchor: 3 }, userEvent: 'input.type.compose' }).state;
+  for (const range of before) assert.equal(decorationRanges(state, true).find(r => r.from === range.from + 3 && r.to === range.to + 3)?.spec.widget, range.spec.widget);
+  ensureSyntaxTree(state, state.doc.length, 1000);
+  state = state.update({ effects: compositionMode.of(false) }).state;
+  for (const active of [true, false]) { state = state.update({ effects: previewMode.of(active) }).state; if (active) assert.equal(decorationRanges(state, true).length, 0); }
+  assert.equal(state.doc.toString(), '日本語' + source);
+  assert.ok(undo({ state, dispatch: tr => { state = tr.state; } }));
+  assert.equal(state.doc.toString(), source);
+});
+
+
+function expressions(values: string[]): MathExpression[] { return values.map((expression, from) => ({ expression, from, to: from + 1, source: '$$' + expression + '$$', display: true })); }
+test('MathJax AMS/mathtools/macros/tags/forward refs are scoped to one document', async () => {
+  const values = [
+    '\\eqref{future}',
+    '\\begin{equation}x=1\\label{future}\\end{equation}',
+    '\\newcommand{\\RR}{\\mathbb{R}}', '\\RR',
+    '\\begin{aligned}a&=b+c\\\\&=d\\end{aligned}',
+    '\\begin{matrix}a&b\\\\c&d\\end{matrix}',
+    'f(x)=\\begin{cases}x&x>0\\\\-x&x\\le0\\end{cases}',
+    '\\begin{multlined}a+b\\\\+c+d\\end{multlined}',
+    'x^2\\tag{A}', 'a\\bmod b + x\\pmod{n} + x\\mod n', '\\underbracket{x+y}', '|x|+\\left|x\\right|+\\big|x\\big|'
+  ];
+  const rendered = await renderMath(expressions(values)); assert.ok(rendered);
+  for (const [position, result] of rendered.expressions) { assert.equal(result.error, undefined, values[position]); assert.match(result.html!, /<mjx-container/); assert.match(result.html!, /<mjx-assistive-mml/); assert.match(result.html!, /<math /); }
+  assert.match(rendered.expressions.get(0)!.html!, /MathJax_ref/); assert.doesNotMatch(rendered.expressions.get(0)!.html!, /mjx-c3F/);
+  assert.match(rendered.expressions.get(1)!.html!, /id="mjx-eqn:future"/);
+  assert.match(rendered.css, /@font-face/);
+  const next = await renderMath(expressions(['\\RR', '\\ref{future}', '\\begin{equation}y=2\\end{equation}'])); assert.ok(next);
+  assert.ok(next.expressions.get(0)!.error); assert.match(next.expressions.get(1)!.html!, /mjx-c3F/); // Undefined reference stays MathJax's ?? marker.
+  assert.match(next.expressions.get(2)!.html!, /mjx-c31/); // Counter starts at 1 for each new document.
+  const repeated = await renderMath(expressions(['\\RR', '\\newcommand{\\RR}{\\mathbb{R}}', '\\RR'])); assert.ok(repeated);
+  assert.ok(repeated.expressions.get(0)!.error); assert.equal(repeated.expressions.get(2)!.error, undefined); assert.match(repeated.expressions.get(2)!.html!, /<mjx-container/);
+});
+test('MathJax refuses HTML/network/undefined commands and bounds macro expansion', async () => {
+  const values = [
+    String.raw`\mmlToken{mi}[style="font-size:999999px;position:fixed;inset:0;background:red"]{x}`,
+    String.raw`\mmlToken{mi}[href="javascript:alert(1)"]{x}`, String.raw`\mmlToken{mi}[href="https://example.invalid/x"]{x}`,
+    String.raw`\mmlToken{mi}[fontsize="999999px"]{x}`, String.raw`\mmlToken{mi}[scriptlevel="-999"]{x}`,
+    String.raw`\mmlToken{mi}[mathcolor="red;position:fixed;inset:0"]{x}`, String.raw`\mmlToken{mi}[mathbackground="red;position:fixed;inset:0"]{x}`,
+    String.raw`\mmlToken{mi}[fontfamily="serif;position:fixed;inset:0"]{x}`, String.raw`\mmlToken{mi}[fontweight="bold;position:fixed"]{x}`, String.raw`\mmlToken{mi}[fontstyle="italic;position:fixed"]{x}`,
+    String.raw`\mmlToken{mo}[lspace="999999%"]{x}`, String.raw`a\mmlToken{mo}[lspace="infinity"]{x}b`, String.raw`\mmlToken{mi}[class="nagori-math"]{x}`, String.raw`\mmlToken{mi}[id="nagori-mathjax-style"]{x}`,
+    '\\href{javascript:alert(1)}{x}', '\\includegraphics{https://example.invalid/x}', '\\htmlStyle{color:red}{x}', '\\require{html}', '\\def\\a{\\a}\\a', '\\frac{1}{', '\\unknownNagoriCommand', '\\rule{999999em}{999999em}', '\\kern100000px x'];
+  const rendered = await renderMath(expressions(values)); assert.ok(rendered);
+  for (const [position, result] of rendered.expressions) { assert.ok(result.error, values[position]); assert.equal(result.html, undefined); }
+  assert.equal(await renderMath(expressions(['x']), () => false), null);
+  let activeChecks = 0; assert.equal(await renderMath(expressions(['x']), () => ++activeChecks === 1), null); assert.equal(activeChecks, 2);
+  await assert.rejects(() => renderMath(expressions(new Array(513).fill('x'))));
+  assert.doesNotMatch(markdownParser.parse('$' + 'x'.repeat(MAX_MATH_LENGTH + 1) + '$').toString(), /InlineMath/);
+});
+test('display blocks in quotes/lists strip structural prefixes only from render input', () => {
+  for (const source of ['> $$\n> x^2\n> $$\n\nend', '- $$\n  x^2\n  $$\n\nend', '> - \\[\n>   x^2\n>   \\]\n\nend']) {
+    const tree = markdownParser.parse(source), math = mathExpressions(tree, source);
+    assert.equal(math.length, 1, tree.toString()); assert.equal(math[0].expression, 'x^2');
+    const state = editor(source); assert.equal(state.doc.toString(), source);
+    assert.ok(decorationRanges(state, true).some(r => r.from === math[0].from && r.spec.widget));
+  }
+});
+
+test('long documents resolve offscreen labels before CodeMirror parses the tail and reuse unchanged math context', async () => {
+  const text = '---\nmetadata: $x$\n---\n\n' + String.raw`$\eqref{tail}$` + '\n\n' + 'paragraph\n\n'.repeat(15000) + String.raw`$$\begin{equation}x=1\label{tail}\end{equation}$$`;
+  let state = EditorState.create({ doc: text, extensions: [markdown({ base: commonmarkLanguage, extensions: markdownExtensions }), livePreview(options)] });
+  const context = () => (decorationRanges(state, true).find(range => range.spec.widget && range.from === text.indexOf('$\\eqref'))!.spec.widget as { context: { expressions: MathExpression[] } }).context;
+  assert.ok(syntaxTree(state).length < text.length);
+  const initial = context();
+  assert.equal(initial.expressions.length, 2); // Metadata math stays source, while the far-offscreen label is included.
+  const rendered = await renderMath(initial.expressions); assert.ok(rendered);
+  assert.doesNotMatch(rendered.expressions.get(initial.expressions[0].from)!.html!, /mjx-c3F/);
+  ensureSyntaxTree(state, 103000, 1000);
+  state = state.update({ selection: { anchor: 1 } }).state;
+  assert.ok(syntaxTree(state).length < text.length);
+  assert.equal(context(), initial); // Background parser advancement doesn't rescan or invalidate the rendered formulas.
+  state = state.update({ changes: { from: text.length, insert: '\n' } }).state;
+  assert.notEqual(context(), initial);
+  assert.equal(context().expressions.length, 2);
 });

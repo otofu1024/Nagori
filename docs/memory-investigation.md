@@ -85,3 +85,10 @@ native PID92653、WebContent92656、GPU92654、Networking92655に限定して計
 - 条件・PID・ソースhash・binary hash：同フォルダの`inventory.json`
 - 集計・短い報告：同フォルダの`summary.json`、`report.md`
 - 読み取りの補足分類：同フォルダの`webcontent-vmmap-summary.txt`、`native-vmmap-summary.txt`
+
+
+## MathJax追加後（2026-10-02）
+
+MathJaxは数式を表示する時だけ読み込み、記事ごとのMathDocument・出力器が持つ文書／式／表への参照とマクロマップを解放する。古い記事の非同期結果は表示しない。エンジンと読み込み済みフォントモジュールは実行環境のキャッシュに残る。この変更は既存のWebKit描画メモリ問題の解決を示すものではない。
+
+Releaseの初期JSは638,049 bytes、遅延MathJaxは555,594 bytes、フォントデータ544,073 bytes、WOFF2は1,623,040 bytes。配布サイズをRAM増分へ換算しない。数式なし／数式あり／記事切り替え後の固定条件での実機メモリは未測定。上記の174.63MiB等はMathJax追加前の別ビルドの観測値。

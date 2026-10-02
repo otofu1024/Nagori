@@ -1,9 +1,10 @@
 import { parser, Table, TaskList, Strikethrough } from '@lezer/markdown';
 import type { SyntaxNode, Tree, Input } from '@lezer/common';
+import { mathExtension } from './markdownMath.ts';
 import type { FormatKind } from './editor.ts';
 
-const baseParser = parser.configure([Table, TaskList, Strikethrough]);
-export const markdownExtensions = [Table, TaskList, Strikethrough, { wrap: (_inner: unknown, input: Input) => {
+const baseParser = parser.configure([Table, TaskList, Strikethrough, mathExtension]);
+export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension, { wrap: (_inner: unknown, input: Input) => {
   const start = input.read(0, Math.min(input.length, 6));
   const front = /^(?:\uFEFF)?---\r?\n/.test(start) ? frontMatter(input.read(0, input.length)) : null;
   if (!front) return _inner as ReturnType<typeof baseParser.startParse>;
@@ -88,6 +89,7 @@ export function formatPlan(text: string, selection: Span, kind: FormatKind, tree
   if (front && intersects(front, selection)) return denied('Front Matterはソースのまま編集してください');
   const nodes: SyntaxNode[] = [];
   walk(tree.topNode, node => { if (intersects(node, selection)) nodes.push(node); else if (node.name !== 'Document') return false; });
+  if (nodes.some(n => /^(?:InlineMath|DisplayMath|MathBlock|MathUnclosed)$/.test(n.name))) return denied('数式は元のLaTeX記法で編集してください');
   if (nodes.some(n => n.name === 'TaskMarker')) return denied('チェック記号を除いて選択してください');
   if (nodes.some(n => /^(?:FencedCode|CodeBlock|HTMLBlock|HTMLTag|Table|LinkReference)$/.test(n.name))) return denied('コード・表・HTML・参照定義内には適用できません');
   const blocks = nodes.filter(n => n.name === 'Paragraph' || n.name === 'Task' || /^(?:ATXHeading|SetextHeading)/.test(n.name));

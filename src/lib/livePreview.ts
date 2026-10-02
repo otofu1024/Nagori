@@ -1,3 +1,5 @@
+import { mathExpressions, type MathExpression } from './markdownMath.ts';
+import type { MathRender } from './mathjax.ts';
 import { StateEffect, StateField, type EditorState, type Extension, type Range } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
@@ -66,7 +68,53 @@ class ImageWidget extends WidgetType {
   }
   ignoreEvent() { return true; }
 }
-function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs: Map<string, string>, options: Options, view: EditorView) {
+type MathContext = { expressions: MathExpression[]; mounts: Set<HTMLElement>; epoch: number; result?: Promise<MathRender | null> };
+const mathMounts = new WeakMap<HTMLElement, MathContext>();
+function releaseMath(element: HTMLElement) {
+  const context = mathMounts.get(element); if (!context) return;
+  mathMounts.delete(element); context.mounts.delete(element);
+  if (!context.mounts.size) { context.epoch++; context.result = undefined; }
+}
+function mathError(element: HTMLElement, source: string, error: unknown) {
+  element.textContent = source; element.classList.add('nagori-math-error');
+  element.title = `数式を表示できません: ${String(error)}`;
+  const reason = document.createElement('span'); reason.className = 'nagori-math-reason'; reason.textContent = '（数式エラー）'; element.append(reason);
+}
+class MathWidget extends WidgetType {
+  readonly position: number;
+  readonly source: string;
+  readonly display: boolean;
+  readonly context: MathContext;
+  constructor(position: number, source: string, display: boolean, context: MathContext) { super(); this.position = position; this.source = source; this.display = display; this.context = context; }
+  eq(other: MathWidget) { return this.position === other.position && this.source === other.source && this.display === other.display && this.context === other.context; }
+  toDOM(view: EditorView) {
+    const element = document.createElement(this.display ? 'div' : 'span');
+    element.className = this.display ? 'nagori-math nagori-math-display' : 'nagori-math'; element.textContent = this.source;
+    element.tabIndex = 0; element.setAttribute('role', 'group'); element.setAttribute('aria-label', '数式（EnterでLaTeX記法を編集）');
+    element.addEventListener('mousedown', event => event.preventDefault());
+    element.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); selectSource(view, this.position); });
+    element.addEventListener('keydown', event => { if ((event as KeyboardEvent).key === 'Enter' || (event as KeyboardEvent).key === ' ') { event.preventDefault(); event.stopPropagation(); selectSource(view, this.position); } });
+    const context = this.context; context.mounts.add(element); mathMounts.set(element, context);
+    const epoch = context.epoch, active = () => context.epoch === epoch && [...context.mounts].some(node => node.isConnected);
+    context.result ??= import('./mathjax.ts').then(engine => engine.renderMath(context.expressions, active));
+    context.result.then(rendered => {
+      if (!rendered || context.epoch !== epoch || !element.isConnected || mathMounts.get(element) !== context) return;
+      const result = rendered.expressions.get(this.position);
+      if (!result?.html) { mathError(element, this.source, result?.error ?? '数式を表示できません'); view.requestMeasure(); return; }
+      let style = document.getElementById('nagori-mathjax-style');
+      if (!style) { style = document.createElement('style'); style.id = 'nagori-mathjax-style'; document.head.append(style); }
+      if (style.textContent !== rendered.css) style.textContent = rendered.css;
+      // Only MathJax-generated CHTML from the fixed TeX package set enters the DOM.
+      const template = document.createElement('template'); template.innerHTML = result.html; element.replaceChildren(template.content);
+      view.requestMeasure();
+      document.fonts.ready.then(() => { if (element.isConnected && mathMounts.get(element) === context) view.requestMeasure(); });
+    }).catch(error => { if (context.epoch === epoch && element.isConnected && mathMounts.get(element) === context) { mathError(element, this.source, error); view.requestMeasure(); } });
+    return element;
+  }
+  destroy(element: HTMLElement) { releaseMath(element); }
+  ignoreEvent() { return true; }
+}
+function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs: Map<string, string>, options: Options, view: EditorView, math: MathContext) {
   const content = inlineContent(node);
   const kids = children(node).filter(n => n.from >= content.from && n.to <= content.to && !/^(?:LinkMark|LinkLabel|URL|LinkTitle|EmphasisMark|CodeMark|StrikethroughMark)$/.test(n.name));
   let at = content.from;
@@ -78,8 +126,10 @@ function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs:
       const element = document.createElement(tag); if (inlineClasses[child.name]) element.className = inlineClasses[child.name];
       if (target) { element.title = `${target}（Cmd＋クリックで開く）`; element.addEventListener('click', e => { if (e.metaKey) { e.stopPropagation(); options.onLink(target); } }); }
       if (child.name === 'InlineCode') element.textContent = codeDisplay(text.slice(inlineContent(child).from, inlineContent(child).to));
-      else renderInline(element, child, text, refs, options, view);
+      else renderInline(element, child, text, refs, options, view, math);
       parent.append(element);
+    } else if (child.name === 'InlineMath' || child.name === 'DisplayMath') {
+      parent.append(new MathWidget(child.from, text.slice(child.from, child.to), child.name === 'DisplayMath', math).toDOM(view));
     } else if (child.name === 'Image') {
       const target = linkTarget(child, text, refs);
       if (target) parent.append(new ImageWidget(child.from, target, text.slice(inlineContent(child).from, inlineContent(child).to), options.resolveImage).toDOM(view));
@@ -97,8 +147,9 @@ class TableWidget extends WidgetType {
   readonly text: string;
   readonly options: Options;
   readonly refs: Map<string, string>;
-  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>) { super(); this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; }
-  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage; }
+  readonly math: MathContext;
+  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext) { super(); this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
+  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math; }
   toDOM(view: EditorView) {
     const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap'; wrapper.tabIndex = 0; wrapper.setAttribute('role', 'button'); wrapper.setAttribute('aria-label', '表のMarkdownを編集');
     const table = document.createElement('table'); const rows = children(this.node).filter(n => n.name === 'TableHeader' || n.name === 'TableRow');
@@ -109,21 +160,25 @@ class TableWidget extends WidgetType {
       children(row).filter(n => n.name === 'TableCell').forEach((cell, i) => {
         const td = document.createElement(row.name === 'TableHeader' ? 'th' : 'td');
         if (align[i]?.startsWith(':') && align[i]?.endsWith(':')) td.style.textAlign = 'center'; else if (align[i]?.endsWith(':')) td.style.textAlign = 'right';
-        renderInline(td, cell, this.text, this.refs, this.options, view); tr.append(td);
+        renderInline(td, cell, this.text, this.refs, this.options, view, this.math); tr.append(td);
       }); table.append(tr);
     }
     wrapper.append(table); wrapper.addEventListener('click', () => selectSource(view, this.position)); wrapper.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); }); return wrapper;
   }
+  destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); }
   ignoreEvent() { return true; }
 }
-type PreviewContext = { tree: Tree; text: string; front: Span | null; refs: Map<string, string> };
-function previewContext(state: EditorState): PreviewContext {
+type PreviewContext = { tree: Tree; text: string; front: Span | null; refs: Map<string, string>; math: MathContext };
+function previewContext(state: EditorState, previous?: PreviewContext): PreviewContext {
   const tree = syntaxTree(state), text = state.doc.toString();
-  return { tree, text, front: frontMatter(text), refs: references(tree, text) };
+  // ponytail: full math scan once per text revision up to the 2MiB document limit; index only if measured latency requires it.
+  const hasMath = text.includes('$') || text.includes('\\(') || text.includes('\\[');
+  const math = previous?.text === text ? previous.math : { expressions: hasMath ? mathExpressions(markdownParser.parse(text), text) : [], mounts: new Set<HTMLElement>(), epoch: 0 };
+  return { tree, text, front: frontMatter(text), refs: references(tree, text), math };
 }
 export function buildPreview(state: EditorState, options: Options, context?: PreviewContext): DecorationSet {
   if (state.field(sourceField, false)) return Decoration.none;
-  const { tree, text, front, refs } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
+  const { tree, text, front, refs, math } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
   const active = (span: Span) => state.selection.ranges.some(r => touches(span, r));
   const hide = (from: number, to: number) => { if (from < to) ranges.push(Decoration.replace({}).range(from, to)); };
   const mark = (from: number, to: number, className: string, attributes?: Record<string, string>) => { if (from < to) ranges.push(Decoration.mark({ class: className, attributes }).range(from, to)); };
@@ -135,9 +190,17 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   // ponytail: traverse parsed document for selection changes; index decoration candidates if measured 100KiB latency exceeds the target.
   walk(tree.topNode, node => {
     if (node.name !== 'Document' && front && intersects(front, node)) return false;
-    if (/^(?:HTMLBlock|HTMLTag|CommentBlock|ProcessingInstructionBlock|LinkReference)$/.test(node.name)) return false;
+    if (/^(?:HTMLBlock|HTMLTag|CommentBlock|ProcessingInstructionBlock|LinkReference|MathUnclosed)$/.test(node.name)) return false;
+    if (/^(?:InlineMath|DisplayMath|MathBlock)$/.test(node.name)) {
+      if (!active(node)) {
+        const current = state.doc.lineAt(node.from);
+        const block = node.name === 'MathBlock' || (node.name === 'DisplayMath' && text.slice(current.from, node.from).trim() === '' && text.slice(node.to, state.doc.lineAt(node.to).to).trim() === '');
+        ranges.push(Decoration.replace({ widget: new MathWidget(node.from, text.slice(node.from, node.to), node.name !== 'InlineMath', math), block }).range(node.from, node.to));
+      }
+      return false;
+    }
     if (node.name === 'Table') {
-      if (!active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs), block: true }).range(node.from, node.to)); return false; }
+      if (!active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs, math), block: true }).range(node.from, node.to)); return false; }
       line(node.from, 'nagori-table-source');
     }
     if (node.name === 'Image') {
@@ -184,7 +247,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
     }
     if (node.name === 'Paragraph' && !active(node)) {
       const blocked: Span[] = [];
-      walk(node, child => { if (child.name === 'InlineCode' || child.name === 'HardBreak') { blocked.push(child); return false; } });
+      walk(node, child => { if (child.name === 'InlineCode' || child.name === 'HardBreak' || child.name === 'DisplayMath' || child.name === 'InlineMath') { blocked.push(child); return false; } });
       for (let pos = text.indexOf('\n', node.from); pos >= 0 && pos < node.to; pos = text.indexOf('\n', pos + 1)) {
         if (!blocked.some(span => pos >= span.from && pos < span.to)) ranges.push(Decoration.replace({ widget: new TextWidget(' ') }).range(pos, pos + 1));
       }
@@ -205,7 +268,7 @@ export function livePreview(options: Options): Extension {
       // The cursor's source is already exposed. Keep every other widget and the composing DOM stable until IME commits.
       if (tr.state.field(compositionField)) return value.map(tr.changes);
       const parsedChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-      if (tr.docChanged || parsedChanged || tr.startState.field(compositionField)) cached = previewContext(tr.state);
+      if (tr.docChanged || parsedChanged || tr.startState.field(compositionField)) cached = previewContext(tr.state, cached);
       return tr.docChanged || tr.selection || tr.effects.length || parsedChanged ? buildPreview(tr.state, currentOptions, cached) : value;
     },
     provide: field => EditorView.decorations.from(field)

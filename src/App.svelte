@@ -199,7 +199,7 @@
 
 <svelte:window onkeydown={keydown}/>
 <div class="app-shell" class:working={busy} class:sidebar-hidden={!sidebarVisible}>
-  <header class="global-bar">
+  <header class="global-bar" data-tauri-drag-region="deep">
     <div class="brand">
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36"/>
       <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36"/>
@@ -207,7 +207,7 @@
     </div>
     <button class="quick-button" onclick={()=>void quickOpen()} disabled={!project||busy} aria-label="ファイル名・パスで検索"><Icon name="search"/> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button>
     <div class="global-actions">
-      <span class="status" class:problem={!!issue} aria-live="polite">{#if session}<span class="status-dot" class:unsaved={status==='dirty'||status==='saving'} aria-hidden="true"></span>{readonly?'読み取り専用':labels[status]}{#if issue}<button onclick={()=>void showProblem()}>対応する</button>{/if}{:else}<span class="local-label">ローカルのMarkdown</span>{/if}</span>
+      <span class="status" class:problem={!!issue} aria-live="polite">{#if session}<span class="status-dot" class:unsaved={status==='dirty'||status==='saving'} aria-hidden="true"></span><span class="status-label" title={readonly?'読み取り専用':labels[status]}>{readonly?'読み取り専用':labels[status]}</span>{#if issue}<button onclick={()=>void showProblem()}>対応する</button>{/if}{:else}<span class="local-label">ローカルのMarkdown</span>{/if}</span>
       <button class="icon-button" disabled={starting||!settingsLoaded} aria-label={settings.theme==='dark'?'ライトモードに切り替える':'ダークモードに切り替える'} title={settings.theme==='dark'?'ライトモードに切り替える':'ダークモードに切り替える'} onclick={()=>{settings.theme=nextTheme(settings.theme);void persist();}}><Icon name={settings.theme==='dark'?'moon':'sun'}/></button>
       <button class="icon-button" aria-label={sidebarVisible?'サイドバーを隠す':'サイドバーを表示'} title={sidebarVisible?'サイドバーを隠す':'サイドバーを表示'} aria-controls="file-sidebar" aria-expanded={sidebarVisible} onclick={()=>sidebarVisible=!sidebarVisible}><Icon name="sidebar"/></button>
     </div>

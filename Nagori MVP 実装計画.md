@@ -340,3 +340,10 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 外部読み取りとIME開始の競合を修正し、監視と画像更新も変換終了後へ保留した。Mac実ファイルでRename・Workspace復帰と保存の安全性チェックを拡充し、Node16件・Rust6件・型チェックが成功した。固定100KiB記事・1,000ファイルでproduction UIのブラウザ参考計測も実施。残るネイティブ確認と生データへのリンクは[検証状況](docs/acceptance-status.md)へ集約する。Phase 6の実機合格判定は保留。
 
 ローカルbundleの署名整合も修正した。Tauriのad-hoc署名設定でアプリ全体を署名し、strict検証が成功。最終Nagori.appは13.52MiB。起動中のユーザーアプリは操作していない。
+
+
+## MathJax・macOSタイトルバー（2026-10-02）
+
+ユーザー承認済みのMathJax 4.1.3へ移行し、学術的な既存Markdownの閲覧に対応した。式番号・参照・記事内マクロ、ローカル資産の遅延読み込み、記事切り替え時の参照解放を実装。macOSタイトルバーを既存ヘッダーに重ね、タイトルの二重表示をなくす。
+
+Node24件・Rust6件・型チェック成功、Releaseアプリ15.35MiB、ad-hoc署名strict検証成功。ブラウザで確認できた範囲とポリシー拒否による未完了確認、残るネイティブ操作・メモリ再計測は[検証状況](docs/acceptance-status.md)に記録。Phase 6の実機合格判定は保留。
