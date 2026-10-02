@@ -19,7 +19,7 @@ npm run tauri build
 open src-tauri/target/release/bundle/macos/Nagori.app
 ```
 
-ビルド対象はこのMacのApple Silicon（arm64）。バンドルの最低OS設定はmacOS 13、フロントエンドのビルド対象はSafari 16です。開発・確認環境はmacOS 26.6.2 / arm64であり、過去のmacOSやIntelで動作確認済みという意味ではありません。ローカル試用版にはad-hoc署名を付けます。Developer ID署名・公証・DMG・自動更新は外部配布時に追加します。
+ビルド対象はこのMacのApple Silicon（arm64）。バンドルの最低OS設定はmacOS 13、フロントエンドのビルド対象はSafari 16です。開発・確認環境はmacOS 26.6.2 / arm64であり、過去のmacOSやIntelで動作確認済みという意味ではありません。ローカル試用版にはad-hoc署名を付けます。ローカル試用用DMGも生成できます。Developer ID署名・公証・自動更新は外部配布時に追加します。
 
 ユーザー提供の[デザイン参考](design/README.md)に合わせてUIを調整しました。File TreeとEditorの2ペインを維持し、白・濃紺・ミント／シアンの色、余白、アイコン、浮動ツールバーを取り入れています。上部バーからファイル検索、Light / Darkの直接切替、サイドバー表示切替を操作できます。テーマは初回だけOSから決め、以降は保存した選択を使います。本文の初期サイズは19px、ファイル名などの主要UI文字は13〜14pxです。
 
@@ -40,7 +40,7 @@ nagori "drafts/記事.md"  # 現在のフォルダ内の相対パスも指定で
 nagori --help
 ```
 
-引数なしは`nagori .`と同じです。現在のフォルダ外のファイルを指定した場合は、そのファイルの親フォルダをWorkspaceにします。引数は1件までで、存在しない対象は作成しません。コマンドはリポジトリのReleaseアプリを優先し、なければ`~/Applications/Nagori.app`、`/Applications/Nagori.app`を探します。
+引数なしは`nagori .`と同じです。現在のフォルダ外のファイルを指定した場合は、そのファイルの親フォルダをWorkspaceにします。引数は1件までで、存在しない対象は作成しません。アプリ同梱のコマンドは、登録元のNagori.appを開きます。リポジトリ内の開発用スクリプトはReleaseアプリを優先し、なければ`~/Applications/Nagori.app`、`/Applications/Nagori.app`を探します。
 
 macOS標準の`open`で起動中のNagoriにも要求を渡します。初回起動では指定先を前回Workspaceの復元より優先します。起動後の切り替えではIME終了と現在の記事の保存を待ち、保存失敗・競合時は現在の記事を保持します。コマンドの終了コードはmacOSへの起動要求の結果であり、アプリ内の保存・記事読み込み完了を示しません。
 
@@ -87,7 +87,7 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-2026-10-02時点：型チェック0エラー・0警告、Nodeテスト26件、Rustテスト7件、Releaseアプリのビルドが成功しています。Releaseアプリは15.35MiBで、ad-hoc署名のstrict検証も成功しました。Mac画面操作ツールのAX取得が以前タイムアウトしており、実機操作の合格判定は保留です。MathJax追加後のRAMは未測定です。
+2026-10-02時点：型チェック0エラー・0警告、Nodeテスト27件、Rustテスト8件、Releaseアプリのビルドが成功しています。Releaseアプリは15.43MiBで、ad-hoc署名のstrict検証も成功しました。Mac画面操作ツールのAX取得が以前タイムアウトしており、実機操作の合格判定は保留です。専用アプリの再測定では通常記事約142MiB、数式記事約247MiB、通常記事へ戻した後は約206〜301MiBでした。100MiBの目標は未達で、原因の判定は保留です。[測定条件と結果](docs/memory-investigation.md)を参照してください。
 
 自動チェックは保存世代・直列化・消失時の停止・変換中の保存停止とプレビュー維持・確定後の更新とUndo・検索・パス・Markdown/Formatting、Rustの読み書き・競合・非上書き・画像安全性を確認します。日本語IME、全終了経路、実際のFinder・ゴミ箱、長文の操作感はネイティブアプリでの確認が必要です。自動テスト成功だけをもってそれらを検証済みとしません。
 
@@ -96,3 +96,13 @@ cargo test --manifest-path src-tauri/Cargo.toml
 性能確認用に`performance`へ`nagori-ready`（起動時の初期処理完了）を記録します。候補評価時間は固定fixture側で計測し、製品には検索ごとの計測記録を蓄積しません。起動やWebViewを含むメモリ使用量はReleaseアプリで別途測定し、未測定項目を達成済みとは扱いません。
 
 現在の確認済み範囲・残る実機確認・固定データの参考性能は[検証状況](docs/acceptance-status.md)を参照してください。
+
+## ローカル試用用DMG
+
+```sh
+npm run tauri build -- --bundles app,dmg --ci
+```
+
+生成先は`src-tauri/target/release/bundle/dmg/Nagori_0.1.0_aarch64.dmg`です。DMG内にNagori.appとApplicationsへのリンクを入れています。2026-10-02の生成物は8.50MiB。チェックサム、読み取り専用マウント、製品識別子、署名、同梱CLIを確認しました。Finderでのインストール操作は未検証です。
+
+今回のDMGはad-hoc署名のローカル試用版です。Developer ID Application証明書がなく、公証情報も未設定のため、外部配布用の署名・公証は完了していません。mainへの反映、リリースタグ、GitHub Releaseの公開は行いません。外部配布前に署名・公証を設定し、Macの未確認操作と性能の判断を終えてください。
