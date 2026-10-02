@@ -46,6 +46,10 @@
     "icon": [
       "icons/icon.icns",
       "icons/icon.png"
-    ]
+    ],
+    "resources": {
+      "../scripts/nagori": "cli/nagori",
+      "../scripts/cli-link.sh": "cli/cli-link.sh"
+    }
   }
 }

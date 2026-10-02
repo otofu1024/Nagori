@@ -27,12 +27,11 @@ macOSのタイトルバーをコンテンツに重ね、ウィンドウ操作ボ
 
 ## ターミナルから開く（macOS）
 
-`nagori`は`~/.local/bin/nagori`に配置します。このMacでは同ディレクトリがPATHに入っています。別の環境では、アプリをビルドした後に次のように登録します（既存の同名コマンドは上書きしません）。
+Nagori.appを`/Applications`または`~/Applications`へ置き、アプリを開いてください。`Cmd＋Shift＋P`か「表示 → コマンドパレット…」から「nagoriコマンドをインストール」を実行します。起動スクリプトはアプリに同梱しており、開発フォルダやNode.jsは不要です。
 
-```sh
-mkdir -p ~/.local/bin
-ln -s ~/Nagori/scripts/nagori ~/.local/bin/nagori
-```
+登録先は`/usr/local/bin/nagori`です。書き込み権限がない場合はmacOSの管理者認証を使います。同名の別コマンドは上書きしません。登録解除もパレットから実行できます。アプリを移動・改名する場合は、移動前に登録を解除し、移動後に登録し直してください。
+
+以前の開発用コマンドが`~/.local/bin/nagori`に残っている場合、そちらが先に使われることがあります。`command -v nagori`とリンク先を確認してください。パレットでは既存の登録を勝手に削除しません。`/usr/local/bin`がPATHにない環境では、シェル側で追加してください。
 
 ```sh
 nagori .                # 現在のフォルダをWorkspaceとして開く
@@ -66,6 +65,7 @@ $$
 | 操作 | キー |
 |---|---|
 | Live Preview / Preview切替 | Cmd＋Shift＋L |
+| コマンドパレット | Cmd＋Shift＋P |
 | ファイルを探す | Cmd＋P |
 | 記事内を検索 | Cmd＋F |
 | 保存 | Cmd＋S |

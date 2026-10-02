@@ -15,6 +15,7 @@
 
   import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
   type OpenRequest={workspace:string;path:string|null};
+  type CliStatus={path:string;installed:boolean;available:boolean;message:string};
   type ImageData={mime:string;data:number[];width:number;height:number};
   let settings=$state<Settings>({...defaults,theme:'light'});
   let settingsLoaded=$state(false);
@@ -35,6 +36,15 @@
   let imageEpoch=0, treeQueued=false, imagesQueued=false;
   let quick=$state(false), query=$state(''), quickIndex=$state(0), quickInput=$state<HTMLInputElement>();
   let quickFocus:HTMLElement|null=null;
+  let palette=$state(false), commandQuery=$state(''), commandIndex=$state(0);
+  let commandStatus=$state<CliStatus|null>(null), commandMessage=$state(''), commandError=$state(false);
+  let commandInput:HTMLInputElement, commandDialog:HTMLDialogElement;
+  let commandFocus:HTMLElement|null=null, commandEpoch=0;
+  const commands=[
+    {id:'cli_install',label:'nagoriコマンドをインストール',detail:'ターミナルからフォルダやファイルを開く',search:'install インストール 登録'},
+    {id:'cli_uninstall',label:'nagoriコマンドをアンインストール',detail:'ターミナルのコマンド登録を解除する',search:'uninstall アンインストール 削除 解除'},
+  ];
+  const commandResults=$derived(commands.filter(command=>commandQuery.trim().toLowerCase().split(/\s+/).every(word=>(command.label+' '+command.search).toLowerCase().includes(word))));
   let errorDialog:HTMLDialogElement, saveAsInput:HTMLInputElement, quickDialog:HTMLDialogElement;
   let renameInput=$state<HTMLInputElement>();
   let disk=$state.raw<OpenedDocument|null>(null), diskLabel=$state('');
@@ -66,6 +76,7 @@
     if(!openRequestsQueued||starting||busy||openingRequest||session?.issue||errorDialog?.open||saveAsDialog?.open)return;
     openingRequest=true;
     if(quick)closeQuick(false);
+    if(palette)closePalette(false);
     try {
       while(openRequestsQueued) {
         openRequestsQueued=false;
@@ -91,7 +102,7 @@
   async function refreshTree() {const root=project;for(const path of expanded){try{await list(path);}catch{if(path==='')throw new Error('プロジェクトフォルダを読み込めません。');tree={...tree,[path]:[]};}}const entries=await invoke<Entry[]>('workspace_index');if(root===project)index=entries;}
   async function toggle(entry:Entry) {if(expanded.includes(entry.path))expanded=expanded.filter(path=>path!==entry.path);else{try{await list(entry.path);expanded=[...expanded,entry.path];}catch(error){notify(failure(error).message);}}}
   function releaseImages() {imageEpoch++;imageCache.clear();for(const url of imageUrls)URL.revokeObjectURL(url);imageUrls.clear();imageUrl='';}
-  function clearDocument() {cancelSave();quickFocus=null;session=null;editor=null;current=null;initialText='';issue=null;status='saved';readonly=false;chars=0;contentError='';documentKey++;releaseImages();}
+  function clearDocument() {cancelSave();quickFocus=null;commandFocus=null;session=null;editor=null;current=null;initialText='';issue=null;status='saved';readonly=false;chars=0;contentError='';documentKey++;releaseImages();}
   async function blobImage(path:string,documentPath?:string) {const data=await invoke<ImageData>('image_read',{path,documentPath});const url=URL.createObjectURL(new Blob([new Uint8Array(data.data)],{type:data.mime}));imageUrls.add(url);return {url,data};}
   async function resolveImage(ref:string) {
     const epoch=imageEpoch, path=current?.path;if(!path)throw new Error('記事を開いてください。');
@@ -122,11 +133,11 @@
     if(restoreFile){const entry=index.find(item=>item.path===restoreFile);if(entry){const parent=parentPath(entry.path);const folders=parent.split('/').filter(Boolean);let built='';for(const name of folders){built=built?built+'/'+name:name;await list(built);expanded=[...expanded,built];}await loadEntry(entry);}}
   }
   async function quickOpen() {
-    if(!project||busy||errorDialog?.open||saveAsDialog?.open)return;
+    if(!project||busy||composing||palette||errorDialog?.open||saveAsDialog?.open)return;
     const focus=document.activeElement as HTMLElement|null;
     try {
       const root=project,entries=await invoke<Entry[]>('workspace_index');
-      if(root!==project||busy)return;
+      if(root!==project||busy||composing||palette||errorDialog?.open||saveAsDialog?.open)return;
       index=entries;query='';quickIndex=0;quick=true;
       await tick();quickDialog.showModal();
       quickFocus=focus?.isConnected?focus:null;
@@ -135,6 +146,33 @@
   }
   function closeQuick(restore=true) {const focus=quickFocus;quickFocus=null;quick=false;quickDialog.close();if(restore&&focus?.isConnected)focus.focus();}
   async function quickKey(event:KeyboardEvent) {if(event.key==='Escape'){event.preventDefault();closeQuick();}else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();quickIndex=Math.max(0,Math.min(results.length-1,quickIndex+(event.key==='ArrowDown'?1:-1)));document.getElementById('quick-'+quickIndex)?.scrollIntoView({block:'nearest'});}else if(event.key==='Enter'&&results[quickIndex]){event.preventDefault();const entry=results[quickIndex];closeQuick(false);await selectEntry(entry);}}
+  async function openPalette() {
+    if(palette||quick||starting||busy||composing||document.querySelector('dialog[open], [aria-modal="true"]'))return;
+    const focus=document.activeElement as HTMLElement|null, epoch=++commandEpoch;
+    commandQuery='';commandIndex=0;commandStatus=null;commandMessage='コマンドの登録状況を確認しています…';commandError=false;palette=true;
+    await tick();
+    if(!palette||epoch!==commandEpoch)return;
+    if(busy||composing||document.querySelector('dialog[open], [aria-modal="true"]')){closePalette(false);return;}
+    commandDialog.showModal();commandFocus=focus?.isConnected?focus:null;commandInput.focus();
+    try {const result=await invoke<CliStatus>('cli_status');if(palette&&epoch===commandEpoch){commandStatus=result;commandMessage=result.message;}}
+    catch(error) {if(palette&&epoch===commandEpoch){commandMessage=failure(error).message;commandError=true;}}
+  }
+  function closePalette(restore=true) {const focus=commandFocus;commandFocus=null;commandEpoch++;palette=false;commandDialog.close();if(restore&&focus?.isConnected)focus.focus();}
+  async function runCommand(id:string) {
+    if(!palette||busy||composing||!commandStatus||id==='cli_install'&&!commandStatus.available)return;
+    const epoch=commandEpoch;
+    await operation(async()=>{
+      commandError=false;commandMessage=id==='cli_install'?'コマンドを登録しています…':'コマンドの登録を解除しています…';
+      try {const result=await invoke<CliStatus>(id);if(palette&&epoch===commandEpoch){commandStatus=result;commandMessage=result.message;}else notify(result.message);}
+      catch(error) {const problem=failure(error);if(palette&&epoch===commandEpoch){commandError=problem.code!=='CANCELLED';commandMessage=problem.code==='CANCELLED'?'操作をキャンセルしました。':problem.message;}else if(problem.code!=='CANCELLED')notify(problem.message);}
+    },false);
+  }
+  function paletteKey(event:KeyboardEvent) {
+    if(event.isComposing||event.keyCode===229||busy)return;
+    if(event.key==='Escape'){event.preventDefault();closePalette();}
+    else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();commandIndex=Math.max(0,Math.min(commandResults.length-1,commandIndex+(event.key==='ArrowDown'?1:-1)));document.getElementById('command-'+commandIndex)?.scrollIntoView({block:'nearest'});}
+    else if(event.key==='Enter'&&event.target===commandInput&&commandResults[commandIndex]){event.preventDefault();void runCommand(commandResults[commandIndex].id);}
+  }
   function selectedFolder() {const entry=rows.find(item=>item.path===selected);return entry?.kind==='directory'?entry.path:parentPath(selected);}
   async function startName(kind:'markdown'|'directory'|'rename',entry?:Entry) {if(busy)return;const parent=kind==='rename'?parentPath(entry!.path):selectedFolder();if(parent&&!expanded.includes(parent)){await list(parent);expanded=[...expanded,parent];}naming={kind,parent,entry,value:kind==='rename'?entry!.name:kind==='markdown'?'untitled.md':'新しいフォルダ',error:''};await tick();renameInput?.focus();renameInput?.select();}
   async function commitName() {
@@ -166,7 +204,7 @@
   async function showProblem() {
     const target=session;if(!target?.issue)return;issue=target.issue;disk=null;diskLabel='';
     if(issue.code==='CONFLICT'){try{const fresh=await invoke<OpenedDocument>('document_open',{path:target.path});if(session!==target||!target.issue)return;disk=fresh;diskLabel=fresh.text.slice(0,500);}catch{}}
-    await tick();if(session!==target||!target.issue)return;if(!errorDialog.open)errorDialog.showModal();
+    await tick();if(session!==target||!target.issue)return;if(palette)closePalette(false);if(!errorDialog.open)errorDialog.showModal();
   }
   async function reloadDisk() {
     const target=session;if(!target)return;
@@ -192,16 +230,18 @@
     try {if(target.isSaving){externalQueued=true;return;};const fresh=await invoke<OpenedDocument>('document_open',{path:target.path});if(session!==target||busy)return;if(composing){externalQueued=true;return;}if(target.isSaving||target.baseline!==baseline||target.generation!==generation){externalQueued=true;return;}if(fresh.baseline===target.baseline)return;if(target.dirty||target.issue){target.block({code:'CONFLICT',message:'ディスク側に変更があります。自動保存を停止しました。'});cancelSave();await showProblem();}else{target.reload(fresh);editor?.replaceText(fresh.text);notify('外部の変更を読み込みました。');}}
     catch(error){if(session===target&&!busy&&target.baseline===baseline&&target.generation===generation&&!target.isSaving){if(composing){externalQueued=true;return;}target.block(error);cancelSave();await showProblem();}}finally{externalChecking=false;if(externalQueued&&!busy&&!composing&&session?.status!=='saving'){externalQueued=false;setTimeout(()=>void checkExternal(),0);}}
   }
-  async function quit() {await operation(async()=>{await persist();await settingsQueue;await invoke('app_exit');});}
+  async function quit() {if(palette)closePalette(false);await operation(async()=>{await persist();await settingsQueue;await invoke('app_exit');});}
   function keydown(event:KeyboardEvent) {
+    if(palette){paletteKey(event);return;}
+    if(event.isComposing||event.keyCode===229)return;
     if(quick){void quickKey(event);return;}
     if(errorDialog?.open||saveAsDialog?.open)return;
-    if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='p'){event.preventDefault();void quickOpen();}
+    if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='p'){event.preventDefault();if(event.shiftKey)void openPalette();else void quickOpen();}
     if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();void flush();}
     if(event.key==='Escape'&&naming)naming=null;
   }
   function togglePreview() {if(!busy&&!composing&&current?.kind==='markdown'&&session)previewOnly=!previewOnly;}
-  async function menuAction(action:string) {if(errorDialog?.open||saveAsDialog?.open||quick)return;if(action==='open-project')await chooseProject();else if(action==='new-markdown')await startName('markdown');else if(action==='new-folder')await startName('directory');else if(action==='image-insert')await insertImage();else if(action==='quick-open')await quickOpen();else if(action==='save')await flush();else if(action==='find')editor?.find();else if(action==='preview-toggle')togglePreview();else if(['bold','italic','strike','code','link'].includes(action))editor?.format(action as 'bold'|'italic'|'strike'|'code'|'link');}
+  async function menuAction(action:string) {if(errorDialog?.open||saveAsDialog?.open||quick||palette)return;if(action==='command-palette')await openPalette();else if(action==='open-project')await chooseProject();else if(action==='new-markdown')await startName('markdown');else if(action==='new-folder')await startName('directory');else if(action==='image-insert')await insertImage();else if(action==='quick-open')await quickOpen();else if(action==='save')await flush();else if(action==='find')editor?.find();else if(action==='preview-toggle')togglePreview();else if(['bold','italic','strike','code','link'].includes(action))editor?.format(action as 'bold'|'italic'|'strike'|'code'|'link');}
   onMount(()=>{
     const unlisteners:Array<()=>void>=[];
     const focused=()=>void checkExternal();window.addEventListener('focus',focused);
@@ -221,7 +261,7 @@
         else if(settings.lastProject){const recent=settings.recentFiles, last=settings.lastFile;try{await openProject(settings.lastProject,last);settings.recentFiles=[...new Set([...(settings.lastFile?[settings.lastFile]:[]),...recent])];void persist();}catch(error){project='';notify('前回のプロジェクトを開けません: '+failure(error).message);}}
       }catch(error){notify(failure(error).message);}finally{starting=false;performance.mark('nagori-ready');openRequestsQueued=true;void drainOpenRequests();}
     })();
-    return ()=>{unlisteners.forEach(unlisten=>unlisten());window.removeEventListener('focus',focused);cancelSave();clearTimeout(fsTimer);releaseImages();};
+    return ()=>{commandFocus=null;quickFocus=null;commandEpoch++;unlisteners.forEach(unlisten=>unlisten());window.removeEventListener('focus',focused);cancelSave();clearTimeout(fsTimer);releaseImages();};
   });
 </script>
 
@@ -270,5 +310,6 @@
 </div>
 {#if notice}<div class="toast" role="status">{notice}<button aria-label="通知を閉じる" onclick={()=>notice=''}><Icon name="close" size={15}/></button></div>{/if}
 <dialog class="quick-panel" bind:this={quickDialog} oncancel={(event)=>{event.preventDefault();closeQuick();}} aria-label="Quick Open"><div class="quick-input"><Icon name="search" size={20}/><input bind:this={quickInput} bind:value={query} oninput={()=>quickIndex=0} placeholder="ファイル名やパスで検索…" aria-label="ファイルを検索"/><kbd>esc</kbd></div><div class="quick-label">{query?'検索結果':'最近開いたファイル'}</div><div class="quick-results">{#each results as entry,i}<button id={'quick-'+i} class:highlighted={i===quickIndex} onclick={()=>{closeQuick(false);void selectEntry(entry);}}><span class="file-icon"><Icon name={entry.kind==='markdown'?'file':'image'}/></span><span><strong>{entry.name}</strong><small>{entry.path}</small></span>{#if i===quickIndex}<kbd>↵</kbd>{/if}</button>{/each}{#if !results.length}<p>{query?'一致するファイルがありません。':'最近開いたファイルはありません。名前を入力して検索できます。'}</p>{/if}</div><div class="quick-hint">↑ ↓ 選択　 ↵ 開く <span>プロジェクト内のMarkdownと画像</span></div></dialog>
+<dialog class="quick-panel command-panel" bind:this={commandDialog} oncancel={(event)=>{event.preventDefault();if(!busy)closePalette();}} aria-label="コマンドパレット" aria-describedby="command-message"><div class="quick-input"><Icon name="search" size={20}/><input bind:this={commandInput} bind:value={commandQuery} oninput={()=>commandIndex=0} disabled={busy} placeholder="コマンドを検索…" aria-label="コマンドを検索" role="combobox" aria-autocomplete="list" aria-expanded={palette} aria-controls="command-results" aria-activedescendant={commandResults.length?'command-'+commandIndex:undefined}/><button class="command-close" disabled={busy} onclick={()=>closePalette()} aria-label="コマンドパレットを閉じる"><kbd>esc</kbd></button></div><div class="quick-label">コマンド</div><div id="command-results" class="quick-results" role="listbox" aria-label="コマンドの候補">{#each commandResults as command,i}<button id={'command-'+i} role="option" aria-selected={i===commandIndex} tabindex="-1" class:highlighted={i===commandIndex} disabled={busy||!commandStatus||command.id==='cli_install'&&!commandStatus.available} onclick={()=>void runCommand(command.id)}><span><strong>{command.label}</strong><small>{command.detail}</small></span>{#if i===commandIndex}<kbd>↵</kbd>{/if}</button>{/each}{#if !commandResults.length}<p>一致するコマンドがありません。</p>{/if}</div><p id="command-message" class="command-message" class:error-text={commandError} role="status">{commandMessage}</p>{#if commandStatus}<div class="command-path">登録先 <code>{commandStatus.path}</code></div>{/if}<div class="quick-hint">↑ ↓ 選択　 ↵ 実行 <span>⌘ ⇧ P</span></div></dialog>
 <dialog class="error-dialog" bind:this={errorDialog} onclose={()=>{editor?.focus();if(openRequestsQueued)void drainOpenRequests();}}><h2>{issue?.code==='CONFLICT'?'外部の変更と競合しています':issue?.code==='MISSING'?'ファイルが見つかりません':'保存できませんでした'}</h2><p>{issue?.message}</p><p class="muted">編集中の内容は、この画面に保持しています。</p>{#if diskLabel}<details><summary>ディスク側の最新内容（先頭部分）</summary><pre>{diskLabel}</pre></details>{/if}<div class="dialog-actions">{#if issue?.code==='CONFLICT'}<button onclick={()=>void reloadDisk()}>ディスク内容を採用</button><button class="danger" disabled={!disk} onclick={()=>void overwriteDisk()}>編集内容で上書き</button>{:else if issue?.code!=='MISSING'}<button onclick={()=>void retrySave()}>再試行</button>{/if}<button class="primary" onclick={()=>void beginSaveAs()}>別名保存…</button><button onclick={()=>void discardAndClose()}>記事を閉じる…</button><button onclick={()=>errorDialog.close()}>あとで対応</button></div></dialog>
 <dialog class="save-as-dialog" bind:this={saveAsDialog} onclose={()=>{saveAs=false;if(openRequestsQueued)void drainOpenRequests();}}><form onsubmit={(event)=>{event.preventDefault();void commitSaveAs();}}><h2>別名で保存</h2><p>プロジェクト内の相対パスを入力してください。既存ファイルは上書きしません。</p><input aria-label="保存先の相対パス" bind:this={saveAsInput} bind:value={saveAsPath}/>{#if saveAsError}<p class="error-text">{saveAsError}</p>{/if}<div class="dialog-actions"><button type="button" onclick={()=>saveAsDialog.close()}>キャンセル</button><button class="primary" type="submit" disabled={busy}>保存</button></div></form></dialog>
