@@ -1047,4 +1047,199 @@ mod tests {
         assert!(insert_image(root, source.to_str().unwrap(), "article.md").is_err());
         assert_eq!(list(root, "assets").unwrap().len(), 2);
     }
+
+    fn no_staging_files(root: &Path) -> bool {
+        fs::read_dir(root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".nagori-save-")
+        })
+    }
+
+    #[test]
+    fn save_failures_keep_disk_contents_and_leave_no_staging_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), "original\n").unwrap();
+        let opened = open(root, "a.md").unwrap();
+        // 改行が混ざった本文は符号化で失敗し、ディスクは変わらない
+        assert_eq!(
+            save(root, "a.md", "bad\r\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "NEWLINES"
+        );
+        // 上限超過の本文も保存を拒否する
+        let huge = "a".repeat(DOCUMENT_LIMIT + 1);
+        assert_eq!(
+            save(root, "a.md", &huge, &opened.baseline)
+                .unwrap_err()
+                .code,
+            "LIMIT"
+        );
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "original\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(root.join("a.md"), fs::Permissions::from_mode(0o444)).unwrap();
+            assert!(open(root, "a.md").unwrap().readonly);
+            assert_eq!(
+                save(root, "a.md", "edited\n", &opened.baseline)
+                    .unwrap_err()
+                    .code,
+                "PERMISSION"
+            );
+            assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "original\n");
+            // 読み取り専用で失敗した本文は別名保存で救済でき、元ファイルは変わらない
+            let rescued = save_as(root, "a.md", "rescued.md", "edited\n").unwrap();
+            assert_eq!(rescued.text, "edited\n");
+            assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "original\n");
+            fs::set_permissions(root.join("a.md"), fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        assert!(no_staging_files(root));
+    }
+
+    #[test]
+    fn external_update_is_a_conflict_but_own_save_and_same_bytes_are_not() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), b"\xef\xbb\xbfone\r\n").unwrap();
+        let opened = open(root, "a.md").unwrap();
+        // 自分の保存後の基準は、ディスクを読み直した基準と一致する(自分の保存通知は外部変更にならない)
+        let saved = save(root, "a.md", "two\n", &opened.baseline).unwrap();
+        let reread = open(root, "a.md").unwrap();
+        assert_eq!(saved.baseline, reread.baseline);
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"\xef\xbb\xbftwo\r\n");
+        // 外部アプリが別内容を書くと、古い基準での保存は競合になり本文は上書きされない
+        fs::write(root.join("a.md"), "external\n").unwrap();
+        assert_eq!(
+            save(root, "a.md", "three\n", &saved.baseline)
+                .unwrap_err()
+                .code,
+            "CONFLICT"
+        );
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "external\n");
+        // 同じバイト列を書き戻しただけなら基準は変わらず、競合にならない
+        let before = open(root, "a.md").unwrap();
+        fs::write(root.join("a.md"), "external\n").unwrap();
+        assert_eq!(open(root, "a.md").unwrap().baseline, before.baseline);
+        save(root, "a.md", "four\n", &before.baseline).unwrap();
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "four\n");
+        assert!(no_staging_files(root));
+    }
+
+    #[test]
+    fn unreadable_external_updates_fail_to_open_without_touching_the_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), "original\n").unwrap();
+        let opened = open(root, "a.md").unwrap();
+        // 保存側のコード: 基準比較で読める内容は CONFLICT、上限超過は読み取り段階の LIMIT で止まる
+        for (bytes, code, save_code) in [
+            (b"\xff\xfe broken".to_vec(), "ENCODING", "CONFLICT"),
+            (b"a\r\nb\n".to_vec(), "NEWLINES", "CONFLICT"),
+            (vec![b'x'; DOCUMENT_LIMIT + 1], "LIMIT", "LIMIT"),
+        ] {
+            fs::write(root.join("a.md"), &bytes).unwrap();
+            // 再読み込みは失敗し、画面側は現在の本文を保持して理由を表示する
+            assert_eq!(open(root, "a.md").unwrap_err().code, code);
+            // 保存も止まり、外部内容を上書きしない
+            assert_eq!(
+                save(root, "a.md", "mine\n", &opened.baseline)
+                    .unwrap_err()
+                    .code,
+                save_code
+            );
+            assert_eq!(fs::read(root.join("a.md")).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn deleted_file_is_never_recreated_and_recreation_is_compared_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), "original\n").unwrap();
+        let opened = open(root, "a.md").unwrap();
+        fs::remove_file(root.join("a.md")).unwrap();
+        // 削除後の保存と再読み込みは MISSING で、元のパスを作り直さない
+        assert_eq!(
+            save(root, "a.md", "mine\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "MISSING"
+        );
+        assert_eq!(open(root, "a.md").unwrap_err().code, "MISSING");
+        assert!(!root.join("a.md").exists());
+        // 別名保存は削除後でも救済でき、既存ファイルは上書きしない
+        fs::write(root.join("taken.md"), "keep\n").unwrap();
+        assert_eq!(
+            save_as(root, "a.md", "taken.md", "mine\n")
+                .unwrap_err()
+                .code,
+            "EXISTS"
+        );
+        assert_eq!(fs::read_to_string(root.join("taken.md")).unwrap(), "keep\n");
+        save_as(root, "a.md", "rescued.md", "mine\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("rescued.md")).unwrap(),
+            "mine\n"
+        );
+        assert!(!root.join("a.md").exists());
+        // 外部アプリが別内容で作り直した場合は、古い基準での保存が競合になる
+        fs::write(root.join("a.md"), "recreated elsewhere\n").unwrap();
+        assert_eq!(
+            save(root, "a.md", "mine\n", &opened.baseline)
+                .unwrap_err()
+                .code,
+            "CONFLICT"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "recreated elsewhere\n"
+        );
+        // 通常ファイルでない物に置き換わった場合も、書き込まず失敗する
+        fs::remove_file(root.join("a.md")).unwrap();
+        fs::create_dir(root.join("a.md")).unwrap();
+        assert!(save(root, "a.md", "mine\n", &opened.baseline).is_err());
+        assert!(root.join("a.md").is_dir());
+        assert!(no_staging_files(root));
+    }
+
+    #[test]
+    fn save_as_rescue_stays_inside_the_workspace_and_keeps_the_source_format() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), b"\xef\xbb\xbfone\r\n").unwrap();
+        let rescued = save_as(root, "a.md", "copy.md", "edited\n").unwrap();
+        assert_eq!(rescued.path, "copy.md");
+        assert_eq!(
+            fs::read(root.join("copy.md")).unwrap(),
+            b"\xef\xbb\xbfedited\r\n"
+        );
+        for target in [
+            "../outside.md",
+            "/tmp/outside.md",
+            "sub/../../outside.md",
+            "x.txt",
+        ] {
+            assert!(
+                save_as(root, "a.md", target, "edited\n").is_err(),
+                "{target}"
+            );
+        }
+        assert!(!directory
+            .path()
+            .parent()
+            .unwrap()
+            .join("outside.md")
+            .exists());
+        assert_eq!(
+            save_as(root, "a.md", "bad.md", "x\r\n").unwrap_err().code,
+            "NEWLINES"
+        );
+        assert!(!root.join("bad.md").exists());
+        assert!(no_staging_files(root));
+    }
 }
