@@ -1,3 +1,5 @@
+整理前の文書を保存した履歴。内容は各記録時点の状態を表す。現在の状況は[検証状況](../verification.md)、構成は[architecture.md](../architecture.md)を参照。
+
 # メモリ調査（2026-10-02）
 
 ## 最新の測定結果
@@ -22,7 +24,7 @@ Workspaceは990Markdown・10画像の1,000ファイル。通常記事は102,401 
 
 コード上ではMathJaxと読み込み済みフォントデータ、生成CSSが残る。一方、記事のMathDocument・式・表への参照とCodeMirrorのmountは解放する。全数式widgetが一度撤去されると結果を破棄するため、本文不変でも再表示時に全式を処理する経路がある。実測中に繰り返しているかは不明。次はrenderMathの開始回数とmountが0になる回数を記録し、この経路とWebKitの保持を分けて確認する。今回、原因未確定のまま描画処理を変更していない。
 
-全117サンプル、条件、CPU、PID、カテゴリ、ソース・本文・実行ファイルのSHAは[performance-macos.json](performance-macos.json)に保存した。ソースhashは各段階で一致。開始時のGit HEADが6168f15と記録された段階も、実装スナップショットは9528951と同じ。QAの実行ファイルSHAは7566ed8a55bfcd96c8aaff748599d59055eb27fc7dc75d7ae37060386e7a0fff。製品と違う識別子とタイトルで設定を分けている。
+全117サンプル、条件、CPU、PID、カテゴリ、ソース・本文・実行ファイルのSHAは[performance-macos.json](../performance/macos-measurements.json)に保存した。ソースhashは各段階で一致。開始時のGit HEADが6168f15と記録された段階も、実装スナップショットは9528951と同じ。QAの実行ファイルSHAは7566ed8a55bfcd96c8aaff748599d59055eb27fc7dc75d7ae37060386e7a0fff。製品と違う識別子とタイトルで設定を分けている。
 
 QAだけへ終了シグナルを送り、責任PIDのプロセスも終了した。これは通常の終了保存の検証ではない。通常Nagoriの設定SHAは開始前後で一致。通常PID12909は最後には存在しなかったが、終了時点と理由は未確認。調査で通常アプリへ終了操作はしていない。
 

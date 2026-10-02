@@ -1,7 +1,9 @@
+整理前の文書を保存した履歴。内容は各記録時点の状態を表す。現在の状況は[検証状況](../verification.md)、構成は[architecture.md](../architecture.md)を参照。
+
 # Nagori MVP 実装計画
 
-作成日：2026-10-01  
-対象仕様：[Nagori MVP 仕様書](./Nagori%20MVP%20仕様書.md)  
+作成日：2026-10-01\
+対象仕様：[Nagori MVP 仕様書](../specification.md)\
 作業ディレクトリ：`~/Nagori`
 
 ## 1. 方針と現在地
@@ -330,14 +332,14 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 - 一時的なブラウザfixtureで実Editor.svelteへcompositionイベントと未確定・確定DOM変更を送信。変換中の画像・表DOMの同一性、ほかの見出し・太字のプレビュー維持、確定本文のonChangeがonComposition(false)より先に届くことを確認した。ブラウザerror/warnなし。fixtureは実ファイルや設定を変更しない。
 - 保存中に変換を開始した場合も、その時点の保存だけを認め、新しい変換中の世代を未保存に保ち、確定した日本語を次回保存する回帰チェックを追加した。
 - Cmd＋Q／Cmd＋Wのメニュー、Window CloseRequested、RunEvent ExitRequestedは共通の終了前flushへ進むことをコードで確認。実際のMacのIME候補・再変換・キャンセル操作、各終了経路とディスク保存を合わせた実機合格判定は未完了。
-- 並行調査でユーザー試用中の修正前アプリを約1分・13サンプル計測し、174.61〜174.71MiBだった。利用条件を揃えた性能判定や改善量ではない。詳細は[メモリ調査](docs/memory-investigation.md)へ記録。
+- 並行調査でユーザー試用中の修正前アプリを約1分・13サンプル計測し、174.61〜174.71MiBだった。利用条件を揃えた性能判定や改善量ではない。詳細は[メモリ調査](../performance/memory.md)へ記録。
 
 ブラウザ検証画面とコードは `/private/tmp/nagori-ui-preview/ime.html`、`ime-main.ts`、`ImeFixture.svelte`。画面記録は `ime-during.jpg`、`ime-committed.jpg`。これらはMacの実際のIMEを検証済みとする根拠には使わない。
 
 
 ## 受け入れ条件の追加検証（2026-10-02）
 
-外部読み取りとIME開始の競合を修正し、監視と画像更新も変換終了後へ保留した。Mac実ファイルでRename・Workspace復帰と保存の安全性チェックを拡充し、Node16件・Rust6件・型チェックが成功した。固定100KiB記事・1,000ファイルでproduction UIのブラウザ参考計測も実施。残るネイティブ確認と生データへのリンクは[検証状況](docs/acceptance-status.md)へ集約する。Phase 6の実機合格判定は保留。
+外部読み取りとIME開始の競合を修正し、監視と画像更新も変換終了後へ保留した。Mac実ファイルでRename・Workspace復帰と保存の安全性チェックを拡充し、Node16件・Rust6件・型チェックが成功した。固定100KiB記事・1,000ファイルでproduction UIのブラウザ参考計測も実施。残るネイティブ確認と生データへのリンクは[検証状況](../verification.md)へ集約する。Phase 6の実機合格判定は保留。
 
 ローカルbundleの署名整合も修正した。Tauriのad-hoc署名設定でアプリ全体を署名し、strict検証が成功。最終Nagori.appは13.52MiB。起動中のユーザーアプリは操作していない。
 
@@ -346,12 +348,12 @@ Mac搭載RAMは32GiB。実際に起動中のNagoriと、そのresponsible PIDが
 
 ユーザー承認済みのMathJax 4.1.3へ移行し、学術的な既存Markdownの閲覧に対応した。式番号・参照・記事内マクロ、ローカル資産の遅延読み込み、記事切り替え時の参照解放を実装。macOSタイトルバーを既存ヘッダーに重ね、タイトルの二重表示をなくす。
 
-Node24件・Rust6件・型チェック成功、Releaseアプリ15.35MiB、ad-hoc署名strict検証成功。ブラウザで確認できた範囲とポリシー拒否による未完了確認、残るネイティブ操作・メモリ再計測は[検証状況](docs/acceptance-status.md)に記録。Phase 6の実機合格判定は保留。
+Node24件・Rust6件・型チェック成功、Releaseアプリ15.35MiB、ad-hoc署名strict検証成功。ブラウザで確認できた範囲とポリシー拒否による未完了確認、残るネイティブ操作・メモリ再計測は[検証状況](../verification.md)に記録。Phase 6の実機合格判定は保留。
 
 
 ## 閲覧専用Previewへの切り替え（2026-10-02）
 
-ユーザーの指示により、全記法を表示するSourceモードを廃止し、Live Preview / Previewの2モードに変更する。Previewは既存のCodeMirror装飾を使い、選択による記法の露出と本文変更を禁止する。既存の編集・検索・Undoモデルを共用し、別のHTMLレンダラーや依存は追加しない。検証結果は[検証状況](docs/acceptance-status.md)へ追記する。
+ユーザーの指示により、全記法を表示するSourceモードを廃止し、Live Preview / Previewの2モードに変更する。Previewは既存のCodeMirror装飾を使い、選択による記法の露出と本文変更を禁止する。既存の編集・検索・Undoモデルを共用し、別のHTMLレンダラーや依存は追加しない。検証結果は[検証状況](../verification.md)へ追記する。
 
 
 ## macOSのnagoriコマンド（2026-10-02）
@@ -359,14 +361,14 @@ Node24件・Rust6件・型チェック成功、Releaseアプリ15.35MiB、ad-hoc
 macOS標準のopenとTauriのOpenedイベントで、`nagori .`／`nagori test.md`を既存ウィンドウへ渡す。起動前の要求はRust側に保持し、フロントエンドの準備後に読み取る。起動後は既存の保存付き操作処理を通す。CLIはシェルスクリプトとしてPATH内へ登録し、追加ランタイムや常駐サーバーは導入しない。
 
 
-Preview・CLIの統合チェック：Node26件・Rust7件、型チェック0エラー・0警告、シェル構文チェック成功。Releaseアプリ15.35MiB、ad-hoc署名のstrict検証成功。macOSでの一連の起動・閲覧・保存確認は引き続き未完了。詳細は[検証状況](docs/acceptance-status.md)へ記録。
+Preview・CLIの統合チェック：Node26件・Rust7件、型チェック0エラー・0警告、シェル構文チェック成功。Releaseアプリ15.35MiB、ad-hoc署名のstrict検証成功。macOSでの一連の起動・閲覧・保存確認は引き続き未完了。詳細は[検証状況](../verification.md)へ記録。
 
 
 ## コマンドパレット・CLI登録の実装（2026-10-02）
 
 feature/command-paletteで、Cmd＋Shift＋Pの検索パレットとmacOSのCLI登録・解除を実装した。既存ダイアログと保存・操作ロックを使い、CLIはアプリに同梱するシェルスクリプトとmacOS標準のopenで動かす。新しい依存や常駐サーバーは追加しない。
 
-型チェック0エラー・0警告、Node27件、Rust8件が成功。Releaseアプリ15.43MiB、ad-hoc署名のstrict検証と同梱スクリプトの照合も成功した。専用識別子のQAアプリでCLI要求とメモリを確認する。パレット・管理者認証・IME・終了保存の画面操作は保留。最新の実機結果は[検証状況](docs/acceptance-status.md)、測定条件は[メモリ調査](docs/memory-investigation.md)へ記録する。
+型チェック0エラー・0警告、Node27件、Rust8件が成功。Releaseアプリ15.43MiB、ad-hoc署名のstrict検証と同梱スクリプトの照合も成功した。専用識別子のQAアプリでCLI要求とメモリを確認する。パレット・管理者認証・IME・終了保存の画面操作は保留。最新の実機結果は[検証状況](../verification.md)、測定条件は[メモリ調査](../performance/memory.md)へ記録する。
 
 
 ## 実機測定と配布準備（2026-10-02）
@@ -375,4 +377,4 @@ feature/command-paletteで、Cmd＋Shift＋Pの検索パレットとmacOSのCLI�
 
 製品.appとarm64 DMGを生成し、署名・チェックサム・読み取り専用マウントを検証した。アプリは15.43MiB、DMGは8.50MiB。Developer IDと公証情報が未設定のためローカル試用版までとし、本番リリースは行わない。
 
-残る順序は、Macのパレット登録・認証・IME・保存失敗と終了保存の操作確認、数式再処理回数と長時間メモリの調査、入力・検索性能の測定、外部配布用の署名・公証。詳細は[検証状況](docs/acceptance-status.md)へまとめる。Phase 6は一括合格にしない。
+残る順序は、Macのパレット登録・認証・IME・保存失敗と終了保存の操作確認、数式再処理回数と長時間メモリの調査、入力・検索性能の測定、外部配布用の署名・公証。詳細は[検証状況](../verification.md)へまとめる。Phase 6は一括合格にしない。

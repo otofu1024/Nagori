@@ -1,8 +1,10 @@
+整理前の文書を保存した履歴。内容は各記録時点の状態を表す。現在の状況は[検証状況](../verification.md)、構成は[architecture.md](../architecture.md)を参照。
+
 # Nagori MVP 検証状況
 
 更新：2026-10-02。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
 
-## コマンドパレットとCLIの登録（2026-10-02、9528951）
+## コマンドパレットとCLIの**登録**（2026-10-02、9528951）
 
 Cmd＋Shift＋Pと「表示 → コマンドパレット…」から、nagoriコマンドの登録・解除を実行する。Workspace未選択でも使え、検索・上下キー・Enter・Escapeに対応する。IME変換中、他のダイアログ表示中、保存などの処理中は開かない。登録結果、登録先、認証キャンセル、既存コマンドとの衝突をパレットに表示する。
 
@@ -18,7 +20,7 @@ Mac画面操作の権限確認が応答せず、独立したAXプローブもtru
 
 ## 実機メモリとDMG（2026-10-02）
 
-専用QAアプリでLight・19px・1120×800を固定して39サンプル採取した。通常記事の中央値142.38MiB、数式記事246.96MiB、通常記事へ戻した後264.41MiB。戻し区間は205.83〜300.55MiBで変動し、最終値を定常Idleとは扱わない。初回測定にはユーザー操作が入ったため比較から除外する。通常記事は元の100KiBから1byte増えた同じ本文を使用した。詳細と全サンプルは[メモリ調査](memory-investigation.md)と[performance-macos.json](performance-macos.json)。起動の描画完了、物理入力・検索遅延、全画像スクロール、長時間使用は未測定で、仕様§16の性能合格判定は保留。
+専用QAアプリでLight・19px・1120×800を固定して39サンプル採取した。通常記事の中央値142.38MiB、数式記事246.96MiB、通常記事へ戻した後264.41MiB。戻し区間は205.83〜300.55MiBで変動し、最終値を定常Idleとは扱わない。初回測定にはユーザー操作が入ったため比較から除外する。通常記事は元の100KiBから1byte増えた同じ本文を使用した。詳細と全サンプルは[メモリ調査](../performance/memory.md)と[performance-macos.json](../performance/macos-measurements.json)。起動の描画完了、物理入力・検索遅延、全画像スクロール、長時間使用は未測定で、仕様§16の性能合格判定は保留。
 
 `npm run tauri build -- --bundles app,dmg --ci`で製品識別子app.nagori.editorのアプリとarm64 DMGを生成。アプリは15.43MiB、DMGは8,914,861 bytes、8.50MiB。DMGのSHA-256はf50776a2d9ebbc62ce79f565fe2f5d84ba1881529376b755542bab13357f0712。hdiutilの内部チェックサム検証に成功し、読み取り専用でマウントして製品識別子・Applicationsリンク・署名・実行ファイルと同梱CLIの一致を確認した。検証マウントは解除済み。製品実行ファイルのSHAは上記と同じ。
 
@@ -91,7 +93,7 @@ Apple M4／RAM32GiB／macOS26.6.2、IAB Chrome154、1280×720px、DPR2、可視�
 | 実Quick Open入力→候補DOM確認→2回のrequestAnimationFrame | 32.85ms | 33.10ms |
 | 候補計算だけの参考値 | 0.45ms | 1.10ms |
 
-2回のrequestAnimationFrameは描画機会の代理値で、約2フレームの待ち時間を含む。物理画面への描画完了、OSキー入力、IME、WKWebView、実ファイルI/O・IPC、コールド起動を測った値ではない。Mac実機の目標合否には使用しない。全生データ・データhash・ソースhash・ビルド条件は[performance-baseline.json](performance-baseline.json)。起動中アプリの175MiB前後の観測も条件未固定のため目標合否には使わない。[メモリ調査](memory-investigation.md)
+2回のrequestAnimationFrameは描画機会の代理値で、約2フレームの待ち時間を含む。物理画面への描画完了、OSキー入力、IME、WKWebView、実ファイルI/O・IPC、コールド起動を測った値ではない。Mac実機の目標合否には使用しない。全生データ・データhash・ソースhash・ビルド条件は[performance-baseline.json](../performance/browser-baseline.json)。起動中アプリの175MiB前後の観測も条件未固定のため目標合否には使わない。[メモリ調査](../performance/memory.md)
 
 一時fixtureの再実行手順は `/private/tmp/nagori-ui-preview/PERFORMANCE.md`。`performance-metadata.py` → Vite production build → preview → CUAで測定ボタン、の順で行う。外部更新とIMEの再現は同フォルダの `external-ime.html`、画面記録は `external-ime-guard.jpg`。これらは一時検証用で製品に同梱しない。
 
