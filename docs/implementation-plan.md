@@ -4,7 +4,7 @@
 
 ## 現在地
 
-Tauri・Svelte・CodeMirrorの編集、保存、Workspace、画像、テーマ、MathJax、閲覧専用Preview、CLIとコマンドパレットを実装した。Releaseアプリとローカル試用用DMGを生成したが、Macの画面操作と性能の受け入れ条件は確認途中。
+Tauri・Svelte・CodeMirrorの編集、保存、Workspace、画像、テーマ、MathJax、閲覧専用Preview、CLIとその登録メニューを実装した。Releaseアプリとローカル試用用DMGを生成したが、Macの画面操作と性能の受け入れ条件は確認途中。
 
 | 段階 | 実装した範囲 | 残る確認 |
 |---|---|---|
@@ -13,7 +13,7 @@ Tauri・Svelte・CodeMirrorの編集、保存、Workspace、画像、テーマ�
 | Phase 3 | File Tree、Quick Open、作成・Rename、Finder・ゴミ箱 | パス更新、Finder・ゴミ箱、再起動での復帰 |
 | Phase 4 | Markdown、表・画像・タスク、画像挿入 | 選択位置、画像挿入とUndo |
 | Phase 5 | 装飾、検索、テーマ、提供デザイン、メニュー | キーボード操作と設定復元 |
-| 追加機能 | MathJax、Preview、CLI、登録パレット | 数式の長時間使用、Previewの操作、管理者認証 |
+| 追加機能 | MathJax、Preview、CLI、登録メニュー | 数式の長時間使用、Previewの操作、管理者認証 |
 | Phase 6 | Release・DMG生成、署名検証、実機メモリ採取 | 受け入れ条件の合格判定、性能、外部配布用署名・公証 |
 
 実装済みでも、実機での完了条件をすべて満たしたとは扱わない。個々の結果と未確認範囲は[検証状況](verification.md)を参照。

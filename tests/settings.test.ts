@@ -16,16 +16,10 @@ test('first launch resolves OS once; stored theme survives OS changes and toggle
   }
 });
 
-test('legacy system and 17px migrate without changing project or custom sizes', () => {
-  const legacy: Settings = { ...defaults, theme: 'system', appearanceVersion: 0, fontSize: 17, lastProject: '/fixture', lastFile: 'a.md', recentFiles: ['a.md'] };
-  assert.deepEqual(startupSettings(legacy, () => true), { ...legacy, theme: 'dark', fontSize: 19, appearanceVersion: 1 });
-  assert.equal(legacy.theme, 'system');
-  assert.equal(legacy.fontSize, 17);
-  const migrated = startupSettings(legacy, () => true);
-  migrated.fontSize = 17;
-  assert.equal(startupSettings(JSON.parse(JSON.stringify(migrated)), () => false).fontSize, 17);
-  const withoutMarker = { ...legacy };
-  delete withoutMarker.appearanceVersion;
-  assert.equal(startupSettings(withoutMarker, () => false).fontSize, 19);
-  for (const size of [12, 16, 18, 24, 32]) assert.equal(startupSettings({ ...defaults, theme: 'light', fontSize: size }, () => true).fontSize, size);
+test('undecided theme resolves once without changing project or custom sizes', () => {
+  const saved: Settings = { ...defaults, theme: 'system', fontSize: 17, lastProject: '/fixture', lastFile: 'a.md', recentFiles: ['a.md'] };
+  assert.deepEqual(startupSettings(saved, () => true), { ...saved, theme: 'dark' });
+  assert.equal(saved.theme, 'system');
+  for (const size of [12, 16, 17, 18, 24, 32]) assert.equal(startupSettings({ ...defaults, theme: 'light', fontSize: size }, () => true).fontSize, size);
+  assert.equal(startupSettings({ ...defaults, theme: 'light', fontSize: 40 }, () => true).fontSize, 32);
 });

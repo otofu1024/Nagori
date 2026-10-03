@@ -12,8 +12,6 @@ export type AppFlowDeps = {
   openDocument: (path: string) => Promise<OpenedDocument>;
   replaceText: (text: string) => void;
   notify: (message: string) => void;
-  closePalette: () => void;
-  isPaletteOpen: () => boolean;
   persist: () => Promise<void>;
   settingsQueue: () => Promise<unknown>;
   exitApp: () => Promise<void>;
@@ -113,7 +111,6 @@ export class AppFlow {
   // Cmd+Q、Cmd+W、閉じる、Dock終了はすべてこの経路で、保存に成功したときだけ終了する
   async quit() {
     const d = this.deps;
-    if (d.isPaletteOpen()) d.closePalette();
     await this.operation(async () => {
       await d.persist();
       await d.settingsQueue();

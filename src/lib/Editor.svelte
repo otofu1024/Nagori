@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
-  import { Compartment, EditorState, Prec, Transaction, EditorSelection } from '@codemirror/state';
+  import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
+  import type { Tree } from '@lezer/common';
   import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
-  import { syntaxTree } from '@codemirror/language';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { restoredScrollTop } from './scrollRestore.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
-  import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, type FormatPlan } from './markdown.ts';
+  import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind } from './editor.ts';
 
   let { initialText, documentKey, readonly = false, busy = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
@@ -24,6 +24,8 @@
   let linkDialog = $state(false), linkText = $state(''), linkUrl = $state(''), linkError = $state('');
   let pendingLink: FormatPlan | undefined;
   let composition = false, revision = 0, pendingRevision = -1;
+  // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
+  let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
   const readOnlyConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
@@ -31,7 +33,9 @@
   function plans() {
     if (!view) return null;
     const range = view.state.selection.main, text = view.state.doc.toString();
-    const parsed = syntaxTree(view.state), tree = parsed.length === text.length ? parsed : markdownParser.parse(text);
+    if (!parsed) parsed = { tree: markdownParser.parse(text), pending: null };
+    else if (parsed.pending) parsed = { tree: reparse(parsed.tree, text, parsed.pending), pending: null };
+    const tree = parsed.tree;
     return Object.fromEntries(kinds.map(kind => [kind, formatPlan(text, range, kind, tree)])) as Record<FormatKind, FormatPlan>;
   }
   function updateToolbar() {
@@ -46,7 +50,8 @@
   }
   function apply(kind: FormatKind) {
     if (!view || view.state.readOnly || composition || view.composing || linkDialog) return;
-    const plan = plans()?.[kind];
+    // 表示用の判定は差分解析の木を使うため、本文を変える前に全文解析で判定し直す
+    const plan = formatPlan(view.state.doc.toString(), view.state.selection.main, kind);
     if (!plan || plan.reason) return;
     if (kind === 'link') { pendingLink = plan; pendingRevision = revision; linkText = plan.linkText ?? ''; linkUrl = plan.existingLink ?? ''; linkError = ''; linkDialog = true; toolbar = null; return; }
     view.dispatch({ changes: { from: plan.from, to: plan.to, insert: plan.text }, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format' });
@@ -119,6 +124,7 @@
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           revision++;
+          if (parsed) parsed.pending = parsed.pending ? parsed.pending.compose(update.changes) : update.changes;
           if (linkDialog) { linkDialog = false; pendingLink = undefined; }
         }
         if (update.docChanged && !update.transactions.some(tr => tr.annotation(Transaction.addToHistory) === false)) onChange(update.state.doc.toString());
@@ -133,10 +139,9 @@
     view = new EditorView({ state: createState(initialText), parent: host });
     view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
     onReady({
-      getText: () => view!.state.doc.toString(),
       replaceText: text => {
         if (!view || composition || view.composing) return;
-        linkDialog = false; pendingLink = undefined; linkError = ''; revision++;
+        linkDialog = false; pendingLink = undefined; linkError = ''; revision++; parsed = null;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
         old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });

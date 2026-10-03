@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "format": "prettier --write src/App.svelte src/lib/QuickOpen.svelte src/lib/FileTree.svelte src/lib/ProblemDialog.svelte src/lib/SaveAsDialog.svelte",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "tauri": "tauri",
     "release:sign": "sh scripts/release-sign.sh",
@@ -30,6 +31,8 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tauri-apps/cli": "2.12.0",
+    "prettier": "3.9.9",
+    "prettier-plugin-svelte": "4.1.1",
     "svelte-check": "4.7.6",
     "typescript": "6.0.3",
     "vite": "8.3.1"

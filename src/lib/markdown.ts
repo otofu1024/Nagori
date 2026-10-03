@@ -1,5 +1,6 @@
 import { parser, Table, TaskList, Strikethrough } from '@lezer/markdown';
-import type { SyntaxNode, Tree, Input } from '@lezer/common';
+import { TreeFragment, type SyntaxNode, Tree, type Input, type ChangedRange } from '@lezer/common';
+import type { ChangeDesc } from '@codemirror/state';
 import { mathExtension } from './markdownMath.ts';
 import type { FormatKind } from './editor.ts';
 
@@ -14,6 +15,17 @@ export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension
   return baseParser.startParse({ length: input.length, lineChunks: false, read, chunk: from => read(from, Math.min(input.length, from + 4096)) });
 } }];
 export const markdownParser = parser.configure(markdownExtensions);
+// markdownParserで作った木だけを差分解析の材料にする。CodeMirror側の木はノード型の集合が異なる
+const ownTree = (tree: Tree) => markdownParser.nodeSet.types[tree.type.id] === tree.type;
+function parseChanged(previous: Tree, text: string, ranges: ChangedRange[]): Tree {
+  return markdownParser.parse(text, ownTree(previous) ? TreeFragment.applyChanges(TreeFragment.addTree(previous), ranges) : undefined);
+}
+// 前回の木と変更内容から、変わった部分だけを解析し直す
+export function reparse(previous: Tree, text: string, changes: ChangeDesc): Tree {
+  const ranges: ChangedRange[] = [];
+  changes.iterChangedRanges((fromA, toA, fromB, toB) => ranges.push({ fromA, toA, fromB, toB }));
+  return parseChanged(previous, text, ranges);
+}
 export type Span = { from: number; to: number };
 export const touches = (span: Span, selection: Span) => selection.from <= span.to && selection.to >= span.from;
 export const intersects = (a: Span, b: Span) => a.from < b.to && b.from < a.to;
@@ -82,7 +94,9 @@ export function inlineContent(node: SyntaxNode): Span {
 const formatNode = { bold: 'StrongEmphasis', italic: 'Emphasis', strike: 'Strikethrough', code: 'InlineCode', link: 'Link' };
 const decorated = new Set(['StrongEmphasis', 'Emphasis', 'Strikethrough', 'InlineCode', 'Link', 'Image']);
 export type FormatPlan = { reason?: string; from: number; to: number; text: string; selection: Span; existingLink?: string; linkText?: string };
-export function formatPlan(text: string, selection: Span, kind: FormatKind, tree = markdownParser.parse(text)): FormatPlan {
+// treeを渡すと、変更後の本文もその木からの差分解析で確かめる(表示用)。省略すると全文解析で確かめる(本文を変える時用)
+export function formatPlan(text: string, selection: Span, kind: FormatKind, given?: Tree): FormatPlan {
+  const tree = given ?? markdownParser.parse(text);
   const denied = (reason: string): FormatPlan => ({ reason, ...selection, text: '', selection });
   if (selection.from === selection.to) return denied('テキストを選択してください');
   const front = frontMatter(text);
@@ -122,7 +136,8 @@ export function formatPlan(text: string, selection: Span, kind: FormatKind, tree
   // Reject surrounding delimiter interactions rather than guessing how CommonMark will regroup them.
   const changed = text.slice(0, selection.from) + insert + text.slice(selection.to);
   let valid = false;
-  walk(markdownParser.parse(changed).topNode, n => { if (n.name === formatNode[kind] && n.from === selection.from && n.to === selection.from + insert.length) valid = true; });
+  const checked = given ? parseChanged(given, changed, [{ fromA: selection.from, toA: selection.to, fromB: selection.from, toB: selection.from + insert.length }]) : markdownParser.parse(changed);
+  walk(checked.topNode, n => { if (n.name === formatNode[kind] && n.from === selection.from && n.to === selection.from + insert.length) valid = true; });
   if (!valid) return denied('周囲のMarkdown記号と衝突するため適用できません');
   return { ...selection, text: insert, selection: { from: selection.from + delimiter.length, to: selection.from + delimiter.length + plain.length } };
 }

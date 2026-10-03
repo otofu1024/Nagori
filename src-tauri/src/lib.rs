@@ -1,6 +1,6 @@
 mod cli;
 mod files;
-use files::{Entry, Error, Image, InsertedImage, OpenedDocument, Result, Saved, Settings};
+use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved, Settings};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::VecDeque,
@@ -281,7 +281,8 @@ async fn image_read(
     state: State<'_, Backend>,
     path: String,
     document_path: Option<String>,
-) -> Result<Image> {
+) -> Result<tauri::ipc::Response> {
+    // JSONの数値配列にせず、バイナリのままWebViewへ渡す
     work(&state, move |w| {
         files::read_image(&files::image_path(
             w.root()?,
@@ -290,6 +291,7 @@ async fn image_read(
         )?)
     })
     .await
+    .map(|image| tauri::ipc::Response::new(image.data))
 }
 #[tauri::command]
 async fn image_insert(
@@ -455,6 +457,8 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
     let hide = P::hide(app, None)?;
     let hide_others = P::hide_others(app, None)?;
     let show_all = P::show_all(app, None)?;
+    let cli_install = action("cli-install", "nagoriコマンドを登録…", None)?;
+    let cli_uninstall = action("cli-uninstall", "nagoriコマンドの登録を解除", None)?;
     let quit = action("quit", "Nagoriを終了", Some("CmdOrCtrl+Q"))?;
     let separator = P::separator(app)?;
     let application = Submenu::with_items(
@@ -463,6 +467,9 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         true,
         &[
             &about,
+            &separator,
+            &cli_install,
+            &cli_uninstall,
             &separator,
             &services,
             &separator,
@@ -522,12 +529,7 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         "Live Preview / Preview",
         Some("CmdOrCtrl+Shift+L"),
     )?;
-    let palette = action(
-        "command-palette",
-        "コマンドパレット…",
-        Some("CmdOrCtrl+Shift+P"),
-    )?;
-    let view = Submenu::with_items(app, "表示", true, &[&palette, &preview])?;
+    let view = Submenu::with_items(app, "表示", true, &[&preview])?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
 pub fn run() {
@@ -561,7 +563,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            cli::cli_status,
             cli::cli_install,
             cli::cli_uninstall,
             open_request_take,

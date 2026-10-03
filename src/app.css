@@ -258,6 +258,3 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
   footer { padding: 0 18px; }
 }
 
-.command-close { padding: 5px; }
-.command-panel .command-message { margin: 0; padding: 8px 20px; white-space: pre-line; }
-.command-path { padding: 0 20px 15px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
