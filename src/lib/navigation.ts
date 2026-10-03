@@ -21,3 +21,4 @@ export function localLink(documentPath:string,href:string):string {
   for(const part of decodeURIComponent(href.split(/[?#]/)[0]).split('/')) {if(!part||part==='.')continue;if(part==='..'){if(!parts.length)throw new Error('プロジェクト外のリンクは開けません。');parts.pop();}else parts.push(part);}
   const path=parts.join('/');if(!/\.(md|markdown)$/i.test(path))throw new Error('Markdown以外のローカルリンクは開けません。');return path;
 }
+export type Naming={kind:'rename'|'markdown'|'directory';parent:string;entry?:Entry;value:string;error:string};

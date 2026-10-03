@@ -54,12 +54,9 @@ pub struct OpenedDocument {
 pub struct Saved {
     pub baseline: String,
 }
-#[derive(Serialize)]
 pub struct Image {
-    pub mime: String,
     pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
+    format: image::ImageFormat,
 }
 #[derive(Serialize)]
 pub struct InsertedImage {
@@ -74,8 +71,6 @@ pub struct Settings {
     pub theme: String,
     pub font_size: u8,
     pub recent_files: Vec<String>,
-    #[serde(default)]
-    pub appearance_version: u8,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -85,7 +80,6 @@ impl Default for Settings {
             theme: "system".into(),
             font_size: 19,
             recent_files: vec![],
-            appearance_version: 1,
         }
     }
 }
@@ -349,22 +343,23 @@ pub fn open(root: &Path, path: &str) -> Result<OpenedDocument> {
         readonly: readonly(&absolute)?,
     })
 }
-fn check_baseline(root: &Path, path: &str, expected: &str) -> Result<PathBuf> {
+// 基準と一致した時は、読み込んだ内容も返して再読み込みを省く
+fn check_baseline(root: &Path, path: &str, expected: &str) -> Result<(PathBuf, Vec<u8>)> {
     let absolute = resolve(root, path, false)?;
-    if baseline(&read_limited(&absolute, DOCUMENT_LIMIT)?) != expected {
+    let bytes = read_limited(&absolute, DOCUMENT_LIMIT)?;
+    if baseline(&bytes) != expected {
         return Err(Error::new("CONFLICT", "ディスクの内容が変更されています。"));
     }
-    Ok(absolute)
+    Ok((absolute, bytes))
 }
 pub fn save(root: &Path, path: &str, text: &str, expected: &str) -> Result<Saved> {
-    let absolute = check_baseline(root, path, expected)?;
+    let (absolute, before) = check_baseline(root, path, expected)?;
     if !markdown(&absolute) {
         return Err(Error::new("UNSUPPORTED", "Markdownのみ保存できます。"));
     }
     if readonly(&absolute)? {
         return Err(Error::new("PERMISSION", "読み取り専用ファイルです。"));
     }
-    let before = read_limited(&absolute, DOCUMENT_LIMIT)?;
     let (_, format) = decode(&before)?;
     let bytes = encode(text, &format)?;
     if bytes == before {
@@ -394,7 +389,7 @@ fn commit(
 ) -> Result<()> {
     // Cooperative app writes are serialized; a final content check detects external changes during staging.
     // ponytail: external writers can still race this check; OS coordination if stronger guarantees are needed.
-    let checked = check_baseline(root, path, expected)?;
+    let (checked, _) = check_baseline(root, path, expected)?;
     if readonly(&checked)? {
         return Err(Error::new("PERMISSION", "読み取り専用ファイルです。"));
     }
@@ -569,32 +564,35 @@ pub fn read_image(path: &Path) -> Result<Image> {
     }
     let data = read_limited(path, IMAGE_LIMIT)?;
     let format = image::guess_format(&data).map_err(|e| Error::new("IMAGE", e.to_string()))?;
-    let mime = match format {
-        image::ImageFormat::Png => "image/png",
-        image::ImageFormat::Jpeg => "image/jpeg",
-        image::ImageFormat::Gif => "image/gif",
-        image::ImageFormat::WebP => "image/webp",
-        _ => return Err(Error::new("UNSUPPORTED", "非対応の画像形式です。")),
-    };
+    if !matches!(
+        format,
+        image::ImageFormat::Png
+            | image::ImageFormat::Jpeg
+            | image::ImageFormat::Gif
+            | image::ImageFormat::WebP
+    ) {
+        return Err(Error::new("UNSUPPORTED", "非対応の画像形式です。"));
+    }
+    // 表示ではWebViewがデコードするため、ここでは形式と寸法だけを確かめる
     let (width, height) = image::ImageReader::with_format(std::io::Cursor::new(&data), format)
         .into_dimensions()
         .map_err(|e| Error::new("IMAGE", e.to_string()))?;
     if width == 0 || height == 0 || width as u64 * height as u64 > PIXEL_LIMIT {
         return Err(Error::new("LIMIT", "画像の上限は1,600万画素です。"));
     }
-    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&data), format);
+    Ok(Image { data, format })
+}
+// 取り込む画像だけは最後までデコードし、破損したファイルをプロジェクトへ複製しない
+fn verify_image(image: &Image) -> Result<()> {
+    let mut reader =
+        image::ImageReader::with_format(std::io::Cursor::new(&image.data), image.format);
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
     reader
         .decode()
         .map_err(|e| Error::new("IMAGE", e.to_string()))?;
-    Ok(Image {
-        mime: mime.into(),
-        data,
-        width,
-        height,
-    })
+    Ok(())
 }
 pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Result<PathBuf> {
     let input = if let Some(document_path) = document_path {
@@ -638,6 +636,7 @@ pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Resu
         }
     }
     let image = read_image(source)?;
+    verify_image(&image)?;
     let assets = document.parent().unwrap().join("assets");
     let assets_relative = relative(root, &assets)?;
     resolve(root, &assets_relative, true)?;
@@ -697,7 +696,6 @@ mod tests {
         let defaults = Settings::default();
         assert_eq!(defaults.theme, "system");
         assert_eq!(defaults.font_size, 19);
-        assert_eq!(defaults.appearance_version, 1);
         for theme in ["light", "dark"] {
             let settings = Settings {
                 theme: theme.into(),
@@ -715,12 +713,14 @@ mod tests {
             assert_eq!(restored.last_project, settings.last_project);
             assert_eq!(restored.last_file, settings.last_file);
             assert_eq!(restored.recent_files, settings.recent_files);
-            assert_eq!(restored.appearance_version, 1);
         }
         let old: Settings = serde_json::from_str(r#"{"theme":"system","fontSize":17}"#).unwrap();
         old.validate().unwrap();
         assert_eq!(old.font_size, 17);
-        assert_eq!(old.appearance_version, 0);
+        // 以前の版が書いた未知の項目は無視して読み込める
+        let legacy: Settings =
+            serde_json::from_str(r#"{"theme":"dark","appearanceVersion":1}"#).unwrap();
+        assert_eq!(legacy.theme, "dark");
     }
 
     #[test]
@@ -1038,10 +1038,25 @@ mod tests {
         let b = insert_image(root, source.to_str().unwrap(), "article.md").unwrap();
         assert_ne!(a.path, b.path);
         assert!(a.markdown.contains("%20%281%29"));
-        assert_eq!(read_image(&root.join(&a.path)).unwrap().width, 1);
+        assert!(read_image(&root.join(&a.path)).is_ok());
         assert_eq!(
             fs::read(&source).unwrap(),
             fs::read(root.join(a.path)).unwrap()
+        );
+        // 寸法までは読める途中切れの画像は、閲覧では通し、取り込みでは拒否する
+        image::RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([x as u8 * 4, y as u8 * 4, 0, 255])
+        })
+        .save(&source)
+        .unwrap();
+        let valid = fs::read(&source).unwrap();
+        fs::write(&source, &valid[..valid.len() / 2]).unwrap();
+        assert!(read_image(&source).is_ok());
+        assert_eq!(
+            insert_image(root, source.to_str().unwrap(), "article.md")
+                .err()
+                .map(|e| e.code),
+            Some("IMAGE")
         );
         fs::write(&source, b"corrupt").unwrap();
         assert!(insert_image(root, source.to_str().unwrap(), "article.md").is_err());

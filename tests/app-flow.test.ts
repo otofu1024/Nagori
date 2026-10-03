@@ -6,7 +6,7 @@ import { EditSession, type OpenedDocument } from '../src/lib/session.ts';
 // IPCとDOMを記録用の関数へ差し替えて、呼び出し順を確認する補助
 function setup(write: (path: string, text: string, baseline: string) => Promise<{ baseline: string }> = async () => ({ baseline: 'saved' }), disk: OpenedDocument = { path: 'a.md', text: 'original', baseline: 'loaded', readonly: false }) {
   const log: string[] = [];
-  const state = { busy: false, composing: false, palette: false };
+  const state = { busy: false, composing: false };
   const session = new EditSession({ path: 'a.md', text: 'original', baseline: 'loaded', readonly: false }, write, () => {});
   const realFlush = session.flush.bind(session);
   session.flush = async () => { log.push('flush'); return realFlush(); };
@@ -21,8 +21,6 @@ function setup(write: (path: string, text: string, baseline: string) => Promise<
     openDocument: async () => { log.push('open'); session.composing = state.composing; return disk; },
     replaceText: (text) => log.push('replace:' + text),
     notify: (message) => log.push('notify:' + message),
-    closePalette: () => log.push('closePalette'),
-    isPaletteOpen: () => state.palette,
     persist: async () => { log.push('persist'); },
     settingsQueue: () => Promise.resolve(),
     exitApp: async () => { log.push('exit'); },
@@ -39,14 +37,6 @@ test('終了前のflushが共通経路を通り、保存後に設定保存と終
   await flow.quit();
   assert.deepEqual(log, ['settle', 'cancelSave', 'settle', 'flush', 'persist', 'exit']);
   assert.equal(session.dirty, false);
-});
-
-test('終了時にコマンドパレットが開いていれば先に閉じる', async () => {
-  const { flow, log, state } = setup();
-  state.palette = true;
-  await flow.quit();
-  assert.equal(log[0], 'closePalette');
-  assert.ok(log.includes('exit'));
 });
 
 test('保存失敗中は終了が止まり、再書き込みも設定保存も行わない', async () => {

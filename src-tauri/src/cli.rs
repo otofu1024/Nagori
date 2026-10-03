@@ -158,11 +158,6 @@ fn change(action: &str) -> Result<Status> {
     Ok(status(Some(message.into())))
 }
 
-#[tauri::command]
-pub fn cli_status() -> Status {
-    status(None)
-}
-
 async fn run(action: &'static str) -> Result<Status> {
     tauri::async_runtime::spawn_blocking(move || change(action))
         .await

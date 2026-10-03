@@ -34,6 +34,11 @@ Nagori/
 │   ├── app.css                レイアウトとテーマトークン
 │   └── lib/
 │       ├── Editor.svelte      CodeMirrorとツールバー、検索、IME
+│       ├── FileTree.svelte    ファイルツリーの行と名前の入力欄
+│       ├── QuickOpen.svelte   Quick Openの検索とキー操作
+│       ├── ProblemDialog.svelte  保存失敗・競合のダイアログ
+│       ├── SaveAsDialog.svelte   別名保存のダイアログ
+│       ├── appFlow.ts         保存、外部変更の確認、終了の呼び出し順
 │       ├── session.ts         保存世代と保存状態
 │       ├── livePreview.ts     記法の表示切替と各種Widget
 │       ├── markdown.ts        Markdown解析の共通設定と参照解決
@@ -42,7 +47,8 @@ Nagori/
 │       ├── mathjax.ts         遅延読み込みする数式描画
 │       ├── math.css           数式表示のスタイル
 │       ├── navigation.ts      Quick Openの候補評価
-│       ├── settings.ts        設定初期値とテーマの移行
+│       ├── image.ts           画像データのMIMEタイプ判定
+│       ├── settings.ts        設定初期値と初回のテーマ判定
 │       ├── Icon.svelte        UIアイコン
 │       └── assets/            Nagoriロゴとタイトル画像
 ├── src-tauri/
@@ -79,7 +85,8 @@ Nagori/
 
 | ファイル | 担当 |
 |---|---|
-| [App.svelte](../src/App.svelte) | Workspaceと現在の記事、ツリー、ダイアログ、CLI要求、保存予約、外部変更、画像URLの寿命、Rustとの通信 |
+| [App.svelte](../src/App.svelte) | Workspaceと現在の記事、ツリーとダイアログの状態、CLI要求、保存予約、外部変更、画像URLの寿命、Rustとの通信 |
+| [FileTree.svelte](../src/lib/FileTree.svelte) / [QuickOpen.svelte](../src/lib/QuickOpen.svelte) / [ProblemDialog.svelte](../src/lib/ProblemDialog.svelte) / [SaveAsDialog.svelte](../src/lib/SaveAsDialog.svelte) | ツリー、Quick Open、保存失敗・競合、別名保存の表示とキー操作。状態の変更はApp.svelteへ返す |
 | [Editor.svelte](../src/lib/Editor.svelte) | EditorViewの生成・破棄、編集とUndo、検索、IME通知、選択ツールバー、Live Preview / Preview切替 |
 | [session.ts](../src/lib/session.ts) | 保存対象の本文、変更世代、保存済み世代、ディスク比較基準、直列保存、保存失敗の保持 |
 | [livePreview.ts](../src/lib/livePreview.ts) | 構文木と選択からDecorationを作り、表・画像・数式をWidgetで表示 |
@@ -97,7 +104,7 @@ Previewは既存のEditorViewと編集状態を使う。記法の露出と本文
 
 [files.rs](../src-tauri/src/files.rs)が読み書き、一覧と索引、作成・名前変更・ゴミ箱、画像読み込み・取り込みを担当する。Workspaceのパス範囲、除外項目、シンボリックリンク、UTF-8、サイズ・画像寸法を検証する。画像取り込み元と設定保存先は、通常のWorkspace参照と用途を分けて処理する。
 
-notifyでWorkspaceを再帰監視し、nagori:fs-changedとnagori:fs-errorを通知する。App.svelteが通知を受けてツリー・記事・画像を確認し直す。通知だけでファイルの内容を確定せず、保存時にもRust側でディスクの比較基準を確認する。
+notifyでWorkspaceを再帰監視し、nagori:fs-changedとnagori:fs-errorを通知する。App.svelteが通知を受けて、展開中のフォルダ・記事・画像を確認し直す。プロジェクト全体の索引は、Quick Openを開く時と前回のファイルを復元する時だけ作る。通知だけでファイルの内容を確定せず、保存時にもRust側でディスクの比較基準を確認する。
 
 ネイティブメニューはnagori:menu、終了要求はnagori:quit-requested、CLIからの起動要求はnagori:open-requestedで画面へ伝える。設定JSONはapp_config_dirのsettings.json。前回Workspaceと記事、最近開いたファイル、テーマ、本文サイズを保存する。
 
@@ -121,15 +128,15 @@ CodeMirrorの構文木からMarkdownの装飾を作る。Live Previewではカ�
 
 ### 画像
 
-Rustが画像の形式・サイズ・寸法と参照先を検証する。App.svelteは返された画像データからBlob URLを作り、同じ記事内の取得結果を再利用する。記事切替・更新時にURLを解放し、古い非同期結果を新しい記事へ反映しない。
+Rustが画像の形式・サイズ・寸法と参照先を検証し、画像データをJSONに変換せずバイナリのまま返す。表示用には最後までのデコードを行わず、WebViewのデコードに任せる。App.svelteは返されたデータからBlob URLを作り、同じ記事内の取得結果を再利用する。記事切替・更新時にURLを解放し、古い非同期結果を新しい記事へ反映しない。
 
-画像挿入では記事の隣のassetsへコピーし、成功後に相対パスの記法を本文へ挿入する。同名画像を上書きしない。中央の画像プレビューも同じRustの画像読み込みを使う。
+画像挿入では取り込む画像を最後までデコードして破損を確かめてから、記事の隣のassetsへコピーし、成功後に相対パスの記法を本文へ挿入する。同名画像を上書きしない。中央の画像プレビューも同じRustの画像読み込みを使う。
 
 ### CLIと終了
 
 scripts/nagoriはパスを解決し、同梱元のNagori.appをmacOSのopenで開く。TauriのOpenedイベントで要求をキューへ入れ、App.svelteが準備後に取り出す。起動中の要求はIME終了と保存を待って既存ウィンドウで処理する。
 
-登録パレットはcli.rsを呼び、同梱のcli-link.shが/usr/local/bin/nagoriへのリンクを作る。Applicationsへ置いたアプリから登録し、権限が足りなければmacOSの管理者認証を使う。別のコマンドを上書きせず、自分のリンクだけを解除する。
+アプリメニューの登録・解除はcli.rsを呼び、同梱のcli-link.shが/usr/local/bin/nagoriへのリンクを作る。Applicationsへ置いたアプリから登録し、権限が足りなければmacOSの管理者認証を使う。別のコマンドを上書きせず、自分のリンクだけを解除する。
 
 閉じる・終了要求はRustが一度止め、画面側の保存と設定保存を待つ。成功後にapp_exitが終了許可を設定してアプリを終了する。実際のMac IME、認証画面、各終了経路の確認状況は[検証状況](verification.md)を参照する。
 
