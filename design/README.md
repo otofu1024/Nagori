@@ -19,7 +19,7 @@
 
 ## ブランド素材
 
-生成には内蔵imagegenを使用。生成PNGのalphaを維持し、ヘッダー用は108×108pxのアイコンと324×108pxのワードマーク2種へ縮小した。UIで読み込むのはこの3ファイルだけで、合計の非圧縮RGBA画素量は約0.31MiB。大きな生成元や参考ボードはUIから読み込まない。
+生成には内蔵imagegenを使用。生成PNGのalphaを維持し、ヘッダー用は108×108pxのアイコンと324×108pxのワードマーク2種へ縮小した。UIで読み込むのはこの3ファイルと、後述のサイドバーカード2ファイル。ヘッダー用3ファイルの非圧縮RGBA画素量は約0.31MiB。大きな生成元や参考ボードはUIから読み込まない。
 
 - `src/lib/assets/nagori-icon.png`: ヘッダー用Lightアイコン。
 - `src/lib/assets/nagori-wordmark.png`: 濃紺のワードマーク。
@@ -39,3 +39,15 @@
 2026-10-01 背景調整: 透過素材にOSが付ける灰色背景が濃いため、内蔵imagegenで紙とNを維持し全面を白にした`design/brand-assets/app-icon-white-source.png`を作成。現在のPNG/ICNSはこの白背景版を使用する。前景透過版は過去案として保持する。
 
 白背景版の検証: Releaseビルド成功。`NSWorkspace.icon(forFile:)`で更新したNagori.appの表示用アイコンを取得し、白背景と二重台座がないことを確認。生成元は`design/brand-assets/app-icon-white-source.png`、最終プロンプトは`design/brand-prompts.json`の`appIconWhite`。
+
+## サイドバーのカード（2026-10-04）
+
+サイドバー下部に、アプリアイコンを感じさせるカードを置いた。ミントから水色の波のリボンと、ブランド資料のGlyphに寄せたNを描いた絵の上に、「A calmer space for your ideas.」をHTMLで重ねる。
+
+絵はOrcaのオーケストレーションでcodex(GPT-6-Sol、推論量high)のワーカーに任せ、内蔵の画像生成で作った。ui-reference.pngの左下カードとbrand-reference.pngのGlyphを参考に渡し、各テーマ1回の生成で採用した。使ったプロンプトと参考画像との差は`design/brand-assets/sidebar-card-report.md`に保存した。
+
+- `src/lib/assets/sidebar-card-light.png`: ライト用。528×672px、約321KB、透過なし。
+- `src/lib/assets/sidebar-card-dark.png`: ダーク用。528×672px、約341KB、透過なし。
+
+カードは高さ196pxで絵の下側を見せ、角丸と影はCSSで付ける。ウィンドウの高さが760px以下の時はファイル一覧を優先してカードを隠す。非圧縮RGBA画素量は2枚で約2.7MiBだが、表示するのは現在のテーマの1枚だけ。
+

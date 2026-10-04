@@ -13,6 +13,8 @@
   import nagoriIcon from './lib/assets/nagori-icon.png';
   import nagoriWordmark from './lib/assets/nagori-wordmark.png';
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
+  import sidebarCardLight from './lib/assets/sidebar-card-light.png';
+  import sidebarCardDark from './lib/assets/sidebar-card-dark.png';
   import type { EditorApi } from './lib/editor';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
   import { AppFlow } from './lib/appFlow';
@@ -910,7 +912,12 @@
           /></label
         >
       </details>
-      <div class="sidebar-note">WRITE · EDIT · STAY WITH YOUR IDEAS</div>
+      <!-- アプリアイコンの波とNを描いたカード。絵は飾りなので読み上げ対象にしない -->
+      <div class="sidebar-card">
+        <img class="sidebar-card-art sidebar-card-light" src={sidebarCardLight} alt="" width="264" height="336" />
+        <img class="sidebar-card-art sidebar-card-dark" src={sidebarCardDark} alt="" width="264" height="336" />
+        <p>A calmer space<br />for your ideas.</p>
+      </div>
     </div>
   </aside>
   <main>

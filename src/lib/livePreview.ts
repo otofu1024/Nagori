@@ -252,8 +252,10 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
     if (node.name === 'Blockquote') { for (let n = state.doc.lineAt(node.from).number; n <= state.doc.lineAt(node.to).number; n++) line(state.doc.line(n).from, 'nagori-quote'); }
     if (node.name === 'QuoteMark') hideMarker(node);
     if (node.name === 'ListMark') {
-      const current = state.doc.lineAt(node.from);
-      if (!active(current)) ranges.push(Decoration.replace({ widget: new TextWidget(/^\d/.test(text.slice(node.from, node.to)) ? text.slice(node.from, node.to) : '•') }).range(node.from, node.to));
+      const current = state.doc.lineAt(node.from), mark = text.slice(node.from, node.to);
+      // タスクの行では、チェックボックスの前に箇条書きの点を重ねて出さない
+      if (node.nextSibling?.name === 'Task' && !/^\d/.test(mark)) hideMarker(node);
+      else if (!active(current)) ranges.push(Decoration.replace({ widget: new TextWidget(/^\d/.test(mark) ? mark : '•') }).range(node.from, node.to));
     }
     if (node.name === 'TaskMarker') {
       if (!active(state.doc.lineAt(node.from))) ranges.push(Decoration.replace({ widget: new TaskWidget(node.from, /x/i.test(text.slice(node.from, node.to)), state.readOnly) }).range(node.from, node.to));
