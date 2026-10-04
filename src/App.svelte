@@ -556,6 +556,19 @@
       await refreshTree();
     }, false);
   }
+  // コピーした画像を、記事と同じフォルダのassetsへ保存して、カーソルの位置に記法を入れる
+  async function pasteImage(image: File) {
+    if (!session || session.readonly || previewOnly) return;
+    const documentPath = session.path;
+    await operation(async () => {
+      const bytes = new Uint8Array(await image.arrayBuffer());
+      const result = await invoke<{ path: string; markdown: string }>('image_paste', bytes, {
+        headers: { 'x-document-path': encodeURIComponent(documentPath) },
+      });
+      editor?.insertText(result.markdown);
+      await refreshTree();
+    }, false);
+  }
   async function link(href: string) {
     try {
       if (/^https?:\/\//i.test(href)) {
@@ -955,6 +968,7 @@
           onComposition={composition}
           onSave={() => void flush()}
           onLink={(href) => void link(href)}
+          onPasteImage={(image) => void pasteImage(image)}
           {resolveImage}
           onReady={(api) => (editor = api)}
         />
