@@ -97,6 +97,13 @@ export type FormatPlan = { reason?: string; from: number; to: number; text: stri
 // treeを渡すと、変更後の本文もその木からの差分解析で確かめる(表示用)。省略すると全文解析で確かめる(本文を変える時用)
 export function formatPlan(text: string, selection: Span, kind: FormatKind, given?: Tree): FormatPlan {
   const tree = given ?? markdownParser.parse(text);
+  // 太字・斜体・取り消し線では、選択範囲の前後の空白を外してから付ける(記号の内側に空白があると装飾にならないため)
+  if (kind === 'bold' || kind === 'italic' || kind === 'strike') {
+    let { from, to } = selection;
+    while (from < to && /\s/.test(text[from])) from++;
+    while (to > from && /\s/.test(text[to - 1])) to--;
+    if (from < to) selection = { from, to };
+  }
   const denied = (reason: string): FormatPlan => ({ reason, ...selection, text: '', selection });
   if (selection.from === selection.to) return denied('テキストを選択してください');
   const front = frontMatter(text);
@@ -109,37 +116,60 @@ export function formatPlan(text: string, selection: Span, kind: FormatKind, give
   const blocks = nodes.filter(n => n.name === 'Paragraph' || n.name === 'Task' || /^(?:ATXHeading|SetextHeading)/.test(n.name));
   if (blocks.length !== 1 || selection.to > blocks[0].to || (selection.from < blocks[0].from && !/^[ \t]{0,3}$/.test(text.slice(selection.from, blocks[0].from)))) return denied('単一段落内を選択してください');
   const formats = nodes.filter(n => decorated.has(n.name));
-  const target = formats.find(n => {
-    if (n.name !== formatNode[kind]) return false;
-    const content = inlineContent(n), raw = text.slice(content.from, content.to);
-    const trim = kind === 'code' && raw.startsWith(' ') && raw.endsWith(' ') && /\S/.test(raw) ? 1 : 0;
-    return (selection.from === n.from && selection.to === n.to) || (selection.from === content.from && selection.to === content.to) || (selection.from === content.from + trim && selection.to === content.to - trim);
-  });
-  if (target && formats.length === 1) {
-    const content = inlineContent(target); let plain = text.slice(content.from, content.to);
-    if (kind === 'code' && plain.startsWith(' ') && plain.endsWith(' ') && /\S/.test(plain)) plain = plain.slice(1, -1);
-    return { from: target.from, to: target.to, text: plain, selection: { from: target.from, to: target.from + plain.length }, ...(kind === 'link' ? { existingLink: linkTarget(target, text, references(tree, text)) ?? '', linkText: plain } : {}) };
+  const block = blocks[0], name = formatNode[kind];
+  if (kind === 'link') {
+    // リンクは入力欄で表示テキストとURLを扱うため、装飾をまたぐ選択は従来どおり止める
+    const target = formats.find(n => n.name === 'Link' && ((selection.from === n.from && selection.to === n.to) || (selection.from === inlineContent(n).from && selection.to === inlineContent(n).to)));
+    if (target && formats.length === 1) {
+      const content = inlineContent(target), plain = text.slice(content.from, content.to);
+      return { from: target.from, to: target.to, text: plain, selection: { from: target.from, to: target.from + plain.length }, existingLink: linkTarget(target, text, references(tree, text)) ?? '', linkText: plain };
+    }
+    if (formats.length) return denied('装飾境界をまたぐ選択や混在した装飾は変更できません');
+    const plain = text.slice(selection.from, selection.to);
+    return { ...selection, text: plain, selection, linkText: plain };
   }
-  if (formats.length) return denied('装飾境界をまたぐ選択や混在した装飾は変更できません');
-  const plain = text.slice(selection.from, selection.to);
-  if (kind === 'link') return { ...selection, text: plain, selection, linkText: plain };
+  // 同じ装飾の中だけを選んだ時は、その装飾を外す
+  const enclosing = formats.filter(n => n.name === name && n.from <= selection.from && n.to >= selection.to).at(-1);
+  if (enclosing) {
+    const content = inlineContent(enclosing); let plain = text.slice(content.from, content.to);
+    if (kind === 'code' && plain.startsWith(' ') && plain.endsWith(' ') && /\S/.test(plain)) plain = plain.slice(1, -1);
+    return { from: enclosing.from, to: enclosing.to, text: plain, selection: { from: enclosing.from, to: enclosing.from + plain.length } };
+  }
+  // 選択範囲にかかる同じ装飾を取り込んで範囲を広げる。広げた先でまた同じ装飾にかかれば繰り返す
+  let from = selection.from, to = selection.to;
+  const sameIn = () => { const found: SyntaxNode[] = []; walk(block, n => { if (n.name === name && n.from < to && n.to > from) found.push(n); }); return found; };
+  for (let grown = true; grown;) {
+    grown = false;
+    for (const n of sameIn()) if (n.from < from || n.to > to) { from = Math.min(from, n.from); to = Math.max(to, n.to); grown = true; }
+  }
+  const same = sameIn();
+  // ほかの種類の装飾は、範囲の中に丸ごと入るか、範囲を丸ごと含む時だけ残して付ける
+  const others: SyntaxNode[] = [];
+  walk(block, n => { if (decorated.has(n.name) && n.name !== name && n.from < to && n.to > from) others.push(n); });
+  if (others.some(n => !(n.from >= from && n.to <= to) && !(n.from <= from && n.to >= to))) return denied('ほかの装飾の境界をまたぐ選択には適用できません');
+  if (kind === 'code' && others.some(n => n.from >= from && n.to <= to)) return denied('装飾を含む範囲はInline Codeにできません');
+  // 取り込んだ同じ装飾の記号を外した本文を作る
+  const marks = same.flatMap(n => children(n).filter(c => /^(?:EmphasisMark|StrikethroughMark|CodeMark)$/.test(c.name))).sort((a, b) => a.from - b.from);
+  let plain = '', at = from;
+  for (const mark of marks) { plain += text.slice(at, mark.from); at = mark.to; }
+  plain += text.slice(at, to);
   if (kind === 'code') {
     if (plain.includes('\n')) return denied('Inline Codeは単一行だけに適用できます');
     const runs = [...plain.matchAll(/`+/g)].map(m => m[0].length), delimiter = '`'.repeat(Math.max(0, ...runs) + 1);
     const padding = plain.startsWith('`') || plain.endsWith('`') || (plain.startsWith(' ') && plain.endsWith(' ') && /\S/.test(plain)) ? ' ' : '';
     const insert = delimiter + padding + plain + padding + delimiter;
-    return { ...selection, text: insert, selection: { from: selection.from + delimiter.length + padding.length, to: selection.from + delimiter.length + padding.length + plain.length } };
+    return { from, to, text: insert, selection: { from: from + delimiter.length + padding.length, to: from + delimiter.length + padding.length + plain.length } };
   }
   if (!plain.trim() || /^\s|\s$/.test(plain)) return denied('装飾する文字の前後の空白を除いて選択してください');
   const delimiter = kind === 'bold' ? '**' : kind === 'italic' ? '*' : '~~';
   const insert = delimiter + plain + delimiter;
   // Reject surrounding delimiter interactions rather than guessing how CommonMark will regroup them.
-  const changed = text.slice(0, selection.from) + insert + text.slice(selection.to);
+  const changed = text.slice(0, from) + insert + text.slice(to);
   let valid = false;
-  const checked = given ? parseChanged(given, changed, [{ fromA: selection.from, toA: selection.to, fromB: selection.from, toB: selection.from + insert.length }]) : markdownParser.parse(changed);
-  walk(checked.topNode, n => { if (n.name === formatNode[kind] && n.from === selection.from && n.to === selection.from + insert.length) valid = true; });
+  const checked = given ? parseChanged(given, changed, [{ fromA: from, toA: to, fromB: from, toB: from + insert.length }]) : markdownParser.parse(changed);
+  walk(checked.topNode, n => { if (n.name === name && n.from === from && n.to === from + insert.length) valid = true; });
   if (!valid) return denied('周囲のMarkdown記号と衝突するため適用できません');
-  return { ...selection, text: insert, selection: { from: selection.from + delimiter.length, to: selection.from + delimiter.length + plain.length } };
+  return { from, to, text: insert, selection: { from: from + delimiter.length, to: from + delimiter.length + plain.length } };
 }
 export function codeDisplay(text: string): string {
   const value = text.replace(/\r?\n/g, ' ');
