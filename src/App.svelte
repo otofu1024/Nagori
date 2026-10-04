@@ -2,9 +2,12 @@
   import { onMount, tick } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import { Menu } from '@tauri-apps/api/menu';
+  import { Menu, type MenuOptions } from '@tauri-apps/api/menu';
+  import { LogicalPosition } from '@tauri-apps/api/dpi';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/Editor.svelte';
+  import Outline from './lib/Outline.svelte';
+  import type { OutlineHeading } from './lib/outline.ts';
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
   import FileTree from './lib/FileTree.svelte';
@@ -15,7 +18,8 @@
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
   import sidebarCardLight from './lib/assets/sidebar-card-light.png';
   import sidebarCardDark from './lib/assets/sidebar-card-dark.png';
-  import type { EditorApi } from './lib/editor';
+  import type { EditorApi, EditorContextMenu } from './lib/editor';
+  import type { BlockKind } from './lib/blockEdit';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
   import { AppFlow } from './lib/appFlow';
   import { containsPath, renamedPath, parentPath, localLink, type Entry, type Naming } from './lib/navigation';
@@ -32,6 +36,8 @@
     documentKey = $state(0);
   let session = $state.raw<EditSession | null>(null);
   let editor: EditorApi | null = null;
+  let outline = $state.raw<OutlineHeading[]>([]),
+    outlinePosition = $state(-1);
   let status = $state('saved'),
     chars = $state(0),
     readonly = $state(false),
@@ -298,6 +304,8 @@
     quickPanel?.forgetFocus();
     session = null;
     editor = null;
+    outline = [];
+    outlinePosition = -1;
     current = null;
     initialText = '';
     issue = null;
@@ -541,6 +549,61 @@
       await menu.popup();
     } finally {
       await menu.close();
+    }
+  }
+  async function editorContextMenu(context: EditorContextMenu) {
+    if (!isTauri() || !editor) return;
+    const source = editor,
+      key = documentKey;
+    const active = () => source === editor && key === documentKey && source.contextState().revision === context.revision;
+    const item = (kind: BlockKind, text: string, enabled = context.block) => ({
+      id: `editor-${kind}`,
+      text,
+      enabled,
+      action: () => {
+        if (active()) source.block(kind, context.revision);
+      },
+    });
+    const items: NonNullable<MenuOptions['items']> = [
+      context.editable ? { item: 'Cut', text: '切り取り' } : { id: 'editor-cut-disabled', text: '切り取り', enabled: false },
+      { item: 'Copy', text: 'コピー' },
+      context.editable ? { item: 'Paste', text: '貼り付け' } : { id: 'editor-paste-disabled', text: '貼り付け', enabled: false },
+      { item: 'SelectAll', text: 'すべてを選択' },
+    ];
+    if (!context.plain)
+      items.push(
+        { item: 'Separator' },
+        {
+          text: '見出し',
+          items: [
+            item('heading1', '見出し1', context.heading),
+            item('heading2', '見出し2', context.heading),
+            item('heading3', '見出し3', context.heading),
+            item('paragraph', '本文', context.heading),
+          ],
+        },
+        { text: 'リスト', items: [item('bullet', '箇条書き'), item('ordered', '番号付きリスト'), item('task', 'タスクリスト')] },
+        item('quote', '引用'),
+        item('table', '表を挿入'),
+        item('rule', '区切り線を挿入'),
+        { item: 'Separator' },
+        {
+          id: 'editor-image',
+          text: '画像を挿入…',
+          enabled: context.editable,
+          action: () => {
+            if (active() && source.contextState().editable) void insertImage();
+          },
+        },
+      );
+    let menu: Menu | undefined;
+    try {
+      menu = await Menu.new({ items });
+      if (active()) await menu.popup(new LogicalPosition(context.x, context.y));
+    } catch (error) {
+      notify(failure(error).message);
+    } finally {
+      await menu?.close();
     }
   }
   async function insertImage() {
@@ -964,22 +1027,32 @@
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>
-      {:else if (current?.kind === 'markdown' || plain) && session}<Editor
-          {initialText}
-          {documentKey}
-          {readonly}
-          {busy}
-          {plain}
-          previewOnly={previewOnly && !plain}
-          fontSize={settings.fontSize}
-          onChange={changed}
-          onComposition={composition}
-          onSave={() => void flush()}
-          onLink={(href) => void link(href)}
-          onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
-          {resolveImage}
-          onReady={(api) => (editor = api)}
-        />
+      {:else if (current?.kind === 'markdown' || plain) && session}<div class="document-body">
+          <div class="editor-column">
+            <Editor
+              {initialText}
+              {documentKey}
+              {readonly}
+              {busy}
+              {plain}
+              previewOnly={previewOnly && !plain}
+              fontSize={settings.fontSize}
+              onChange={changed}
+              onComposition={composition}
+              onSave={() => void flush()}
+              onLink={(href) => void link(href)}
+              onContextMenu={(context) => void editorContextMenu(context)}
+              onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
+              {resolveImage}
+              onReady={(api) => (editor = api)}
+              onOutline={(headings) => (outline = headings)}
+              onOutlinePosition={(index) => (outlinePosition = index)}
+            />
+          </div>
+          {#if !plain && outline.length}
+            <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
+          {/if}
+        </div>
       {:else if current?.kind === 'image'}<div class="image-preview">
           <img
             src={imageUrl}

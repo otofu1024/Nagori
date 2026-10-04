@@ -4,6 +4,34 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 本文の右クリックメニュー（2026-10-04、feature/context-menu）
+
+本文の右クリックとShift＋F10からTauriのネイティブメニューを開く処理を追加した。標準編集、見出し1〜3と本文、箇条書き・番号付き・タスク、引用、3列の表、区切り線、既存の画像挿入を用意した。Editorから位置と編集可否を通知し、Appでメニューを組み立てる。表・画像・数式Widget上も本文領域でイベントを受ける。
+
+読み取り専用、Preview、日本語の変換中、ファイル処理中は編集項目を無効にし、コピーと全選択を残す。Markdown以外は標準編集の4項目だけを出す。コード・Front Matter・数式に触れる行では段落操作を止め、リスト・引用・表では見出し変更も止める。本文や選択、記事の変更後は古いメニューの段落操作と画像挿入を止める。
+
+追加したNodeテスト9件で見出しの置換・解除、保護対象と継続行、リストの置換・解除と番号付け、引用のトグル、インデントと空行、選択外の記法とCRLF、表の分離と最初のセルの選択、区切り線とSetext回避、各段落操作のUndoを確認した。型チェックは0エラー・0警告、Nodeテスト68件、Rustテスト15件が成功し、Viteのビルドも成功した。Appの整形を実行し、他の対象部品に変更はなかった。日本語文書5ファイルをyomiyasuのリンターで確認し、既存の指摘と手順書の箇条書きは意味を保って残した。
+
+判断した点は、選択終端が次行先頭ならその行を対象外にすること、保護判定を行全体に適用すること、区切り線の後ろも空行で分離すること。見出しの解除では末尾の閉じる記号も外す。Tauriの定義済み項目には無効状態のAPIがないため、編集禁止時の切り取りと貼り付けは無効な通常項目で表示する。既存のメニュー権限で足り、Rustと権限設定は変更していない。GUIでの確認は未実施で、ネイティブメニュー、実際のクリップボード、日本語IMEはMac実機QAの項目15で確認する。
+
+変更ファイルは`src/lib/Editor.svelte`、`src/lib/editor.ts`、`src/lib/blockEdit.ts`、`tests/blockEdit.test.ts`、`src/App.svelte`、`docs/specification.md`、`README.md`、`docs/architecture.md`、`docs/mac-qa-checklist.md`、`docs/verification.md`。変更は未コミットで残した。
+
+## 本文右側の目次と末尾の余白（2026-10-04、feature/outline）
+
+MarkdownにATX・Setextの見出し1〜4があり、中央の領域が1068px以上の時だけ、本文右側に幅220pxの目次を表示する。本文の左右余白128pxを除いて720px以上を残すため、表示の境界は940pxより広くした。見出しのない記事、画像、Markdown以外のテキスト、未選択状態では表示しない。記号を外した見出しを字下げし、本文上端以前の最後の見出しをアクセント色と左の細い線で示す。
+
+クリックとTab・Enterによる操作で見出し行の末尾へカーソルを移し、本文上端付近へスクロールしてフォーカスを戻す。Previewでは選択を保持する。CodeMirrorの構文木を使い、本文変更は150msまとめてから抽出する。長文の末尾まで解析できていない場合は20msずつ進める。スクロール時は本文上端の行を測り、二分探索で現在の節を求める。
+
+Live Preview・Preview・テキストファイルで、本文の表示領域の高さの半分をcm-contentの下側のpaddingへ設定する。CodeMirrorの測定と同じスクロール高を使えるため、scrollRestore.tsの処理は変更していない。半画面の余白を含めた末尾の復元と、高さ変更後の計算をテストした。
+
+追加の依頼として、cm-scrollerにscrollbar-gutter: stableを付け、縦スクロールバーの出現・消失で本文幅が変わらないようにした。[WebKitの公式記録](https://webkit.org/blog/16301/webkit-features-in-safari-18-2/)では対応開始がSafari 18.2のため、未対応の環境ではoverflow-y: scrollで縦スクロールバーの幅を常に確保する。対応している環境は@supportsでoverflow-y: autoへ戻す。すべての本文表示で共通とし、macOSの「常に表示」での実機確認はQA項目6cに残した。
+
+Nodeテストでは、見出しの種類と階層、コード・Front Matter・HTMLの除外、引用とリスト内の見出し、重複と空の見出し、装飾とリンクの表示文字、コード・数式・文字参照、複数行Setext、長文の末尾、差分更新、現在の節、余白を含む末尾復元を確認した。型チェックは0エラー・0警告、Nodeテストは69件、Rustテストは15件が成功し、Viteのビルドも成功した。既存の500kB超チャンク警告は残る。
+
+一時WebページのDOMでは、読み上げ用の「目次」ナビゲーションとボタン、1067pxでの非表示と1068pxでの表示、表示領域600pxに対する末尾余白300pxを確認した。Orcaブラウザの非表示タブではフレーム更新が進まず、クリック後のスクロールと高さ変更後の再測定は合格判定に使っていない。WKWebViewでのGUI確認も未実施で、[QA項目6c](mac-qa-checklist.md#項目6c-目次と本文末尾のスクロール)に残した。
+
+変更したファイルはsrc/lib/Outline.svelte、src/lib/outline.ts、tests/outline.test.ts、src/lib/Editor.svelte、src/lib/editor.ts、src/App.svelte、src/app.css、package.json、README.md、docs/specification.md、docs/architecture.md、docs/mac-qa-checklist.md、この文書。package.jsonではnpm run formatの対象に新しい目次部品を追加した。依存追加、Rustのソース変更、コミット・pushは行っていない。
+
 ## 装飾の付け直し（2026-10-04、feature/format-merge）
 
 すでに同じ装飾を含む範囲を選んで装飾した時に、操作を止めず、内側の同じ記号を外して全体に付け直すようにした。同じ装飾の中だけを選んだ時は、その装飾を外す。別の種類の装飾は丸ごと入る時だけ残し、境界を途中でまたぐ時は止める。Bold・Italic・Strikethroughでは、選択範囲の前後の空白を除いてから付ける。Linkは従来どおり。

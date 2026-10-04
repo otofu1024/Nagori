@@ -1,6 +1,6 @@
 # Nagoriのアーキテクチャ
 
-更新日2026-10-02。現在の実装を説明する。アプリの仕様は[仕様書](specification.md)、実装と確認の進捗は[検証状況](verification.md)を参照する。
+更新日2026-10-04。現在の実装を説明する。アプリの仕様は[仕様書](specification.md)、実装と確認の進捗は[検証状況](verification.md)を参照する。
 
 ## 全体構成
 
@@ -34,6 +34,8 @@ Nagori/
 │   ├── app.css                レイアウトとテーマトークン
 │   └── lib/
 │       ├── Editor.svelte      CodeMirrorとツールバー、検索、IME
+│       ├── Outline.svelte     目次の表示とキー操作
+│       ├── outline.ts         構文木から見出しを抽出し、現在の節を判定
 │       ├── FileTree.svelte    ファイルツリーの行と名前の入力欄
 │       ├── QuickOpen.svelte   Quick Openの検索とキー操作
 │       ├── ProblemDialog.svelte  保存失敗・競合のダイアログ
@@ -42,7 +44,8 @@ Nagori/
 │       ├── session.ts         保存世代と保存状態
 │       ├── livePreview.ts     記法の表示切替と各種Widget
 │       ├── markdown.ts        Markdown解析の共通設定と参照解決
-│       ├── editor.ts          装飾操作と選択範囲の判定
+│       ├── editor.ts          Editorの操作APIとメニュー通知の型
+│       ├── blockEdit.ts       段落操作の差分と適用可否の判定
 │       ├── markdownMath.ts    数式の範囲と本文の抽出
 │       ├── mathjax.ts         遅延読み込みする数式描画
 │       ├── math.css           数式表示のスタイル
@@ -97,6 +100,16 @@ Nagori/
 編集本文・選択・Undo履歴はCodeMirrorが管理する。本文変更をApp.svelteへ通知し、EditSessionが保存対象の本文と世代を保持する。App.svelteはディスクから読み込んだ本文をEditorへ渡し、保存結果に応じて状態表示を更新する。
 
 Previewは既存のEditorViewと編集状態を使う。記法の露出と本文変更を禁止し、選択・検索・コピーを維持する。ファイルの読み取り専用状態、操作中のロック、閲覧専用モードは別々に扱う。
+
+本文の右クリックメニューはApp.svelteがTauriのMenuで組み立てる。Editor.svelteはTauriに依存せず、クリック位置と編集可否を通知し、段落操作のAPIを公開する。本文領域で右クリックとShift＋F10を受けるため、イベントを無視する表・画像・数式Widgetでもメニューを開ける。
+
+blockEdit.tsは既存のMarkdown解析から保護対象を判定し、行ごとの差分と挿入後の選択を返す純粋関数。Editor.svelteは差分を1回のトランザクションで適用し、Undoを前後の入力から分ける。記事・本文・選択の変更を検出して古いメニューの操作を止め、適用直前にも編集可否を確認する。
+
+標準の編集項目はTauriの定義済み項目を使う。ただし定義済み項目には無効状態を指定するAPIがないため、編集できない時の切り取りと貼り付けだけは無効な通常項目へ置き換える。コピーと全選択は定義済み項目を維持する。既存の`core:menu:default`権限で構成できるため、Rustと権限設定は変更しない。
+
+Editor.svelteは本文の変更を150msまとめ、CodeMirrorのsyntaxTreeから見出し1〜4を取り出してApp.svelteへ通知する。長文の解析が末尾まで進んでいない時は20msずつ進め、未完なら次回へ回す。文字の整形と現在の節の二分探索はoutline.tsで行う。Outline.svelteはボタンをnav内に並べ、移動はEditorApi.goToHeadingを通して行う。表示幅はapp.cssのコンテナクエリで判定し、本文のEditorViewを作り直さない。
+
+本文の表示領域はResizeObserverで測り、その高さの半分をcm-contentの下側のpaddingへ設定する。CodeMirrorが測るスクロール高にも余白が含まれるため、scrollRestore.tsの末尾判定は同じ寸法を使える。目次の現在位置は本文上端の行と見出しの位置で判定する。
 
 ## RustとOSの担当
 

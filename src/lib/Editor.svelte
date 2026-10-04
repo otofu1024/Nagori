@@ -4,19 +4,24 @@
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
   import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
-  import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
+  import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
+  import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
+  import { extractHeadings, currentHeading, type OutlineHeading } from './outline.ts';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { restoredScrollTop } from './scrollRestore.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
-  import type { EditorApi, FormatKind } from './editor.ts';
+  import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
+  import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, resolveImage, onReady }: {
+  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+    onContextMenu?: (context: EditorContextMenu) => void;
     initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
+    onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
   } = $props();
   let host: HTMLDivElement;
   let root: HTMLDivElement;
@@ -24,12 +29,60 @@
   let toolbar = $state<{ top: number; left: number; plans: Record<FormatKind, FormatPlan> } | null>(null);
   let linkDialog = $state(false), linkText = $state(''), linkUrl = $state(''), linkError = $state('');
   let pendingLink: FormatPlan | undefined;
+  let menuRevision = 0;
   let composition = false, revision = 0, pendingRevision = -1;
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
   const readOnlyConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
+
+  let headings: OutlineHeading[] = [], outlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let outlinePosition = -1;
+  const outlineMeasureKey = {};
+  function updateOutlinePosition() {
+    const editor = view;
+    if (!editor || plain) return;
+    editor.requestMeasure({ key: outlineMeasureKey,
+      read: () => {
+        // 目次で移動した見出しは上端から少し下に置くため、上端より48px下を基準に今の節を決める
+        const height = editor.scrollDOM.getBoundingClientRect().top - editor.documentTop + 48;
+        const block = editor.lineBlockAtHeight(Math.max(0, height));
+        return height < 0 ? -1 : currentHeading(headings, block.from - (block.top > height ? 1 : 0));
+      },
+      write: index => {
+        if (view !== editor || index === outlinePosition) return;
+        outlinePosition = index; onOutlinePosition?.(index);
+      },
+    });
+  }
+  function scheduleOutline() {
+    clearTimeout(outlineTimer);
+    if (plain) { headings = []; onOutline?.([]); onOutlinePosition?.(-1); return; }
+    outlineTimer = setTimeout(() => {
+      const editor = view;
+      if (!editor) return;
+      // 長文の末尾も含める。解析が未完なら短い時間ずつ進め、次回へ回す。
+      if (!syntaxTreeAvailable(editor.state) && !forceParsing(editor, editor.state.doc.length, 20)) { scheduleOutline(); return; }
+      headings = extractHeadings(syntaxTree(editor.state), editor.state.doc);
+      onOutline?.(headings); updateOutlinePosition();
+    }, 150);
+  }
+  function goToHeading(index: number) {
+    if (!view || plain || busy || composition || view.composing) return;
+    const heading = headings[index];
+    if (!heading) return;
+    const editor = view;
+    if (!previewOnly) editor.dispatch({ selection: { anchor: heading.lineEnd } });
+    editor.focus();
+    // 選択変更後の通常の追従が終わってから、見出しを上端付近へ揃える。
+    queueMicrotask(() => {
+      if (view !== editor) return;
+      // 見出しの行は上側にpaddingがあるため、文字の位置から余白を多めに取る
+      editor.dispatch({ effects: EditorView.scrollIntoView(heading.from, { y: 'start', yMargin: 32 }) });
+      updateOutlinePosition();
+    });
+  }
 
   function plans() {
     if (!view) return null;
@@ -116,6 +169,30 @@
     if (!editor.state.readOnly && !composition && !editor.composing) onPasteImage(image);
     return true;
   }
+  function contextState(): EditorContextState {
+    const editable = !!view && !readonly && !busy && !previewOnly && !composition && !view.composing && !linkDialog;
+    const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), view.state.selection.main) : { block: false, heading: false };
+    return { plain, editable, ...availability, revision: menuRevision };
+  }
+  function applyBlock(kind: BlockKind, expectedRevision: number) {
+    if (!view || plain || !contextState().editable || expectedRevision !== menuRevision) return;
+    const plan = blockEdit(view.state.doc.toString(), view.state.selection.main, kind);
+    if (!plan || !plan.changes.length) return;
+    view.dispatch({ changes: plan.changes, ...(plan.selection ? { selection: EditorSelection.range(plan.selection.from, plan.selection.to) } : {}), userEvent: 'input.format', annotations: isolateHistory.of('full') });
+    view.focus(); updateToolbar();
+  }
+  function showContextMenu(event: MouseEvent | KeyboardEvent, editor: EditorView) {
+    event.preventDefault();
+    const composing = composition || editor.composing;
+    const position = event instanceof MouseEvent ? editor.posAtCoords({ x: event.clientX, y: event.clientY }) : editor.state.selection.main.head;
+    const range = editor.state.selection.main;
+    // 選択の内側を右クリックした時は選択を保ち、外側ならクリック位置へ移す
+    if (!composing && position !== null && (range.empty || position < range.from || position > range.to)) editor.dispatch({ selection: { anchor: position } });
+    if (!composing) editor.focus();
+    const coords = editor.coordsAtPos(editor.state.selection.main.head), bounds = editor.dom.getBoundingClientRect();
+    onContextMenu?.({ ...contextState(), position: position ?? range.head, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
+    return true;
+  }
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), drawSelection(), highlightActiveLine(), EditorView.lineWrapping,
@@ -135,13 +212,17 @@
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
+      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
+        if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
+          headings = headings.map(heading => ({ ...heading, from: update.changes.mapPos(heading.from, 1), lineEnd: update.changes.mapPos(heading.lineEnd, 1) }));
+          scheduleOutline();
           revision++;
           if (parsed) parsed.pending = parsed.pending ? parsed.pending.compose(update.changes) : update.changes;
           if (linkDialog) { linkDialog = false; pendingLink = undefined; }
         }
+        if (update.geometryChanged || update.viewportChanged) updateOutlinePosition();
         if (update.docChanged && !update.transactions.some(tr => tr.annotation(Transaction.addToHistory) === false)) onChange(update.state.doc.toString());
         if (update.docChanged || update.selectionSet || update.focusChanged) queueMicrotask(() => {
           if (view && !composition && !view.composing && (update.docChanged || update.selectionSet)) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) });
@@ -152,25 +233,42 @@
   }
   onMount(() => {
     view = new EditorView({ state: createState(initialText), parent: host });
+    const editor = view;
+    // WidgetがCodeMirrorのイベントを無視していても、本文のメニューを開く
+    const contextmenu = (event: MouseEvent) => { showContextMenu(event, editor); };
+    const contextKeys = (event: KeyboardEvent) => { if (event.key === 'F10' && event.shiftKey) showContextMenu(event, editor); };
+    editor.scrollDOM.addEventListener('contextmenu', contextmenu, true);
+    editor.scrollDOM.addEventListener('keydown', contextKeys, true);
     view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
+    scheduleOutline();
+    // CodeMirrorが測定する本文のpaddingに付け、スクロール高と余白を一致させる。
+    const resize = new ResizeObserver(() => {
+      if (view !== editor) return;
+      editor.dom.style.setProperty('--editor-bottom-space', `${editor.scrollDOM.clientHeight / 2}px`);
+      editor.requestMeasure(); updateOutlinePosition();
+    });
+    resize.observe(editor.scrollDOM);
     onReady({
       replaceText: text => {
         if (!view || composition || view.composing) return;
-        linkDialog = false; pendingLink = undefined; linkError = ''; revision++; parsed = null;
+        linkDialog = false; pendingLink = undefined; linkError = ''; revision++; menuRevision++; parsed = null;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
         old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
         old.scrollDOM.scrollTop = scroll; toolbar = null;
+        headings = []; outlinePosition = -1; onOutlinePosition?.(-1); scheduleOutline();
       },
       insertText: text => {
         if (!view || readonly || previewOnly || composition || view.composing) return;
         view.dispatch(view.state.replaceSelection(text), { userEvent: 'input' }); view.focus();
       },
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
+      block: applyBlock, contextState,
       format: apply, find: () => { if (view) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
+      goToHeading,
     });
-    return () => { view?.destroy(); view = undefined; };
+    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); clearTimeout(outlineTimer); resize.disconnect(); view?.destroy(); view = undefined; };
   });
   $effect(() => {
     const enabled = previewOnly;
@@ -211,8 +309,10 @@
   .editor-root { position: relative; height: 100%; min-height: 0; color: var(--text); }
   .editor-host { height: 100%; }
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
-  .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; }
-  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px 100px; caret-color: var(--accent); }
+  .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
+  /* 対応済みの環境では余白だけを確保し、未対応のWebKitでは縦スクロールバーの幅を常に確保する。 */
+  @supports (scrollbar-gutter: stable) { .editor-host :global(.cm-scroller) { overflow-y: auto; } }
+  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* 段落の間の空行は高さを詰める。本文のテキストは変えない。コードブロック内の空行は対象外 */
   .editor-root:not(.plain) .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }
