@@ -45,7 +45,8 @@
     if (!editor || plain) return;
     editor.requestMeasure({ key: outlineMeasureKey,
       read: () => {
-        const height = editor.scrollDOM.getBoundingClientRect().top - editor.documentTop;
+        // 目次で移動した見出しは上端から少し下に置くため、上端より48px下を基準に今の節を決める
+        const height = editor.scrollDOM.getBoundingClientRect().top - editor.documentTop + 48;
         const block = editor.lineBlockAtHeight(Math.max(0, height));
         return height < 0 ? -1 : currentHeading(headings, block.from - (block.top > height ? 1 : 0));
       },
@@ -77,7 +78,8 @@
     // 選択変更後の通常の追従が終わってから、見出しを上端付近へ揃える。
     queueMicrotask(() => {
       if (view !== editor) return;
-      editor.dispatch({ effects: EditorView.scrollIntoView(heading.from, { y: 'start', yMargin: 16 }) });
+      // 見出しの行は上側にpaddingがあるため、文字の位置から余白を多めに取る
+      editor.dispatch({ effects: EditorView.scrollIntoView(heading.from, { y: 'start', yMargin: 32 }) });
       updateOutlinePosition();
     });
   }
@@ -240,7 +242,6 @@
     view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
     scheduleOutline();
     // CodeMirrorが測定する本文のpaddingに付け、スクロール高と余白を一致させる。
-    const editor = view;
     const resize = new ResizeObserver(() => {
       if (view !== editor) return;
       editor.dom.style.setProperty('--editor-bottom-space', `${editor.scrollDOM.clientHeight / 2}px`);
