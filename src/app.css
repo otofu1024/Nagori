@@ -215,6 +215,7 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .mode-toggle { border: 1px solid var(--border); font-size: 12px; padding: 6px 10px; color: var(--muted); }
 .mode-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.outline-toggle { display: grid; place-items: center; padding: 6px; }
 .document-menu summary { display: grid; place-items: center; color: var(--muted); padding: 7px; }
 .menu-popover { position: absolute; right: 0; top: calc(100% + 7px); width: 212px; padding: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); z-index: 30; }
 .menu-popover button { width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; font-size: 13px; }

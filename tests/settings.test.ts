@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults, startupSettings, nextTheme, type Settings } from '../src/lib/settings.ts';
 
+test('目次は初期状態と旧設定で表示し、保存した表示・非表示を復元する', () => {
+  assert.equal(defaults.outlineVisible, true);
+  const { outlineVisible: _, ...legacy } = defaults;
+  assert.equal(startupSettings(legacy, () => false).outlineVisible, true);
+  for (const outlineVisible of [true, false]) {
+    const saved = { ...defaults, theme: 'dark' as const, fontSize: 17, outlineVisible };
+    assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => false), saved);
+  }
+});
+
 test('first launch resolves OS once; stored theme survives OS changes and toggles directly', () => {
   for (const dark of [false, true]) {
     const first = startupSettings(defaults, () => dark);
