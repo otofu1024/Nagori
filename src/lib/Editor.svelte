@@ -4,16 +4,18 @@
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
   import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
-  import { history, historyKeymap, defaultKeymap } from '@codemirror/commands';
+  import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { restoredScrollTop } from './scrollRestore.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
-  import type { EditorApi, FormatKind } from './editor.ts';
+  import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
+  import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, resolveImage, onReady }: {
+  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady }: {
+    onContextMenu?: (context: EditorContextMenu) => void;
     initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
@@ -24,6 +26,7 @@
   let toolbar = $state<{ top: number; left: number; plans: Record<FormatKind, FormatPlan> } | null>(null);
   let linkDialog = $state(false), linkText = $state(''), linkUrl = $state(''), linkError = $state('');
   let pendingLink: FormatPlan | undefined;
+  let menuRevision = 0;
   let composition = false, revision = 0, pendingRevision = -1;
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
@@ -116,6 +119,30 @@
     if (!editor.state.readOnly && !composition && !editor.composing) onPasteImage(image);
     return true;
   }
+  function contextState(): EditorContextState {
+    const editable = !!view && !readonly && !busy && !previewOnly && !composition && !view.composing && !linkDialog;
+    const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), view.state.selection.main) : { block: false, heading: false };
+    return { plain, editable, ...availability, revision: menuRevision };
+  }
+  function applyBlock(kind: BlockKind, expectedRevision: number) {
+    if (!view || plain || !contextState().editable || expectedRevision !== menuRevision) return;
+    const plan = blockEdit(view.state.doc.toString(), view.state.selection.main, kind);
+    if (!plan || !plan.changes.length) return;
+    view.dispatch({ changes: plan.changes, ...(plan.selection ? { selection: EditorSelection.range(plan.selection.from, plan.selection.to) } : {}), userEvent: 'input.format', annotations: isolateHistory.of('full') });
+    view.focus(); updateToolbar();
+  }
+  function showContextMenu(event: MouseEvent | KeyboardEvent, editor: EditorView) {
+    event.preventDefault();
+    const composing = composition || editor.composing;
+    const position = event instanceof MouseEvent ? editor.posAtCoords({ x: event.clientX, y: event.clientY }) : editor.state.selection.main.head;
+    const range = editor.state.selection.main;
+    // 選択の内側を右クリックした時は選択を保ち、外側ならクリック位置へ移す
+    if (!composing && position !== null && (range.empty || position < range.from || position > range.to)) editor.dispatch({ selection: { anchor: position } });
+    if (!composing) editor.focus();
+    const coords = editor.coordsAtPos(editor.state.selection.main.head), bounds = editor.dom.getBoundingClientRect();
+    onContextMenu?.({ ...contextState(), position: position ?? range.head, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
+    return true;
+  }
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), drawSelection(), highlightActiveLine(), EditorView.lineWrapping,
@@ -137,6 +164,7 @@
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
       EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
       EditorView.updateListener.of(update => {
+        if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
           revision++;
           if (parsed) parsed.pending = parsed.pending ? parsed.pending.compose(update.changes) : update.changes;
@@ -152,11 +180,17 @@
   }
   onMount(() => {
     view = new EditorView({ state: createState(initialText), parent: host });
+    const editor = view;
+    // WidgetがCodeMirrorのイベントを無視していても、本文のメニューを開く
+    const contextmenu = (event: MouseEvent) => { showContextMenu(event, editor); };
+    const contextKeys = (event: KeyboardEvent) => { if (event.key === 'F10' && event.shiftKey) showContextMenu(event, editor); };
+    editor.scrollDOM.addEventListener('contextmenu', contextmenu, true);
+    editor.scrollDOM.addEventListener('keydown', contextKeys, true);
     view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
     onReady({
       replaceText: text => {
         if (!view || composition || view.composing) return;
-        linkDialog = false; pendingLink = undefined; linkError = ''; revision++; parsed = null;
+        linkDialog = false; pendingLink = undefined; linkError = ''; revision++; menuRevision++; parsed = null;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
         old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
@@ -167,10 +201,11 @@
         view.dispatch(view.state.replaceSelection(text), { userEvent: 'input' }); view.focus();
       },
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
+      block: applyBlock, contextState,
       format: apply, find: () => { if (view) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
     });
-    return () => { view?.destroy(); view = undefined; };
+    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); view?.destroy(); view = undefined; };
   });
   $effect(() => {
     const enabled = previewOnly;
