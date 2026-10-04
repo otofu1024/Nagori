@@ -34,6 +34,8 @@ Nagori/
 │   ├── app.css                レイアウトとテーマトークン
 │   └── lib/
 │       ├── Editor.svelte      CodeMirrorとツールバー、検索、IME
+│       ├── Outline.svelte     目次の表示とキー操作
+│       ├── outline.ts         構文木から見出しを抽出し、現在の節を判定
 │       ├── FileTree.svelte    ファイルツリーの行と名前の入力欄
 │       ├── QuickOpen.svelte   Quick Openの検索とキー操作
 │       ├── ProblemDialog.svelte  保存失敗・競合のダイアログ
@@ -104,6 +106,10 @@ Previewは既存のEditorViewと編集状態を使う。記法の露出と本文
 blockEdit.tsは既存のMarkdown解析から保護対象を判定し、行ごとの差分と挿入後の選択を返す純粋関数。Editor.svelteは差分を1回のトランザクションで適用し、Undoを前後の入力から分ける。記事・本文・選択の変更を検出して古いメニューの操作を止め、適用直前にも編集可否を確認する。
 
 標準の編集項目はTauriの定義済み項目を使う。ただし定義済み項目には無効状態を指定するAPIがないため、編集できない時の切り取りと貼り付けだけは無効な通常項目へ置き換える。コピーと全選択は定義済み項目を維持する。既存の`core:menu:default`権限で構成できるため、Rustと権限設定は変更しない。
+
+Editor.svelteは本文の変更を150msまとめ、CodeMirrorのsyntaxTreeから見出し1〜4を取り出してApp.svelteへ通知する。長文の解析が末尾まで進んでいない時は20msずつ進め、未完なら次回へ回す。文字の整形と現在の節の二分探索はoutline.tsで行う。Outline.svelteはボタンをnav内に並べ、移動はEditorApi.goToHeadingを通して行う。表示幅はapp.cssのコンテナクエリで判定し、本文のEditorViewを作り直さない。
+
+本文の表示領域はResizeObserverで測り、その高さの半分をcm-contentの下側のpaddingへ設定する。CodeMirrorが測るスクロール高にも余白が含まれるため、scrollRestore.tsの末尾判定は同じ寸法を使える。目次の現在位置は本文上端の行と見出しの位置で判定する。
 
 ## RustとOSの担当
 

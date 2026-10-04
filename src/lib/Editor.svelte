@@ -6,6 +6,8 @@
   import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
+  import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
+  import { extractHeadings, currentHeading, type OutlineHeading } from './outline.ts';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { restoredScrollTop } from './scrollRestore.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
@@ -14,11 +16,12 @@
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady }: {
+  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
     initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
+    onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
   } = $props();
   let host: HTMLDivElement;
   let root: HTMLDivElement;
@@ -33,6 +36,51 @@
   const readOnlyConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
+
+  let headings: OutlineHeading[] = [], outlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let outlinePosition = -1;
+  const outlineMeasureKey = {};
+  function updateOutlinePosition() {
+    const editor = view;
+    if (!editor || plain) return;
+    editor.requestMeasure({ key: outlineMeasureKey,
+      read: () => {
+        const height = editor.scrollDOM.getBoundingClientRect().top - editor.documentTop;
+        const block = editor.lineBlockAtHeight(Math.max(0, height));
+        return height < 0 ? -1 : currentHeading(headings, block.from - (block.top > height ? 1 : 0));
+      },
+      write: index => {
+        if (view !== editor || index === outlinePosition) return;
+        outlinePosition = index; onOutlinePosition?.(index);
+      },
+    });
+  }
+  function scheduleOutline() {
+    clearTimeout(outlineTimer);
+    if (plain) { headings = []; onOutline?.([]); onOutlinePosition?.(-1); return; }
+    outlineTimer = setTimeout(() => {
+      const editor = view;
+      if (!editor) return;
+      // 長文の末尾も含める。解析が未完なら短い時間ずつ進め、次回へ回す。
+      if (!syntaxTreeAvailable(editor.state) && !forceParsing(editor, editor.state.doc.length, 20)) { scheduleOutline(); return; }
+      headings = extractHeadings(syntaxTree(editor.state), editor.state.doc);
+      onOutline?.(headings); updateOutlinePosition();
+    }, 150);
+  }
+  function goToHeading(index: number) {
+    if (!view || plain || busy || composition || view.composing) return;
+    const heading = headings[index];
+    if (!heading) return;
+    const editor = view;
+    if (!previewOnly) editor.dispatch({ selection: { anchor: heading.lineEnd } });
+    editor.focus();
+    // 選択変更後の通常の追従が終わってから、見出しを上端付近へ揃える。
+    queueMicrotask(() => {
+      if (view !== editor) return;
+      editor.dispatch({ effects: EditorView.scrollIntoView(heading.from, { y: 'start', yMargin: 16 }) });
+      updateOutlinePosition();
+    });
+  }
 
   function plans() {
     if (!view) return null;
@@ -162,14 +210,17 @@
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
+      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
+          headings = headings.map(heading => ({ ...heading, from: update.changes.mapPos(heading.from, 1), lineEnd: update.changes.mapPos(heading.lineEnd, 1) }));
+          scheduleOutline();
           revision++;
           if (parsed) parsed.pending = parsed.pending ? parsed.pending.compose(update.changes) : update.changes;
           if (linkDialog) { linkDialog = false; pendingLink = undefined; }
         }
+        if (update.geometryChanged || update.viewportChanged) updateOutlinePosition();
         if (update.docChanged && !update.transactions.some(tr => tr.annotation(Transaction.addToHistory) === false)) onChange(update.state.doc.toString());
         if (update.docChanged || update.selectionSet || update.focusChanged) queueMicrotask(() => {
           if (view && !composition && !view.composing && (update.docChanged || update.selectionSet)) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) });
@@ -187,6 +238,15 @@
     editor.scrollDOM.addEventListener('contextmenu', contextmenu, true);
     editor.scrollDOM.addEventListener('keydown', contextKeys, true);
     view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
+    scheduleOutline();
+    // CodeMirrorが測定する本文のpaddingに付け、スクロール高と余白を一致させる。
+    const editor = view;
+    const resize = new ResizeObserver(() => {
+      if (view !== editor) return;
+      editor.dom.style.setProperty('--editor-bottom-space', `${editor.scrollDOM.clientHeight / 2}px`);
+      editor.requestMeasure(); updateOutlinePosition();
+    });
+    resize.observe(editor.scrollDOM);
     onReady({
       replaceText: text => {
         if (!view || composition || view.composing) return;
@@ -195,6 +255,7 @@
         old.setState(createState(text));
         old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
         old.scrollDOM.scrollTop = scroll; toolbar = null;
+        headings = []; outlinePosition = -1; onOutlinePosition?.(-1); scheduleOutline();
       },
       insertText: text => {
         if (!view || readonly || previewOnly || composition || view.composing) return;
@@ -204,8 +265,9 @@
       block: applyBlock, contextState,
       format: apply, find: () => { if (view) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
+      goToHeading,
     });
-    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); view?.destroy(); view = undefined; };
+    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); clearTimeout(outlineTimer); resize.disconnect(); view?.destroy(); view = undefined; };
   });
   $effect(() => {
     const enabled = previewOnly;
@@ -246,8 +308,10 @@
   .editor-root { position: relative; height: 100%; min-height: 0; color: var(--text); }
   .editor-host { height: 100%; }
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
-  .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; }
-  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px 100px; caret-color: var(--accent); }
+  .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
+  /* 対応済みの環境では余白だけを確保し、未対応のWebKitでは縦スクロールバーの幅を常に確保する。 */
+  @supports (scrollbar-gutter: stable) { .editor-host :global(.cm-scroller) { overflow-y: auto; } }
+  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* 段落の間の空行は高さを詰める。本文のテキストは変えない。コードブロック内の空行は対象外 */
   .editor-root:not(.plain) .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }

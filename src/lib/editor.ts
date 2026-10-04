@@ -13,4 +13,5 @@ export interface EditorApi {
   contextState(): EditorContextState;
   find(): void;
   refreshImages(): void;
+  goToHeading(index: number): void;
 }

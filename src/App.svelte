@@ -6,6 +6,8 @@
   import { LogicalPosition } from '@tauri-apps/api/dpi';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/Editor.svelte';
+  import Outline from './lib/Outline.svelte';
+  import type { OutlineHeading } from './lib/outline.ts';
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
   import FileTree from './lib/FileTree.svelte';
@@ -34,6 +36,8 @@
     documentKey = $state(0);
   let session = $state.raw<EditSession | null>(null);
   let editor: EditorApi | null = null;
+  let outline = $state.raw<OutlineHeading[]>([]),
+    outlinePosition = $state(-1);
   let status = $state('saved'),
     chars = $state(0),
     readonly = $state(false),
@@ -300,6 +304,8 @@
     quickPanel?.forgetFocus();
     session = null;
     editor = null;
+    outline = [];
+    outlinePosition = -1;
     current = null;
     initialText = '';
     issue = null;
@@ -1021,23 +1027,32 @@
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>
-      {:else if (current?.kind === 'markdown' || plain) && session}<Editor
-          {initialText}
-          {documentKey}
-          {readonly}
-          {busy}
-          {plain}
-          previewOnly={previewOnly && !plain}
-          fontSize={settings.fontSize}
-          onChange={changed}
-          onComposition={composition}
-          onSave={() => void flush()}
-          onLink={(href) => void link(href)}
-          onContextMenu={(context) => void editorContextMenu(context)}
-          onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
-          {resolveImage}
-          onReady={(api) => (editor = api)}
-        />
+      {:else if (current?.kind === 'markdown' || plain) && session}<div class="document-body">
+          <div class="editor-column">
+            <Editor
+              {initialText}
+              {documentKey}
+              {readonly}
+              {busy}
+              {plain}
+              previewOnly={previewOnly && !plain}
+              fontSize={settings.fontSize}
+              onChange={changed}
+              onComposition={composition}
+              onSave={() => void flush()}
+              onLink={(href) => void link(href)}
+              onContextMenu={(context) => void editorContextMenu(context)}
+              onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
+              {resolveImage}
+              onReady={(api) => (editor = api)}
+              onOutline={(headings) => (outline = headings)}
+              onOutlinePosition={(index) => (outlinePosition = index)}
+            />
+          </div>
+          {#if !plain && outline.length}
+            <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
+          {/if}
+        </div>
       {:else if current?.kind === 'image'}<div class="image-preview">
           <img
             src={imageUrl}

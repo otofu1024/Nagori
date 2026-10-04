@@ -16,6 +16,22 @@ Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実�
 
 変更ファイルは`src/lib/Editor.svelte`、`src/lib/editor.ts`、`src/lib/blockEdit.ts`、`tests/blockEdit.test.ts`、`src/App.svelte`、`docs/specification.md`、`README.md`、`docs/architecture.md`、`docs/mac-qa-checklist.md`、`docs/verification.md`。変更は未コミットで残した。
 
+## 本文右側の目次と末尾の余白（2026-10-04、feature/outline）
+
+MarkdownにATX・Setextの見出し1〜4があり、中央の領域が1068px以上の時だけ、本文右側に幅220pxの目次を表示する。本文の左右余白128pxを除いて720px以上を残すため、表示の境界は940pxより広くした。見出しのない記事、画像、Markdown以外のテキスト、未選択状態では表示しない。記号を外した見出しを字下げし、本文上端以前の最後の見出しをアクセント色と左の細い線で示す。
+
+クリックとTab・Enterによる操作で見出し行の末尾へカーソルを移し、本文上端付近へスクロールしてフォーカスを戻す。Previewでは選択を保持する。CodeMirrorの構文木を使い、本文変更は150msまとめてから抽出する。長文の末尾まで解析できていない場合は20msずつ進める。スクロール時は本文上端の行を測り、二分探索で現在の節を求める。
+
+Live Preview・Preview・テキストファイルで、本文の表示領域の高さの半分をcm-contentの下側のpaddingへ設定する。CodeMirrorの測定と同じスクロール高を使えるため、scrollRestore.tsの処理は変更していない。半画面の余白を含めた末尾の復元と、高さ変更後の計算をテストした。
+
+追加の依頼として、cm-scrollerにscrollbar-gutter: stableを付け、縦スクロールバーの出現・消失で本文幅が変わらないようにした。[WebKitの公式記録](https://webkit.org/blog/16301/webkit-features-in-safari-18-2/)では対応開始がSafari 18.2のため、未対応の環境ではoverflow-y: scrollで縦スクロールバーの幅を常に確保する。対応している環境は@supportsでoverflow-y: autoへ戻す。すべての本文表示で共通とし、macOSの「常に表示」での実機確認はQA項目6cに残した。
+
+Nodeテストでは、見出しの種類と階層、コード・Front Matter・HTMLの除外、引用とリスト内の見出し、重複と空の見出し、装飾とリンクの表示文字、コード・数式・文字参照、複数行Setext、長文の末尾、差分更新、現在の節、余白を含む末尾復元を確認した。型チェックは0エラー・0警告、Nodeテストは69件、Rustテストは15件が成功し、Viteのビルドも成功した。既存の500kB超チャンク警告は残る。
+
+一時WebページのDOMでは、読み上げ用の「目次」ナビゲーションとボタン、1067pxでの非表示と1068pxでの表示、表示領域600pxに対する末尾余白300pxを確認した。Orcaブラウザの非表示タブではフレーム更新が進まず、クリック後のスクロールと高さ変更後の再測定は合格判定に使っていない。WKWebViewでのGUI確認も未実施で、[QA項目6c](mac-qa-checklist.md#項目6c-目次と本文末尾のスクロール)に残した。
+
+変更したファイルはsrc/lib/Outline.svelte、src/lib/outline.ts、tests/outline.test.ts、src/lib/Editor.svelte、src/lib/editor.ts、src/App.svelte、src/app.css、package.json、README.md、docs/specification.md、docs/architecture.md、docs/mac-qa-checklist.md、この文書。package.jsonではnpm run formatの対象に新しい目次部品を追加した。依存追加、Rustのソース変更、コミット・pushは行っていない。
+
 ## 装飾の付け直し（2026-10-04、feature/format-merge）
 
 すでに同じ装飾を含む範囲を選んで装飾した時に、操作を止めず、内側の同じ記号を外して全体に付け直すようにした。同じ装飾の中だけを選んだ時は、その装飾を外す。別の種類の装飾は丸ごと入る時だけ残し、境界を途中でまたぐ時は止める。Bold・Italic・Strikethroughでは、選択範囲の前後の空白を除いてから付ける。Linkは従来どおり。
