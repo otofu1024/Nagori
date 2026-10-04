@@ -7,4 +7,5 @@ export interface EditorApi {
   format(kind: FormatKind): void;
   find(): void;
   refreshImages(): void;
+  goToHeading(index: number): void;
 }
