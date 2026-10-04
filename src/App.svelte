@@ -823,6 +823,11 @@
   function togglePreview() {
     if (!busy && !composing && current?.kind === 'markdown' && session) previewOnly = !previewOnly;
   }
+  function toggleOutline() {
+    if (starting || !settingsLoaded) return;
+    settings.outlineVisible = !settings.outlineVisible;
+    void persist();
+  }
   async function menuAction(action: string) {
     if (errorDialog?.open || saveAsDialog?.open || quick) return;
     if (action === 'cli-install') await runCli('cli_install');
@@ -835,6 +840,7 @@
     else if (action === 'save') await flush();
     else if (action === 'find') editor?.find();
     else if (action === 'preview-toggle') togglePreview();
+    else if (action === 'outline-toggle') toggleOutline();
     else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
       editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
   }
@@ -1032,6 +1038,14 @@
               title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
               disabled={busy || composing}
               onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+            >
+            <button
+              class="mode-toggle outline-toggle"
+              aria-pressed={settings.outlineVisible}
+              aria-label={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
+              title={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
+              disabled={starting || !settingsLoaded}
+              onclick={toggleOutline}><Icon name="outline" size={16} /></button
             >{/if}
           <details class="document-menu">
             <summary aria-label="記事の操作" title="記事の操作"><Icon name="more" /></summary>
@@ -1085,7 +1099,7 @@
               onOutlinePosition={(index) => (outlinePosition = index)}
             />
           </div>
-          {#if !plain && outline.length && layout.showOutline}
+          {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
             <div class="outline-boundary">
               <PaneResizer
                 label="目次の幅"

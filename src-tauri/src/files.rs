@@ -81,6 +81,7 @@ pub struct Settings {
         serialize_with = "serialize_pane_width::<_, 180, 360, 220>"
     )]
     pub outline_width: u16,
+    pub outline_visible: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -92,6 +93,7 @@ impl Default for Settings {
             recent_files: vec![],
             sidebar_width: 272,
             outline_width: 220,
+            outline_visible: true,
         }
     }
 }
@@ -822,6 +824,30 @@ mod tests {
         let legacy: Settings =
             serde_json::from_str(r#"{"theme":"dark","appearanceVersion":1}"#).unwrap();
         assert_eq!(legacy.theme, "dark");
+    }
+
+    #[test]
+    fn settings_outline_visibility_defaults_roundtrip_and_type_check() {
+        assert!(Settings::default().outline_visible);
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark","fontSize":17}"#).unwrap();
+        assert!(old.outline_visible);
+        assert_eq!(old.theme, "dark");
+        assert_eq!(old.font_size, 17);
+        for visible in [true, false] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"outlineVisible":{visible}}}"#)).unwrap();
+            settings.validate().unwrap();
+            assert_eq!(settings.outline_visible, visible);
+            let stored = serde_json::to_vec(&settings).unwrap();
+            let restored: Settings = serde_json::from_slice(&stored).unwrap();
+            assert_eq!(restored.outline_visible, visible);
+        }
+        for value in ["null", "0", "1", r#""false""#, "[]", "{}"] {
+            assert!(
+                serde_json::from_str::<Settings>(&format!(r#"{{"outlineVisible":{value}}}"#))
+                    .is_err()
+            );
+        }
     }
 
     #[test]
