@@ -89,6 +89,8 @@
     conflict: '競合',
     missing: 'ファイルが見つかりません',
   };
+  // Markdown以外のファイルを、ただのテキストとして開いているか
+  const plain = $derived(current?.kind === 'other');
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
   $effect(() => {
     document.documentElement.dataset.theme = settings.theme;
@@ -340,17 +342,14 @@
     current = entry;
     selected = entry.path;
     try {
-      if (entry.kind === 'markdown') {
+      if (entry.kind === 'markdown' || entry.kind === 'other') {
+        // Markdown以外も、Rust側でテキストと判断できれば同じ流れで編集する
         const opened = await invoke<OpenedDocument>('document_open', { path: entry.path });
         initialText = opened.text;
         session = new EditSession(opened, (path, text, baseline) => invoke('document_save', { path, text, baseline }), syncSession);
         syncSession();
       } else if (entry.kind === 'image') imageUrl = await blobImage(entry.path);
-      else
-        contentError =
-          entry.kind === 'symlink'
-            ? 'シンボリックリンクは表示のみです。'
-            : 'このファイル形式は編集対象外です。Markdown（2MiB以下）とPNG・JPEG・GIF・WebP画像（20MiB・1,600万画素以下）に対応しています。';
+      else contentError = 'シンボリックリンクは表示のみです。';
     } catch (error) {
       contentError = failure(error).message;
     }
@@ -545,7 +544,7 @@
     }
   }
   async function insertImage() {
-    if (!session || session.readonly || previewOnly) return;
+    if (!session || session.readonly || previewOnly || current?.kind !== 'markdown') return;
     await operation(async () => {
       const picked = await open({
         multiple: false,
@@ -560,7 +559,7 @@
   }
   // コピーした画像を、記事と同じフォルダのassetsへ保存して、カーソルの位置に記法を入れる
   async function pasteImage(image: File) {
-    if (!session || session.readonly || previewOnly) return;
+    if (!session || session.readonly || previewOnly || current?.kind !== 'markdown') return;
     const documentPath = session.path;
     await operation(async () => {
       const bytes = new Uint8Array(await image.arrayBuffer());
@@ -927,28 +926,29 @@
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
       <div class="header-actions">
-        {#if current?.kind === 'markdown' && session}<button
-            class="mode-toggle"
-            aria-pressed={previewOnly}
-            aria-label={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
-            title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
-            disabled={busy || composing}
-            onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
-          >
+        {#if (current?.kind === 'markdown' || plain) && session}{#if !plain}<button
+              class="mode-toggle"
+              aria-pressed={previewOnly}
+              aria-label={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
+              title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
+              disabled={busy || composing}
+              onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+            >{/if}
           <details class="document-menu">
             <summary aria-label="記事の操作" title="記事の操作"><Icon name="more" /></summary>
             <div class="menu-popover">
-              <button disabled={readonly || previewOnly || busy} onclick={() => void insertImage()}>画像を挿入…</button><button
-                onclick={() => editor?.find()}>記事内を検索 <kbd>⌘ F</kbd></button
-              ><button onclick={() => void flush()}>保存 <kbd>⌘ S</kbd></button>
-              <hr />
-              <button onclick={() => editor?.format('bold')} disabled={readonly || previewOnly || busy}>太字 <kbd>⌘ B</kbd></button><button
-                onclick={() => editor?.format('italic')}
-                disabled={readonly || previewOnly || busy}>斜体 <kbd>⌘ I</kbd></button
-              ><button onclick={() => editor?.format('strike')} disabled={readonly || previewOnly || busy}>取り消し線</button><button
-                onclick={() => editor?.format('code')}
-                disabled={readonly || previewOnly || busy}>インラインコード</button
-              ><button onclick={() => editor?.format('link')} disabled={readonly || previewOnly || busy}>リンク <kbd>⌘ K</kbd></button>
+              {#if !plain}<button disabled={readonly || previewOnly || busy} onclick={() => void insertImage()}>画像を挿入…</button
+                >{/if}<button onclick={() => editor?.find()}>{plain ? 'ファイル内を検索' : '記事内を検索'} <kbd>⌘ F</kbd></button><button
+                onclick={() => void flush()}>保存 <kbd>⌘ S</kbd></button
+              >
+              {#if !plain}<hr />
+                <button onclick={() => editor?.format('bold')} disabled={readonly || previewOnly || busy}>太字 <kbd>⌘ B</kbd></button
+                ><button onclick={() => editor?.format('italic')} disabled={readonly || previewOnly || busy}>斜体 <kbd>⌘ I</kbd></button
+                ><button onclick={() => editor?.format('strike')} disabled={readonly || previewOnly || busy}>取り消し線</button><button
+                  onclick={() => editor?.format('code')}
+                  disabled={readonly || previewOnly || busy}>インラインコード</button
+                ><button onclick={() => editor?.format('link')} disabled={readonly || previewOnly || busy}>リンク <kbd>⌘ K</kbd></button
+                >{/if}
             </div>
           </details>{/if}
       </div>
@@ -964,18 +964,19 @@
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>
-      {:else if current?.kind === 'markdown' && session}<Editor
+      {:else if (current?.kind === 'markdown' || plain) && session}<Editor
           {initialText}
           {documentKey}
           {readonly}
           {busy}
-          {previewOnly}
+          {plain}
+          previewOnly={previewOnly && !plain}
           fontSize={settings.fontSize}
           onChange={changed}
           onComposition={composition}
           onSave={() => void flush()}
           onLink={(href) => void link(href)}
-          onPasteImage={(image) => void pasteImage(image)}
+          onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
           {resolveImage}
           onReady={(api) => (editor = api)}
         />
@@ -1006,7 +1007,7 @@
     </section>
     <footer>
       <span>{current?.kind === 'image' ? '画像プレビュー' : 'あなたのファイルは、このMacに。'}</span><span
-        >{session ? `${chars.toLocaleString()} 文字　 ·　 Markdown` : 'Nagori 0.1'}</span
+        >{session ? `${chars.toLocaleString()} 文字　 ·　 ${plain ? 'テキスト' : 'Markdown'}` : 'Nagori 0.1'}</span
       >
     </footer>
   </main>

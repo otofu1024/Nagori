@@ -60,3 +60,15 @@ test('failed shared flush blocks switching callers and retains the latest edits 
   assert.equal(await session.flush(),true);
   assert.deepEqual(writes,[{text:'first edit',baseline:'loaded'},{text:'latest edit',baseline:'loaded'}]);
 });
+
+test('Quick Openの候補に、Markdown・画像に加えてテキストファイルも含める', () => {
+  const entries = [
+    { path: 'posts/hello.md', name: 'hello.md', kind: 'markdown' as const },
+    { path: 'config.json', name: 'config.json', kind: 'other' as const },
+    { path: 'src', name: 'src', kind: 'directory' as const },
+    { path: 'link.md', name: 'link.md', kind: 'symlink' as const },
+  ];
+  assert.deepEqual(candidates(entries, 'json', []).map((e) => e.path), ['config.json']);
+  assert.deepEqual(candidates(entries, 'o', []).map((e) => e.path).sort(), ['config.json', 'posts/hello.md']);
+  assert.deepEqual(candidates(entries, '', ['config.json', 'src']).map((e) => e.path), ['config.json']);
+});
