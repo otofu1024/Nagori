@@ -18,6 +18,7 @@
       <li>
         <button
           type="button"
+          class:top-level={heading.level === 1}
           style={`--outline-depth:${heading.level - 1}`}
           aria-current={active === index ? 'location' : undefined}
           onclick={() => onNavigate(index)}>{heading.text || '無題の見出し'}</button
