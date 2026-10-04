@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { activityScrollbar } from './activityScrollbar.ts';
   import type { Entry, Naming } from './navigation.ts';
 
   type Row = Entry & { depth: number };
@@ -63,7 +64,7 @@
   }
 </script>
 
-<nav class="file-tree" aria-label="プロジェクト内のファイル">
+<nav use:activityScrollbar class="file-tree" aria-label="プロジェクト内のファイル">
   {#if !project}<p class="tree-empty">フォルダを開くと、<br />記事がここに並びます。</p>{/if}
   {#if naming && naming.kind !== 'rename'}
     <form class="inline-name new-name" onsubmit={submit}>

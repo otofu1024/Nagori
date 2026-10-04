@@ -4,6 +4,22 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 操作中だけ表示するスクロールバー（2026-10-04、feature/scrollbar）
+
+本文・ファイル一覧・目次に共通のactivityScrollbar関数を付けた。その領域でマウスを動かすか、実際にスクロールするとつまみを表示する。最後の動きから1秒後に表示用クラスを外し、240msかけて消す。ホバーだけでは表示を続けず、キーボードやトラックパッドによるスクロールも同じscrollイベントで扱う。ドラッグ中はつまみの色を保つ。イベントは受動的に監視し、本文の編集やイベントの標準処理には介入しない。部品を外す時はタイマーとイベントの監視を解除する。
+
+原因をコードで確認すると、本文と目次は標準のスクロールバー描画を使い、つまみを隠す指定がなかった。本文はscrollbar-gutter: stableと、未対応環境向けのoverflow-y: scrollで幅を確保していた。ファイル一覧はhoverで色を付けるため、マウスを止めてもつまみが消えなかった。[CSSの仕様](https://www.w3.org/TR/css-overflow/#scrollbar-gutter-property)では、stableは従来型のスクロールバーの領域を確保する指定であり、つまみの表示時間を制御する指定ではない。[WebKitの公式記録](https://webkit.org/blog/16301/webkit-features-in-safari-18-2/)では、対応開始はSafari 18.2。stableだけが常時表示を起こすという仮説は、今回の一時ページでは確定していない。
+
+幅の確認では別の問題を再現した。WKWebViewで8pxのカスタム幅にstableとoverflow-y: autoを組み合わせると、幅220pxの領域のclientWidthが長い文書では212px、短い文書では203pxになった。短い文書の予約幅が標準の17pxへ戻るため、対応環境でautoへ戻す分岐を外した。stableは残し、全環境でoverflow-y: scrollと透明な8pxのスクロールバーを使う。修正後は3領域とも、表示・非表示、長短の文書、ライト・ダークでclientWidthが212pxのまま保たれた。stableを無効にして未対応環境と同じ幅の確保にした場合も212pxだった。
+
+つまみは8pxの領域に透明な1pxの縁を付け、見える部分を6pxの角丸にした。溝・角は透明、矢印は非表示とし、つまみの色は各テーマのmutedを使う。WebKitの[つまみ自体のCSS遷移に関する制約](https://bugs.webkit.org/show_bug.cgi?id=104412)を避けるため、領域のcolorを遷移させてつまみにcurrentColorを継承する。本文、目次の文字、ファイル名の入力欄には文字色を明示し、つまみの透明化が文字に及ばないようにした。視差効果を減らす設定ではフェードを省く。新しいCSS APIや依存パッケージは追加していない。
+
+Nodeの追加テストで、初期状態、ホバーだけでは表示しないこと、マウス移動での表示、スクロールでのタイマー延長、1秒後の非表示、監視とタイマーの解除を確認した。npm run checkは0エラー・0警告、npm testは79件すべて成功、src-tauriでのcargo testは15件成功、npm run buildも成功した。既存の500kB超チャンク警告は残る。日本語文書3ファイルをyomiyasuのリンターで確認し、既存の表現への指摘と仕様書・手順書の箇条書きは残した。
+
+macOS 26.6.2の一時WKWebViewに実装した共通CSSと関数を読み込み、3領域の表示、フェード途中と完了、実際のscrollTop変更での表示、ライト・ダーク、長短の文書、文字色の保持を確認した。検証プロセスだけにAppleShowScrollBars Alwaysを渡し、AppKitの従来型指定を確認した。OS全体の設定は変更していない。Nagori本体でのマウス・キー・トラックパッドの操作、つまみのドラッグ、OS設定ごとの表示、IME・保存・右クリックメニューとの併用は未確認で、[QA項目6d](mac-qa-checklist.md#項目6d-スクロールバーの表示と幅)に残した。
+
+変更ファイルはsrc/lib/Editor.svelte、src/app.css、src/lib/Outline.svelte、src/lib/FileTree.svelte、src/lib/activityScrollbar.ts、tests/activity-scrollbar.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書。FileTree.svelteへのimportとアクション指定はコーディネーターの許可を得て追加した。仕様書は改訂版1.9へ更新した。App.svelte、目次の文字サイズ、src-tauriのソースには触れず、コミット・pushは行っていない。
+
 ## 本文の右クリックメニュー（2026-10-04、feature/context-menu）
 
 本文の右クリックとShift＋F10からTauriのネイティブメニューを開く処理を追加した。標準編集、見出し1〜3と本文、箇条書き・番号付き・タスク、引用、3列の表、区切り線、既存の画像挿入を用意した。Editorから位置と編集可否を通知し、Appでメニューを組み立てる。表・画像・数式Widget上も本文領域でイベントを受ける。

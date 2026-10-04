@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { activityScrollbar } from './activityScrollbar.ts';
   import type { OutlineHeading } from './outline.ts';
   let {
     headings,
@@ -11,7 +12,7 @@
   } = $props();
 </script>
 
-<nav class="outline" aria-label="目次">
+<nav use:activityScrollbar class="outline" aria-label="目次">
   <div class="outline-title">目次</div>
   <ol>
     {#each headings as heading, index}
