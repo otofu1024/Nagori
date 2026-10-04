@@ -311,6 +311,32 @@ async fn image_insert(
     })
     .await
 }
+// 貼り付けた画像は、JSONにせずバイト列のまま受け取る。記事のパスはヘッダーで渡す
+#[tauri::command]
+async fn image_paste(
+    state: State<'_, Backend>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<InsertedImage> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err(Error::new("INVALID", "画像のデータを受け取れません。"));
+    };
+    let document_path = request
+        .headers()
+        .get("x-document-path")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| format!("p={value}"))
+        .and_then(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .next()
+                .map(|(_, value)| value.into_owned())
+        })
+        .ok_or_else(|| Error::new("INVALID", "貼り付け先の記事が分かりません。"))?;
+    let data = data.clone();
+    work(&state, move |w| {
+        files::paste_image(w.root()?, &document_path, data)
+    })
+    .await
+}
 #[tauri::command]
 async fn workspace_reveal(
     app: tauri::AppHandle,
@@ -577,6 +603,7 @@ pub fn run() {
             file_trash,
             image_read,
             image_insert,
+            image_paste,
             settings_get,
             settings_save,
             workspace_reveal,

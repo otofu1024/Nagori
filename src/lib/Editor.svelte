@@ -11,11 +11,12 @@
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind } from './editor.ts';
+  import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, resolveImage, onReady }: {
+  let { initialText, documentKey, readonly = false, busy = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, resolveImage, onReady }: {
     initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
-    onLink: (href: string) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
+    onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
   } = $props();
   let host: HTMLDivElement;
   let root: HTMLDivElement;
@@ -104,6 +105,14 @@
     dom.append(input, count, button('前へ', () => findPrevious(editor)), button('次へ', () => findNext(editor)), button('閉じる', () => { closeSearchPanel(editor); editor.focus(); }));
     return { dom, top: true, mount: () => { input.focus(); input.select(); update(); }, update };
   }
+  // 画像だけをコピーしていた時は、標準の貼り付けを止めて画像の取り込みに回す
+  function pasteImage(event: ClipboardEvent, editor: EditorView) {
+    const image = clipboardImage(event.clipboardData);
+    if (!image || !onPasteImage) return false;
+    event.preventDefault();
+    if (!editor.state.readOnly && !composition && !editor.composing) onPasteImage(image);
+    return true;
+  }
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), drawSelection(), highlightActiveLine(), EditorView.lineWrapping,
@@ -120,7 +129,7 @@
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
+      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
           revision++;

@@ -7,3 +7,15 @@ export function imageMime(bytes: Uint8Array): string {
   if (starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
   return 'application/octet-stream';
 }
+
+// 貼り付けで受け付ける画像の形式
+const pastable = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+type ClipboardLike = { getData(format: string): string; items?: ArrayLike<{ kind: string; type: string; getAsFile(): File | null }> | null };
+// クリップボードから貼り付ける画像を選ぶ。文字も入っている時は、文字の貼り付けを優先して画像として扱わない
+export function clipboardImage(data: ClipboardLike | null | undefined): File | null {
+  if (!data || data.getData('text/plain')) return null;
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind === 'file' && pastable.has(item.type)) return item.getAsFile();
+  }
+  return null;
+}

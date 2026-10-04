@@ -562,7 +562,10 @@ pub fn read_image(path: &Path) -> Result<Image> {
             "PNG、JPEG、GIF、WebPのみ対応しています。",
         ));
     }
-    let data = read_limited(path, IMAGE_LIMIT)?;
+    image_from_bytes(read_limited(path, IMAGE_LIMIT)?)
+}
+// 画像のバイト列について、対応形式と寸法の上限を確かめる
+fn image_from_bytes(data: Vec<u8>) -> Result<Image> {
     let format = image::guess_format(&data).map_err(|e| Error::new("IMAGE", e.to_string()))?;
     if !matches!(
         format,
@@ -609,7 +612,8 @@ pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Resul
     };
     resolve(root, &input, false)
 }
-pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Result<InsertedImage> {
+// 画像を取り込む先が、編集できるMarkdownかを確かめる
+fn writable_document(root: &Path, document_path: &str) -> Result<PathBuf> {
     let document = resolve(root, document_path, false)?;
     if !markdown(&document) || readonly(&document)? {
         return Err(Error::new(
@@ -617,26 +621,17 @@ pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Resu
             "編集可能なMarkdownを開いてください。",
         ));
     }
-    let source = Path::new(source_path);
-    if !source.is_absolute() {
-        return Err(Error::new(
-            "INVALID",
-            "ファイル選択された画像の絶対パスを指定してください。",
-        ));
-    }
-    // Reject symlink components of an explicitly selected external image as well.
-    let mut traversed = PathBuf::new();
-    for component in source.components() {
-        traversed.push(component.as_os_str());
-        if fs::symlink_metadata(&traversed)?.file_type().is_symlink() {
-            return Err(Error::new(
-                "SYMLINK",
-                "シンボリックリンク経由の画像は取り込めません。",
-            ));
-        }
-    }
-    let image = read_image(source)?;
-    verify_image(&image)?;
+    Ok(document)
+}
+// 記事と同じフォルダのassetsへ、既存のファイルを上書きしない名前で画像を保存し、相対パスの記法を返す
+fn store_image(
+    root: &Path,
+    document: &Path,
+    stem: &str,
+    extension: &str,
+    image: &Image,
+) -> Result<InsertedImage> {
+    valid_name(&format!("{stem}.{extension}"))?;
     let assets = document.parent().unwrap().join("assets");
     let assets_relative = relative(root, &assets)?;
     resolve(root, &assets_relative, true)?;
@@ -646,21 +641,11 @@ pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Resu
         Err(e) => return Err(e.into()),
     }
     resolve(root, &assets_relative, false)?;
-    let name = source
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| Error::new("INVALID", "画像名をUTF-8で表現できません。"))?;
-    valid_name(name)?;
     for number in 0..10_000 {
         let name = if number == 0 {
-            name.into()
+            format!("{stem}.{extension}")
         } else {
-            format!(
-                "{}-{}.{}",
-                source.file_stem().unwrap().to_string_lossy(),
-                number,
-                source.extension().unwrap().to_string_lossy()
-            )
+            format!("{stem}-{number}.{extension}")
         };
         let destination = assets.join(&name);
         resolve(root, &relative(root, &destination)?, true)?;
@@ -686,6 +671,57 @@ pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Resu
         }
     }
     Err(Error::new("EXISTS", "画像名の空きが見つかりません。"))
+}
+pub fn insert_image(root: &Path, source_path: &str, document_path: &str) -> Result<InsertedImage> {
+    let document = writable_document(root, document_path)?;
+    let source = Path::new(source_path);
+    if !source.is_absolute() {
+        return Err(Error::new(
+            "INVALID",
+            "ファイル選択された画像の絶対パスを指定してください。",
+        ));
+    }
+    // Reject symlink components of an explicitly selected external image as well.
+    let mut traversed = PathBuf::new();
+    for component in source.components() {
+        traversed.push(component.as_os_str());
+        if fs::symlink_metadata(&traversed)?.file_type().is_symlink() {
+            return Err(Error::new(
+                "SYMLINK",
+                "シンボリックリンク経由の画像は取り込めません。",
+            ));
+        }
+    }
+    let image = read_image(source)?;
+    verify_image(&image)?;
+    let stem = source
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| Error::new("INVALID", "画像名をUTF-8で表現できません。"))?;
+    let extension = source
+        .extension()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| Error::new("INVALID", "画像名をUTF-8で表現できません。"))?;
+    store_image(root, &document, stem, extension, &image)
+}
+// クリップボードから貼り付けた画像を、記事と同じフォルダのassetsへ保存する
+pub fn paste_image(root: &Path, document_path: &str, data: Vec<u8>) -> Result<InsertedImage> {
+    let document = writable_document(root, document_path)?;
+    if data.len() > IMAGE_LIMIT {
+        return Err(Error::new(
+            "LIMIT",
+            format!("画像の上限は{}MiBです。", IMAGE_LIMIT / 1024 / 1024),
+        ));
+    }
+    let image = image_from_bytes(data)?;
+    verify_image(&image)?;
+    let extension = match image.format {
+        image::ImageFormat::Png => "png",
+        image::ImageFormat::Jpeg => "jpg",
+        image::ImageFormat::Gif => "gif",
+        _ => "webp",
+    };
+    store_image(root, &document, "pasted-image", extension, &image)
 }
 
 #[cfg(test)]
@@ -1024,6 +1060,66 @@ mod tests {
             assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "original");
             fs::set_permissions(root.join("a.md"), fs::Permissions::from_mode(0o644)).unwrap();
         }
+    }
+    #[test]
+    fn pasted_images_are_stored_in_assets_without_clobber() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir(root.join("posts")).unwrap();
+        create(root, "posts/article.md", "markdown").unwrap();
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::new(2, 1)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        let first = paste_image(root, "posts/article.md", png.clone()).unwrap();
+        assert_eq!(first.path, "posts/assets/pasted-image.png");
+        assert_eq!(first.markdown, "![](<assets/pasted-image.png>)");
+        assert_eq!(fs::read(root.join(&first.path)).unwrap(), png);
+        let second = paste_image(root, "posts/article.md", png.clone()).unwrap();
+        assert_eq!(second.path, "posts/assets/pasted-image-1.png");
+        assert_eq!(fs::read(root.join(&first.path)).unwrap(), png);
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::RgbImage::new(1, 1)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        assert_eq!(
+            paste_image(root, "posts/article.md", jpeg.into_inner())
+                .unwrap()
+                .path,
+            "posts/assets/pasted-image.jpg"
+        );
+        let code = |result: Result<InsertedImage>| result.err().map(|e| e.code);
+        assert_eq!(
+            code(paste_image(
+                root,
+                "posts/article.md",
+                png[..png.len() / 2].to_vec()
+            )),
+            Some("IMAGE")
+        );
+        assert_eq!(
+            code(paste_image(
+                root,
+                "posts/article.md",
+                b"not an image".to_vec()
+            )),
+            Some("IMAGE")
+        );
+        assert_eq!(
+            code(paste_image(
+                root,
+                "posts/article.md",
+                vec![0; IMAGE_LIMIT + 1]
+            )),
+            Some("LIMIT")
+        );
+        fs::write(root.join("note.txt"), "text").unwrap();
+        assert_eq!(
+            code(paste_image(root, "note.txt", png.clone())),
+            Some("PERMISSION")
+        );
+        assert_eq!(list(root, "posts/assets").unwrap().len(), 3);
     }
     #[test]
     fn images_validate_and_copy_without_clobber() {
