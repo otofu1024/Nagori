@@ -3,13 +3,14 @@
   import Icon from './Icon.svelte';
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
-  import { EditorView, keymap, drawSelection, highlightActiveLine, type Panel } from '@codemirror/view';
+  import { EditorView, keymap, highlightActiveLine, type Panel } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
   import { extractHeadings, currentHeading, type OutlineHeading } from './outline.ts';
   import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { restoredScrollTop } from './scrollRestore.ts';
+  import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
@@ -195,7 +196,7 @@
   }
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
-      history(), drawSelection(), highlightActiveLine(), EditorView.lineWrapping,
+      history(), highlightActiveLine(), EditorView.lineWrapping,
       // テキストファイルはMarkdownとして解釈せず、Live Previewも付けない
       ...(plain ? [] : [
         markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
@@ -234,6 +235,7 @@
   onMount(() => {
     view = new EditorView({ state: createState(initialText), parent: host });
     const editor = view;
+    const scrollbar = activityScrollbar(editor.scrollDOM);
     // WidgetがCodeMirrorのイベントを無視していても、本文のメニューを開く
     const contextmenu = (event: MouseEvent) => { showContextMenu(event, editor); };
     const contextKeys = (event: KeyboardEvent) => { if (event.key === 'F10' && event.shiftKey) showContextMenu(event, editor); };
@@ -268,7 +270,7 @@
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
       goToHeading,
     });
-    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); clearTimeout(outlineTimer); resize.disconnect(); view?.destroy(); view = undefined; };
+    return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); clearTimeout(outlineTimer); resize.disconnect(); scrollbar.destroy(); view?.destroy(); view = undefined; };
   });
   $effect(() => {
     const enabled = previewOnly;
@@ -310,22 +312,18 @@
   .editor-host { height: 100%; }
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
   .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
-  /* 対応済みの環境では余白だけを確保し、未対応のWebKitでは縦スクロールバーの幅を常に確保する。 */
-  @supports (scrollbar-gutter: stable) { .editor-host :global(.cm-scroller) { overflow-y: auto; } }
-  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); caret-color: var(--accent); }
+  /* WebKitで短い本文の予約幅が標準の幅へ戻らないよう、透明なスクロールバーの8pxを常に確保する。 */
+  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
-  /* 段落の間の空行は高さを詰める。本文のテキストは変えない。コードブロック内の空行は対象外 */
-  .editor-root:not(.plain) .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }
   /* テキストファイルは等幅で、行間を詰めて表示する */
   .plain .editor-host :global(.cm-scroller) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; }
   .plain .editor-host :global(.cm-editor) { font-size: .8em; }
   .plain .editor-host :global(.cm-content) { max-width: 1100px; tab-size: 4; }
   .editor-host :global(.cm-focused) { outline: none; }
   .editor-host :global(.cm-activeLine) { background: transparent; }
-  .editor-host :global(.cm-editor .cm-selectionBackground), .editor-host :global(.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground) { background: var(--selection); }
-  .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
+  /* 標準の選択表示を使い、複数行を選んだ時も本文の左右の余白を塗らない。 */
+  .editor-host :global(.cm-content::selection), .editor-host :global(.cm-content ::selection) { background: var(--selection); }
   .preview-only :global(.cm-content) { caret-color: transparent; }
-  .preview-only :global(.cm-cursor) { display: none; }
   .editor-host :global(.nagori-bold) { font-weight: 700; color: var(--heading); }
   .editor-host :global(.nagori-italic) { font-style: italic; }
   .editor-host :global(.nagori-strike) { text-decoration: line-through; color: var(--muted); }

@@ -7,6 +7,8 @@
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/Editor.svelte';
   import Outline from './lib/Outline.svelte';
+  import PaneResizer from './lib/PaneResizer.svelte';
+  import { SIDEBAR, OUTLINE, paneLayout } from './lib/paneWidths.ts';
   import type { OutlineHeading } from './lib/outline.ts';
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
@@ -51,6 +53,11 @@
     notice = $state(''),
     contentError = $state('');
   let sidebarVisible = $state(true);
+  let shellWidth = $state(0);
+  let sidebarDraft = $state<number | null>(null),
+    outlineDraft = $state<number | null>(null);
+  const outlineWidth = $derived(outlineDraft ?? settings.outlineWidth);
+  const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible));
   let previewOnly = $state(false),
     imageUrl = $state(''),
     imageDimensions = $state('');
@@ -257,6 +264,16 @@
       .then(() => invoke<void>('settings_save', { settings: snapshot }))
       .catch((error) => notify('設定を保存できません: ' + failure(error).message));
     return settingsQueue;
+  }
+  function commitPane(pane: 'sidebar' | 'outline') {
+    if (pane === 'sidebar' && sidebarDraft !== null) {
+      settings.sidebarWidth = sidebarDraft;
+      sidebarDraft = null;
+    } else if (pane === 'outline' && outlineDraft !== null) {
+      settings.outlineWidth = outlineDraft;
+      outlineDraft = null;
+    } else return;
+    void persist();
   }
   async function list(path: string) {
     const root = project;
@@ -806,6 +823,11 @@
   function togglePreview() {
     if (!busy && !composing && current?.kind === 'markdown' && session) previewOnly = !previewOnly;
   }
+  function toggleOutline() {
+    if (starting || !settingsLoaded) return;
+    settings.outlineVisible = !settings.outlineVisible;
+    void persist();
+  }
   async function menuAction(action: string) {
     if (errorDialog?.open || saveAsDialog?.open || quick) return;
     if (action === 'cli-install') await runCli('cli_install');
@@ -818,6 +840,7 @@
     else if (action === 'save') await flush();
     else if (action === 'find') editor?.find();
     else if (action === 'preview-toggle') togglePreview();
+    else if (action === 'outline-toggle') toggleOutline();
     else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
       editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
   }
@@ -891,7 +914,13 @@
 </script>
 
 <svelte:window onkeydown={keydown} />
-<div class="app-shell" class:working={busy} class:sidebar-hidden={!sidebarVisible}>
+<div
+  class="app-shell"
+  class:working={busy}
+  class:sidebar-hidden={!sidebarVisible}
+  bind:clientWidth={shellWidth}
+  style={`--sidebar-width:${layout.sidebar}px;--outline-width:${outlineWidth}px`}
+>
   <header class="global-bar" data-tauri-drag-region="deep">
     <div class="brand">
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36" />
@@ -982,6 +1011,19 @@
       </div>
     </div>
   </aside>
+  {#if sidebarVisible && settingsLoaded}
+    <div class="sidebar-boundary">
+      <PaneResizer
+        label="サイドバーの幅"
+        value={layout.sidebar}
+        min={SIDEBAR.min}
+        max={layout.sidebarMax}
+        initial={SIDEBAR.initial}
+        onChange={(width) => (sidebarDraft = width)}
+        onCommit={() => commitPane('sidebar')}
+      />
+    </div>
+  {/if}
   <main>
     <header class="editor-header">
       <div class="breadcrumb">
@@ -996,6 +1038,14 @@
               title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
               disabled={busy || composing}
               onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+            >
+            <button
+              class="mode-toggle outline-toggle"
+              aria-pressed={settings.outlineVisible}
+              aria-label={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
+              title={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
+              disabled={starting || !settingsLoaded}
+              onclick={toggleOutline}><Icon name="outline" size={16} /></button
             >{/if}
           <details class="document-menu">
             <summary aria-label="記事の操作" title="記事の操作"><Icon name="more" /></summary>
@@ -1049,7 +1099,19 @@
               onOutlinePosition={(index) => (outlinePosition = index)}
             />
           </div>
-          {#if !plain && outline.length}
+          {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
+            <div class="outline-boundary">
+              <PaneResizer
+                label="目次の幅"
+                value={outlineWidth}
+                min={OUTLINE.min}
+                max={layout.outlineMax}
+                initial={OUTLINE.initial}
+                direction={-1}
+                onChange={(width) => (outlineDraft = width)}
+                onCommit={() => commitPane('outline')}
+              />
+            </div>
             <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
           {/if}
         </div>

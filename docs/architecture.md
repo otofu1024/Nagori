@@ -35,6 +35,8 @@ Nagori/
 │   └── lib/
 │       ├── Editor.svelte      CodeMirrorとツールバー、検索、IME
 │       ├── Outline.svelte     目次の表示とキー操作
+│       ├── PaneResizer.svelte 境界線のドラッグとキー操作
+│       ├── paneWidths.ts      幅の範囲と配置の計算
 │       ├── outline.ts         構文木から見出しを抽出し、現在の節を判定
 │       ├── FileTree.svelte    ファイルツリーの行と名前の入力欄
 │       ├── QuickOpen.svelte   Quick Openの検索とキー操作
@@ -156,6 +158,10 @@ scripts/nagoriはパスを解決し、同梱元のNagori.appをmacOSのopenで�
 閉じる・終了要求はRustが一度止め、画面側の保存と設定保存を待つ。成功後にapp_exitが終了許可を設定してアプリを終了する。実際のMac IME、認証画面、各終了経路の確認状況は[検証状況](verification.md)を参照する。
 
 ## 設定・制限・テストの配置
+
+App.svelteは保存済みの幅とドラッグ中の幅を分け、paneWidths.tsで表示する幅を計算する。本文720pxと左右余白128pxを残し、目次が入らない時は隠す。ウィンドウを狭くした時の幅は表示だけに使い、保存済みの幅を変えない。PaneResizer.svelteはPointer Captureで境界線の外へ出たドラッグも受け取り、終了時に既存の設定保存キューへ1回だけ追加する。本文の編集・IME・保存の処理は呼び出さない。
+
+設定のsidebarWidthは200〜420pxで初期値272px、outlineWidthは180〜360pxで初期値220px。settings.tsは起動時に範囲を調べる。files.rsのSettingsはserdeの既定値で旧版を読み、幅のデシリアライズとシリアライズの両方で範囲外を初期値へ戻す。Nodeテストで表示境界と幅の計算、Rustテストで旧版の設定・範囲の上下限・範囲外からの復帰を確認する。
 
 [tauri.conf.json](../src-tauri/tauri.conf.json)にアプリ識別子、ウィンドウ、CSP、同梱CLI、配布と署名の設定を置く。[default.json](../src-tauri/capabilities/default.json)でイベント・メニュー・ファイル選択・ウィンドウ操作の権限を宣言する。任意のHTMLや外部数式資産を読み込む設計にはしていない。
 

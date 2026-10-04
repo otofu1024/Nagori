@@ -16,6 +16,9 @@
   --heading: #14233e;
   --muted: #627088;
   --border: #e5ebf3;
+  /* スクロールバーのつまみ。本文の邪魔にならないよう、白に近い淡い色にする */
+  --scrollbar: #cfd8e5;
+  --scrollbar-active: #b6c2d3;
   --accent: #007b83;
   --accent-bright: #13cbbd;
   --accent-soft: #e4f8f8;
@@ -42,6 +45,8 @@
   --heading: #f0f5fd;
   --muted: #9babc2;
   --border: #2b3b52;
+  --scrollbar: rgba(255, 255, 255, 0.22);
+  --scrollbar-active: rgba(255, 255, 255, 0.36);
   --accent: #65dfd5;
   --accent-bright: #37d3c5;
   --accent-soft: #193e46;
@@ -82,14 +87,22 @@ small { font-size: 12px; }
 summary { cursor: pointer; list-style: none; border-radius: 9px; }
 summary::-webkit-details-marker { display: none; }
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 272px) minmax(0, 1fr);
   grid-template-rows: 68px minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
 }
 .app-shell.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
+.sidebar-boundary { position: absolute; top: 68px; bottom: 0; left: var(--sidebar-width); z-index: 10; }
+.outline-boundary { position: relative; flex: 0 0 0; min-height: 0; z-index: 10; }
+.pane-resizer { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; cursor: col-resize; touch-action: none; }
+.pane-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--border); transition: background .12s, box-shadow .12s; }
+.pane-resizer:hover::before, .pane-resizer:focus-visible::before, .pane-resizer.dragging::before { left: 3px; width: 3px; background: var(--accent-bright); box-shadow: 0 0 5px var(--accent-soft); }
+.pane-resizer:focus-visible { outline: none; }
+html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-select: none !important; -webkit-user-select: none !important; }
 .global-bar {
   --header-side-padding: 22px;
   --window-controls-space: 80px;
@@ -164,10 +177,6 @@ summary::-webkit-details-marker { display: none; }
 .tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
 .tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
-.file-tree::-webkit-scrollbar { width: 6px; }
-.file-tree::-webkit-scrollbar-track { background: transparent; }
-.file-tree::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
-.file-tree:hover::-webkit-scrollbar-thumb { background: var(--border); }
 .tree-row { display: flex; align-items: center; width: 100%; gap: 10px; padding: 9px 12px; text-align: left; margin: 2px 0; font-size: 14.5px; color: var(--text); min-height: 40px; border-radius: 12px; }
 .tree-row.active { background: var(--accent-soft); color: var(--accent); }
 .tree-row.selected:not(.active) { border-color: var(--border); }
@@ -206,23 +215,35 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .mode-toggle { border: 1px solid var(--border); font-size: 12px; padding: 6px 10px; color: var(--muted); }
 .mode-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.outline-toggle { display: grid; place-items: center; padding: 6px; }
 .document-menu summary { display: grid; place-items: center; color: var(--muted); padding: 7px; }
 .menu-popover { position: absolute; right: 0; top: calc(100% + 7px); width: 212px; padding: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); z-index: 30; }
 .menu-popover button { width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; font-size: 13px; }
 .menu-popover hr { border: 0; border-top: 1px solid var(--border); margin: 5px; }
 .content { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-.content { container-type: inline-size; }
 .document-body { display: flex; height: 100%; min-height: 0; }
 .editor-column { flex: 1; min-width: 0; min-height: 0; }
-.outline { display: none; flex: 0 0 220px; min-height: 0; overflow: auto; padding: 32px 16px 24px 8px; color: var(--muted); }
-/* 目次220pxと本文の左右余白128pxを除いて、本文に720pxを残す。 */
-@container (min-width: 1068px) { .outline { display: block; } }
-.outline-title { font-size: 12px; font-weight: 500; margin: 0 0 12px 12px; }
+.outline { flex: 0 0 var(--outline-width, 220px); min-width: 0; min-height: 0; overflow: auto; padding: 32px 16px 24px 12px; color: var(--muted); }
+.outline-title { font-size: 14px; font-weight: 600; color: var(--heading); margin: 0 0 14px 12px; }
+/* スクロールバーの表示制御で領域の文字色が透明になるため、目次の一覧には色を指定する */
+.outline ol { color: var(--muted); }
 .outline ol { list-style: none; margin: 0; padding: 0; }
-.outline li { margin: 3px 0; }
-.outline button { position: relative; width: 100%; padding: 7px 8px 7px calc(12px + var(--outline-depth) * 12px); border-radius: 9px; text-align: left; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.outline li { margin: 4px 0; }
+.outline button { position: relative; width: 100%; padding: 8px 8px 8px calc(12px + var(--outline-depth) * 14px); border-radius: 9px; text-align: left; font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.outline button.top-level { font-weight: 600; }
 .outline button[aria-current="location"] { color: var(--accent); }
 .outline button[aria-current="location"]::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 2px; }
+/* つまみは継承色で描き、領域の色だけを遷移させる。WebKitのつまみ自体には遷移を付けない。 */
+.activity-scrollbar:not(.scrollbar-active) { color: transparent; }
+.activity-scrollbar { transition: color 240ms ease-out; overflow-y: scroll; scrollbar-gutter: stable; }
+.activity-scrollbar.scrollbar-active { color: var(--scrollbar); transition-duration: 0s; }
+.activity-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.activity-scrollbar::-webkit-scrollbar-track,
+.activity-scrollbar::-webkit-scrollbar-corner { background: transparent; }
+.activity-scrollbar::-webkit-scrollbar-thumb { background: currentColor; border: 1px solid transparent; background-clip: padding-box; border-radius: 4px; }
+.activity-scrollbar::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-active); }
+.activity-scrollbar::-webkit-scrollbar-button { display: none; }
+@media (prefers-reduced-motion: reduce) { .activity-scrollbar { transition: none; } }
 .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; gap: 12px; }
 .empty-state h1 { font-size: 25px; font-weight: 650; color: var(--heading); letter-spacing: .5px; margin: 8px 0 0; }
 .empty-state p { font-size: 14px; color: var(--muted); line-height: 2; white-space: pre-line; max-width: 430px; margin: 2px 0 10px; }
@@ -252,7 +273,7 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 22px; justify-content: flex-end; }
 .dialog-actions button { border: 1px solid var(--border); font-size: 13px; padding: 8px 11px; }
 .save-as-dialog input { width: 100%; font-size: 14px; }
-.inline-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 5px 0; }
+.inline-name { color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 5px 0; }
 .inline-name input { width: calc(100% - 40px); min-width: 0; font-size: 13px; padding: 7px; }
 .inline-name small { width: 100%; font-size: 12px; line-height: 1.6; }
 .inline-name button { padding: 5px; font-size: 12px; }

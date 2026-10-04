@@ -555,7 +555,8 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         "Live Preview / Preview",
         Some("CmdOrCtrl+Shift+L"),
     )?;
-    let view = Submenu::with_items(app, "表示", true, &[&preview])?;
+    let outline = action("outline-toggle", "目次を表示 / 非表示", None)?;
+    let view = Submenu::with_items(app, "表示", true, &[&preview, &outline])?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
 pub fn run() {
