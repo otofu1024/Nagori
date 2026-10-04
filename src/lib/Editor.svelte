@@ -199,6 +199,8 @@
   .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; }
   .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px 100px; caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
+  /* 段落の間の空行は高さを詰める。本文のテキストは変えない。コードブロック内の空行は対象外 */
+  .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }
   .editor-host :global(.cm-focused) { outline: none; }
   .editor-host :global(.cm-activeLine) { background: transparent; }
   .editor-host :global(.cm-editor .cm-selectionBackground), .editor-host :global(.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground) { background: var(--selection); }
@@ -212,8 +214,8 @@
   .editor-host :global(.nagori-code) { padding: 2px 4px; font-size: .9em; }
   .editor-host :global(.nagori-code-line) { padding: 0 12px; }
   .editor-host :global(.nagori-link) { color: var(--link); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
-  .editor-host :global(.nagori-heading) { font-weight: 750; line-height: 1.4; color: var(--heading); padding: .45em 0 .3em; letter-spacing: -.02em; }
-  .editor-host :global(.nagori-h1) { font-size: 2.1em; line-height: 1.25; letter-spacing: -.035em; }
+  .editor-host :global(.nagori-heading) { font-weight: 750; line-height: 1.4; color: var(--heading); padding: .7em 0 .15em; letter-spacing: -.02em; }
+  .editor-host :global(.nagori-h1) { font-size: 2.1em; line-height: 1.25; letter-spacing: -.035em; padding: .2em 0 .1em; }
   .editor-host :global(.nagori-h2) { font-size: 1.48em; }
   .editor-host :global(.nagori-h3) { font-size: 1.25em; }
   .editor-host :global(.nagori-h4), .editor-host :global(.nagori-h5), .editor-host :global(.nagori-h6) { font-size: 1.1em; }
