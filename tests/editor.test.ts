@@ -104,7 +104,6 @@ test('format apply/remove is one source change, mixed selections are disabled', 
     const plan = formatPlan(plain, { from: 0, to: plain.length }, 'code'); assert.ok(!plan.reason);
     const remove = formatPlan(plan.text, { from: 0, to: plan.text.length }, 'code'); assert.equal(remove.text, plain);
   }
-  assert.ok(formatPlan('**bold** plain', { from: 3, to: 13 }, 'bold').reason);
   assert.ok(formatPlan('one\n\ntwo', { from: 0, to: 8 }, 'italic').reason);
   assert.ok(formatPlan('---\nx: y\n---\n', { from: 4, to: 8 }, 'bold').reason);
   assert.equal(codeDisplay(' a\n b '), 'a  b');
@@ -342,4 +341,36 @@ test('数式の計測は無効時に記録せず、全mount撤去後の再表示
     (globalThis as { document?: unknown }).document = saved;
     if (saved === undefined) delete (globalThis as { document?: unknown }).document;
   }
+});
+
+// 適用した結果の本文を返す補助
+function applied(text: string, from: number, to: number, kind: 'bold' | 'italic' | 'strike' | 'code') {
+  const plan = formatPlan(text, { from, to }, kind);
+  if (plan.reason) return { reason: plan.reason };
+  return { text: text.slice(0, plan.from) + plan.text + text.slice(plan.to), selected: (text.slice(0, plan.from) + plan.text + text.slice(plan.to)).slice(plan.selection.from, plan.selection.to) };
+}
+
+test('同じ装飾にかかる範囲は、中の記号を外して全体に付け直す', () => {
+  const sentence = "There's something about **Autumn** that makes time";
+  const from = sentence.indexOf('something'), to = sentence.indexOf(' makes');
+  assert.deepEqual(applied(sentence, from, to, 'bold'), { text: "There's **something about Autumn that** makes time", selected: 'something about Autumn that' });
+  // 装飾の境界を途中でまたぐ選択は、かかった装飾まで範囲を広げる
+  assert.deepEqual(applied('**bold** plain', 3, 14, 'bold'), { text: '**bold plain**', selected: 'bold plain' });
+  assert.deepEqual(applied('x **ab** y', 5, 10, 'bold'), { text: 'x **ab y**', selected: 'ab y' });
+  // 複数の同じ装飾もまとめる
+  assert.deepEqual(applied('**a** and **b**', 0, 15, 'bold'), { text: '**a and b**', selected: 'a and b' });
+  assert.deepEqual(applied('a ~~b~~ c', 0, 9, 'strike'), { text: '~~a b c~~', selected: 'a b c' });
+  assert.deepEqual(applied('a `b` c', 0, 7, 'code'), { text: '`a b c`', selected: 'a b c' });
+});
+
+test('同じ装飾の中だけを選ぶと外し、ほかの種類の装飾は丸ごと入る時だけ残す', () => {
+  assert.deepEqual(applied('**Autumn**', 3, 5, 'bold'), { text: 'Autumn', selected: 'Autumn' });
+  assert.deepEqual(applied('a *b* c', 0, 7, 'bold'), { text: '**a *b* c**', selected: 'a *b* c' });
+  assert.deepEqual(applied('*a b c*', 3, 4, 'bold'), { text: '*a **b** c*', selected: 'b' });
+  assert.ok(applied('*ab* c', 2, 6, 'bold').reason);
+  // 選択範囲の前後の空白は外してから付ける
+  assert.deepEqual(applied('one two three', 3, 8, 'bold'), { text: 'one **two** three', selected: 'two' });
+  assert.deepEqual(applied('a **b** c d', 0, 10, 'italic'), { text: '*a **b** c* d', selected: 'a **b** c' });
+  assert.ok(applied('a   b', 1, 4, 'bold').reason);
+  assert.ok(applied('a **b** c', 0, 9, 'code').reason);
 });
