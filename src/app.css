@@ -16,6 +16,9 @@
   --heading: #14233e;
   --muted: #627088;
   --border: #e5ebf3;
+  /* スクロールバーのつまみ。本文の邪魔にならないよう、白に近い淡い色にする */
+  --scrollbar: #cfd8e5;
+  --scrollbar-active: #b6c2d3;
   --accent: #007b83;
   --accent-bright: #13cbbd;
   --accent-soft: #e4f8f8;
@@ -42,6 +45,8 @@
   --heading: #f0f5fd;
   --muted: #9babc2;
   --border: #2b3b52;
+  --scrollbar: rgba(255, 255, 255, 0.22);
+  --scrollbar-active: rgba(255, 255, 255, 0.36);
   --accent: #65dfd5;
   --accent-bright: #37d3c5;
   --accent-soft: #193e46;
@@ -230,12 +235,12 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 /* つまみは継承色で描き、領域の色だけを遷移させる。WebKitのつまみ自体には遷移を付けない。 */
 .activity-scrollbar:not(.scrollbar-active) { color: transparent; }
 .activity-scrollbar { transition: color 240ms ease-out; overflow-y: scroll; scrollbar-gutter: stable; }
-.activity-scrollbar.scrollbar-active { color: var(--muted); transition-duration: 0s; }
+.activity-scrollbar.scrollbar-active { color: var(--scrollbar); transition-duration: 0s; }
 .activity-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
 .activity-scrollbar::-webkit-scrollbar-track,
 .activity-scrollbar::-webkit-scrollbar-corner { background: transparent; }
 .activity-scrollbar::-webkit-scrollbar-thumb { background: currentColor; border: 1px solid transparent; background-clip: padding-box; border-radius: 4px; }
-.activity-scrollbar::-webkit-scrollbar-thumb:active { background-color: var(--muted); }
+.activity-scrollbar::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-active); }
 .activity-scrollbar::-webkit-scrollbar-button { display: none; }
 @media (prefers-reduced-motion: reduce) { .activity-scrollbar { transition: none; } }
 .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; gap: 12px; }
