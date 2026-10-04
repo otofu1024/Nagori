@@ -71,6 +71,16 @@ pub struct Settings {
     pub theme: String,
     pub font_size: u8,
     pub recent_files: Vec<String>,
+    #[serde(
+        deserialize_with = "deserialize_pane_width::<_, 200, 420, 272>",
+        serialize_with = "serialize_pane_width::<_, 200, 420, 272>"
+    )]
+    pub sidebar_width: u16,
+    #[serde(
+        deserialize_with = "deserialize_pane_width::<_, 180, 360, 220>",
+        serialize_with = "serialize_pane_width::<_, 180, 360, 220>"
+    )]
+    pub outline_width: u16,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -80,8 +90,46 @@ impl Default for Settings {
             theme: "system".into(),
             font_size: 19,
             recent_files: vec![],
+            sidebar_width: 272,
+            outline_width: 220,
         }
     }
+}
+
+// 読み込みと保存の両方で、範囲外の幅を初期値へ戻す。
+fn deserialize_pane_width<
+    'de,
+    D: serde::Deserializer<'de>,
+    const MIN: u16,
+    const MAX: u16,
+    const INITIAL: u16,
+>(
+    deserializer: D,
+) -> std::result::Result<u16, D::Error> {
+    let width = f64::deserialize(deserializer)?;
+    Ok(
+        if width.is_finite() && width >= MIN as f64 && width <= MAX as f64 {
+            width.round() as u16
+        } else {
+            INITIAL
+        },
+    )
+}
+
+fn serialize_pane_width<
+    S: serde::Serializer,
+    const MIN: u16,
+    const MAX: u16,
+    const INITIAL: u16,
+>(
+    width: &u16,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    serializer.serialize_u16(if (MIN..=MAX).contains(width) {
+        *width
+    } else {
+        INITIAL
+    })
 }
 impl Settings {
     pub fn validate(&self) -> Result<()> {
@@ -768,10 +816,48 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"theme":"system","fontSize":17}"#).unwrap();
         old.validate().unwrap();
         assert_eq!(old.font_size, 17);
+        assert_eq!(old.sidebar_width, 272);
+        assert_eq!(old.outline_width, 220);
         // 以前の版が書いた未知の項目は無視して読み込める
         let legacy: Settings =
             serde_json::from_str(r#"{"theme":"dark","appearanceVersion":1}"#).unwrap();
         assert_eq!(legacy.theme, "dark");
+    }
+
+    #[test]
+    fn settings_pane_widths_validate_on_read_and_write() {
+        for (sidebar, outline) in [(200, 180), (272, 220), (420, 360)] {
+            let stored = format!(r#"{{"sidebarWidth":{sidebar},"outlineWidth":{outline}}}"#);
+            let settings: Settings = serde_json::from_str(&stored).unwrap();
+            settings.validate().unwrap();
+            assert_eq!(settings.sidebar_width, sidebar);
+            assert_eq!(settings.outline_width, outline);
+            let restored: Settings =
+                serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(restored.sidebar_width, sidebar);
+            assert_eq!(restored.outline_width, outline);
+        }
+        for value in [-1, 0, 179, 421, 65536] {
+            let settings: Settings = serde_json::from_str(&format!(
+                r#"{{"sidebarWidth":{value},"outlineWidth":{value},"theme":"dark","fontSize":17}}"#
+            ))
+            .unwrap();
+            assert_eq!(settings.sidebar_width, 272);
+            assert_eq!(settings.outline_width, 220);
+            assert_eq!(settings.theme, "dark");
+            assert_eq!(settings.font_size, 17);
+        }
+        for (sidebar, outline) in [(199, 179), (421, 361)] {
+            let settings = Settings {
+                sidebar_width: sidebar,
+                outline_width: outline,
+                ..Settings::default()
+            };
+            let restored: Settings =
+                serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            assert_eq!(restored.sidebar_width, 272);
+            assert_eq!(restored.outline_width, 220);
+        }
     }
 
     #[test]

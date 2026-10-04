@@ -82,14 +82,22 @@ small { font-size: 12px; }
 summary { cursor: pointer; list-style: none; border-radius: 9px; }
 summary::-webkit-details-marker { display: none; }
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 272px) minmax(0, 1fr);
   grid-template-rows: 68px minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
 }
 .app-shell.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
+.sidebar-boundary { position: absolute; top: 68px; bottom: 0; left: var(--sidebar-width); z-index: 10; }
+.outline-boundary { position: relative; flex: 0 0 0; min-height: 0; z-index: 10; }
+.pane-resizer { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; cursor: col-resize; touch-action: none; }
+.pane-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--border); transition: background .12s, box-shadow .12s; }
+.pane-resizer:hover::before, .pane-resizer:focus-visible::before, .pane-resizer.dragging::before { left: 3px; width: 3px; background: var(--accent-bright); box-shadow: 0 0 5px var(--accent-soft); }
+.pane-resizer:focus-visible { outline: none; }
+html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-select: none !important; -webkit-user-select: none !important; }
 .global-bar {
   --header-side-padding: 22px;
   --window-controls-space: 80px;
@@ -211,16 +219,14 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .menu-popover button { width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; font-size: 13px; }
 .menu-popover hr { border: 0; border-top: 1px solid var(--border); margin: 5px; }
 .content { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-.content { container-type: inline-size; }
 .document-body { display: flex; height: 100%; min-height: 0; }
 .editor-column { flex: 1; min-width: 0; min-height: 0; }
-.outline { display: none; flex: 0 0 220px; min-height: 0; overflow: auto; padding: 32px 16px 24px 8px; color: var(--muted); }
-/* 目次220pxと本文の左右余白128pxを除いて、本文に720pxを残す。 */
-@container (min-width: 1068px) { .outline { display: block; } }
-.outline-title { font-size: 12px; font-weight: 500; margin: 0 0 12px 12px; }
+.outline { flex: 0 0 var(--outline-width, 220px); min-width: 0; min-height: 0; overflow: auto; padding: 32px 16px 24px 12px; color: var(--muted); }
+.outline-title { font-size: 14px; font-weight: 600; color: var(--heading); margin: 0 0 14px 12px; }
 .outline ol { list-style: none; margin: 0; padding: 0; }
-.outline li { margin: 3px 0; }
-.outline button { position: relative; width: 100%; padding: 7px 8px 7px calc(12px + var(--outline-depth) * 12px); border-radius: 9px; text-align: left; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.outline li { margin: 4px 0; }
+.outline button { position: relative; width: 100%; padding: 8px 8px 8px calc(12px + var(--outline-depth) * 14px); border-radius: 9px; text-align: left; font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.outline button.top-level { font-weight: 600; }
 .outline button[aria-current="location"] { color: var(--accent); }
 .outline button[aria-current="location"]::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 2px; }
 .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; gap: 12px; }
