@@ -13,8 +13,8 @@
   import type { EditorApi, FormatKind } from './editor.ts';
   import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, resolveImage, onReady }: {
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; previewOnly?: boolean; fontSize?: number;
+  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, resolveImage, onReady }: {
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
   } = $props();
@@ -40,6 +40,8 @@
     return Object.fromEntries(kinds.map(kind => [kind, formatPlan(text, range, kind, tree)])) as Record<FormatKind, FormatPlan>;
   }
   function updateToolbar() {
+    // テキストファイルではMarkdownの装飾ツールバーを出さない
+    if (plain) { toolbar = null; return; }
     const toolbarFocused = !!root?.querySelector('.floating-toolbar')?.contains(document.activeElement);
     if (!view || view.state.readOnly || composition || view.composing || linkDialog || view.state.selection.main.empty || (!view.hasFocus && !toolbarFocused)) { toolbar = null; return; }
     const coords = view.coordsAtPos(view.state.selection.main.head);
@@ -50,6 +52,7 @@
     toolbar = { top: Math.max(4, coords.top - bounds.top - 44), left: Math.max(8, Math.min(coords.left - bounds.left, bounds.width - 245)), plans: plans()! };
   }
   function apply(kind: FormatKind) {
+    if (plain) return;
     if (!view || view.state.readOnly || composition || view.composing || linkDialog) return;
     // 表示用の判定は差分解析の木を使うため、本文を変える前に全文解析で判定し直す
     const plan = formatPlan(view.state.doc.toString(), view.state.selection.main, kind);
@@ -116,16 +119,19 @@
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), drawSelection(), highlightActiveLine(), EditorView.lineWrapping,
-      markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
-      livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
+      // テキストファイルはMarkdownとして解釈せず、Live Previewも付けない
+      ...(plain ? [] : [
+        markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
+        livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
+      ]),
       search({ literal: true, regexp: false, caseSensitive: true, createPanel: searchPanel }),
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       Prec.highest(keymap.of([
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
-        { key: 'Mod-b', run: () => { apply('bold'); return true; } },
-        { key: 'Mod-i', run: () => { apply('italic'); return true; } },
-        { key: 'Mod-k', run: () => { apply('link'); return true; } },
+        { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
+        { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
+        { key: 'Mod-k', run: () => { if (plain) return false; apply('link'); return true; } },
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
@@ -180,7 +186,7 @@
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
 
-<div class="editor-root" class:preview-only={previewOnly} onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px`} data-document={documentKey}>
+<div class="editor-root" class:preview-only={previewOnly} class:plain onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px`} data-document={documentKey}>
   <div class="editor-host" bind:this={host}></div>
   {#if toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${toolbar.top}px;left:${toolbar.left}px`} onmousedown={event => event.preventDefault()}>
@@ -209,7 +215,11 @@
   .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px 100px; caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* 段落の間の空行は高さを詰める。本文のテキストは変えない。コードブロック内の空行は対象外 */
-  .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }
+  .editor-root:not(.plain) .editor-host :global(.cm-line:not(.nagori-code-line):has(> br:only-child)) { line-height: .9; }
+  /* テキストファイルは等幅で、行間を詰めて表示する */
+  .plain .editor-host :global(.cm-scroller) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; }
+  .plain .editor-host :global(.cm-editor) { font-size: .8em; }
+  .plain .editor-host :global(.cm-content) { max-width: 1100px; tab-size: 4; }
   .editor-host :global(.cm-focused) { outline: none; }
   .editor-host :global(.cm-activeLine) { background: transparent; }
   .editor-host :global(.cm-editor .cm-selectionBackground), .editor-host :global(.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground) { background: var(--selection); }

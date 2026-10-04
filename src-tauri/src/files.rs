@@ -267,7 +267,7 @@ pub fn index(root: &Path) -> Result<Vec<Entry>> {
         for entry in list(root, &path)? {
             if entry.kind == "directory" {
                 pending.push(entry.path);
-            } else if entry.kind == "markdown" || entry.kind == "image" {
+            } else if matches!(entry.kind.as_str(), "markdown" | "image" | "other") {
                 result.push(entry);
             }
         }
@@ -285,6 +285,13 @@ fn decode(bytes: &[u8]) -> Result<(String, Format)> {
     let bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
     let text = std::str::from_utf8(if bom { &bytes[3..] } else { bytes })
         .map_err(|_| Error::new("ENCODING", "UTF-8ではない文書は編集できません。"))?;
+    // NUL文字を含むものはテキストではないとみなし、文字化けしたまま編集させない
+    if text.contains('\0') {
+        return Err(Error::new(
+            "BINARY",
+            "テキストではないファイルは開けません。",
+        ));
+    }
     let crlf = text.contains("\r\n");
     let without_crlf = text.replace("\r\n", "");
     if without_crlf.contains('\r') || (crlf && without_crlf.contains('\n')) {
@@ -310,7 +317,7 @@ fn encode(text: &str, format: &Format) -> Result<Vec<u8>> {
         text.as_bytes().to_vec()
     });
     if result.len() > DOCUMENT_LIMIT {
-        return Err(Error::new("LIMIT", "Markdownの上限は2MiBです。"));
+        return Err(Error::new("LIMIT", "文書の上限は2MiBです。"));
     }
     Ok(result)
 }
@@ -328,10 +335,11 @@ fn readonly(path: &Path) -> Result<bool> {
 }
 pub fn open(root: &Path, path: &str) -> Result<OpenedDocument> {
     let absolute = resolve(root, path, false)?;
-    if !markdown(&absolute) {
+    // Markdown以外も、画像でなければテキストとして開く。中身の判定はdecodeで行う
+    if image_extension(&absolute) {
         return Err(Error::new(
             "UNSUPPORTED",
-            "Markdownファイルを選択してください。",
+            "画像は画像プレビューで表示します。",
         ));
     }
     let bytes = read_limited(&absolute, DOCUMENT_LIMIT)?;
@@ -354,8 +362,8 @@ fn check_baseline(root: &Path, path: &str, expected: &str) -> Result<(PathBuf, V
 }
 pub fn save(root: &Path, path: &str, text: &str, expected: &str) -> Result<Saved> {
     let (absolute, before) = check_baseline(root, path, expected)?;
-    if !markdown(&absolute) {
-        return Err(Error::new("UNSUPPORTED", "Markdownのみ保存できます。"));
+    if image_extension(&absolute) {
+        return Err(Error::new("UNSUPPORTED", "画像は保存できません。"));
     }
     if readonly(&absolute)? {
         return Err(Error::new("PERMISSION", "読み取り専用ファイルです。"));
@@ -427,10 +435,17 @@ pub fn save_as(root: &Path, source_path: &str, path: &str, text: &str) -> Result
         ));
     }
     valid_name(target.file_name().and_then(|n| n.to_str()).unwrap_or(""))?;
-    if !markdown(&target) {
+    // Markdownの別名保存はMarkdownのまま、テキストファイルは画像以外の名前へ保存する
+    if markdown(Path::new(source_path)) && !markdown(&target) {
         return Err(Error::new(
             "UNSUPPORTED",
             "保存先には.mdまたは.markdownを使用してください。",
+        ));
+    }
+    if image_extension(&target) {
+        return Err(Error::new(
+            "UNSUPPORTED",
+            "画像の拡張子では保存できません。",
         ));
     }
     let source = match resolve(root, source_path, true) {
@@ -1060,6 +1075,48 @@ mod tests {
             assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "original");
             fs::set_permissions(root.join("a.md"), fs::Permissions::from_mode(0o644)).unwrap();
         }
+    }
+    #[test]
+    fn text_files_open_and_save_like_markdown() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("config.json"), b"{\r\n  \"a\": 1\r\n}\r\n").unwrap();
+        let opened = open(root, "config.json").unwrap();
+        assert_eq!(opened.text, "{\n  \"a\": 1\n}\n");
+        save(root, "config.json", "{\n  \"a\": 2\n}\n", &opened.baseline).unwrap();
+        // 既存のCRLFを保ったまま保存する
+        assert_eq!(
+            fs::read(root.join("config.json")).unwrap(),
+            b"{\r\n  \"a\": 2\r\n}\r\n"
+        );
+        fs::write(root.join("Makefile"), "all:\n\techo ok\n").unwrap();
+        assert_eq!(open(root, "Makefile").unwrap().text, "all:\n\techo ok\n");
+        let code = |result: Result<OpenedDocument>| result.err().map(|e| e.code);
+        fs::write(root.join("data.bin"), b"abc\0def").unwrap();
+        assert_eq!(code(open(root, "data.bin")), Some("BINARY"));
+        fs::write(root.join("latin1.txt"), b"caf\xe9").unwrap();
+        assert_eq!(code(open(root, "latin1.txt")), Some("ENCODING"));
+        image::RgbaImage::new(1, 1)
+            .save(root.join("photo.png"))
+            .unwrap();
+        assert_eq!(code(open(root, "photo.png")), Some("UNSUPPORTED"));
+        // テキストファイルの別名保存は画像以外の名前に限り、Markdownの別名保存はMarkdownに限る
+        let copied = save_as(root, "config.json", "config-copy.json", "{}\n").unwrap();
+        assert_eq!(copied.path, "config-copy.json");
+        assert_eq!(fs::read(root.join("config-copy.json")).unwrap(), b"{}\r\n");
+        assert_eq!(
+            code(save_as(root, "config.json", "copy.png", "{}\n")),
+            Some("UNSUPPORTED")
+        );
+        create(root, "note.md", "markdown").unwrap();
+        assert_eq!(
+            code(save_as(root, "note.md", "note.txt", "text\n")),
+            Some("UNSUPPORTED")
+        );
+        let names: Vec<_> = index(root).unwrap().into_iter().map(|e| e.path).collect();
+        assert!(
+            names.contains(&"config.json".to_string()) && names.contains(&"Makefile".to_string())
+        );
     }
     #[test]
     fn pasted_images_are_stored_in_assets_without_clobber() {

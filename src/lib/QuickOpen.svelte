@@ -92,7 +92,7 @@
   <div class="quick-results">
     {#each results as entry, i}
       <button id={'quick-' + i} class:highlighted={i === highlighted} onclick={() => choose(entry)}>
-        <span class="file-icon"><Icon name={entry.kind === 'markdown' ? 'file' : 'image'} /></span>
+        <span class="file-icon"><Icon name={entry.kind === 'image' ? 'image' : 'file'} /></span>
         <span><strong>{entry.name}</strong><small>{entry.path}</small></span>
         {#if i === highlighted}<kbd>↵</kbd>{/if}
       </button>

@@ -6,7 +6,7 @@ export function fuzzyScore(path:string, query:string):number|null {
   return score-target.length/100;
 }
 export function candidates(entries:Entry[], query:string, recent:string[]):Entry[] {
-  const files=entries.filter(e=>e.kind==='markdown'||e.kind==='image');
+  const files=entries.filter(e=>e.kind==='markdown'||e.kind==='image'||e.kind==='other');
   if(!query.trim()) return recent.flatMap(path=>{const found=files.find(e=>e.path===path);return found?[found]:[];}).slice(0,50);
   // ponytail: linear fuzzy scan; index only if measured search latency exceeds 100ms.
   return files.map(entry=>({entry,score:fuzzyScore(entry.path,query)})).filter(item=>item.score!==null).sort((a,b)=>b.score!-a.score!||a.entry.path.localeCompare(b.entry.path)).slice(0,50).map(item=>item.entry);

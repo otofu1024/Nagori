@@ -102,6 +102,8 @@ Previewは既存のEditorViewと編集状態を使う。記法の露出と本文
 
 [lib.rs](../src-tauri/src/lib.rs)がTauriのコマンドを登録し、BackendにWorkspaceのルートと監視、起動要求のキュー、終了許可の状態を保持する。Workspaceのファイル処理はspawn_blockingで実行し、1つのMutexで順序を揃える。設定保存とCLI登録もブロッキング処理を別の実行枠へ移す。
 
+Markdown以外のファイルも、files.rsのopenが中身をUTF-8かつNUL文字なしと判定できればテキストとして返す。App.svelteは種類がotherのファイルをplainとしてEditorへ渡し、EditorはMarkdownの解析・Live Preview・装飾ツールバーを付けずに等幅で表示する。保存の流れはMarkdownと共通。
+
 [files.rs](../src-tauri/src/files.rs)が読み書き、一覧と索引、作成・名前変更・ゴミ箱、画像読み込み・取り込みを担当する。Workspaceのパス範囲、除外項目、シンボリックリンク、UTF-8、サイズ・画像寸法を検証する。画像取り込み元と設定保存先は、通常のWorkspace参照と用途を分けて処理する。
 
 notifyでWorkspaceを再帰監視し、nagori:fs-changedとnagori:fs-errorを通知する。App.svelteが通知を受けて、展開中のフォルダ・記事・画像を確認し直す。プロジェクト全体の索引は、Quick Openを開く時と前回のファイルを復元する時だけ作る。通知だけでファイルの内容を確定せず、保存時にもRust側でディスクの比較基準を確認する。

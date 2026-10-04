@@ -103,14 +103,7 @@
           {#if row.kind === 'directory'}
             <span class="tree-chevron"><Icon name={expanded.includes(row.path) ? 'down' : 'right'} size={12} /></span>
             <!-- 2色の塗りのフォルダ。開いているファイルを含むフォルダだけミント、ほかは青 -->
-            <svg
-              class="folder-glyph"
-              class:on-path={onPath(row)}
-              viewBox="0 0 24 20"
-              width="22"
-              height="18"
-              aria-hidden="true"
-            >
+            <svg class="folder-glyph" class:on-path={onPath(row)} viewBox="0 0 24 20" width="22" height="18" aria-hidden="true">
               <path class="folder-back" d="M2 4a2 2 0 0 1 2-2h5.2l2 2.2H20a2 2 0 0 1 2 2V8H2z" />
               <path class="folder-front" d="M2 7.2h20V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" />
             </svg>
