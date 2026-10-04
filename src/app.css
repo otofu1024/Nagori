@@ -172,10 +172,6 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
 .tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
-.file-tree::-webkit-scrollbar { width: 6px; }
-.file-tree::-webkit-scrollbar-track { background: transparent; }
-.file-tree::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
-.file-tree:hover::-webkit-scrollbar-thumb { background: var(--border); }
 .tree-row { display: flex; align-items: center; width: 100%; gap: 10px; padding: 9px 12px; text-align: left; margin: 2px 0; font-size: 14.5px; color: var(--text); min-height: 40px; border-radius: 12px; }
 .tree-row.active { background: var(--accent-soft); color: var(--accent); }
 .tree-row.selected:not(.active) { border-color: var(--border); }
@@ -223,12 +219,25 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .editor-column { flex: 1; min-width: 0; min-height: 0; }
 .outline { flex: 0 0 var(--outline-width, 220px); min-width: 0; min-height: 0; overflow: auto; padding: 32px 16px 24px 12px; color: var(--muted); }
 .outline-title { font-size: 14px; font-weight: 600; color: var(--heading); margin: 0 0 14px 12px; }
+/* スクロールバーの表示制御で領域の文字色が透明になるため、目次の一覧には色を指定する */
+.outline ol { color: var(--muted); }
 .outline ol { list-style: none; margin: 0; padding: 0; }
 .outline li { margin: 4px 0; }
 .outline button { position: relative; width: 100%; padding: 8px 8px 8px calc(12px + var(--outline-depth) * 14px); border-radius: 9px; text-align: left; font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere; }
 .outline button.top-level { font-weight: 600; }
 .outline button[aria-current="location"] { color: var(--accent); }
 .outline button[aria-current="location"]::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 2px; }
+/* つまみは継承色で描き、領域の色だけを遷移させる。WebKitのつまみ自体には遷移を付けない。 */
+.activity-scrollbar:not(.scrollbar-active) { color: transparent; }
+.activity-scrollbar { transition: color 240ms ease-out; overflow-y: scroll; scrollbar-gutter: stable; }
+.activity-scrollbar.scrollbar-active { color: var(--muted); transition-duration: 0s; }
+.activity-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.activity-scrollbar::-webkit-scrollbar-track,
+.activity-scrollbar::-webkit-scrollbar-corner { background: transparent; }
+.activity-scrollbar::-webkit-scrollbar-thumb { background: currentColor; border: 1px solid transparent; background-clip: padding-box; border-radius: 4px; }
+.activity-scrollbar::-webkit-scrollbar-thumb:active { background-color: var(--muted); }
+.activity-scrollbar::-webkit-scrollbar-button { display: none; }
+@media (prefers-reduced-motion: reduce) { .activity-scrollbar { transition: none; } }
 .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; gap: 12px; }
 .empty-state h1 { font-size: 25px; font-weight: 650; color: var(--heading); letter-spacing: .5px; margin: 8px 0 0; }
 .empty-state p { font-size: 14px; color: var(--muted); line-height: 2; white-space: pre-line; max-width: 430px; margin: 2px 0 10px; }
@@ -258,7 +267,7 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 22px; justify-content: flex-end; }
 .dialog-actions button { border: 1px solid var(--border); font-size: 13px; padding: 8px 11px; }
 .save-as-dialog input { width: 100%; font-size: 14px; }
-.inline-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 5px 0; }
+.inline-name { color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 5px 0; }
 .inline-name input { width: calc(100% - 40px); min-width: 0; font-size: 13px; padding: 7px; }
 .inline-name small { width: 100%; font-size: 12px; line-height: 1.6; }
 .inline-name button { padding: 5px; font-size: 12px; }
