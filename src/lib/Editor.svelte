@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
-  import { EditorView, keymap, highlightActiveLine, type Panel } from '@codemirror/view';
+  import { EditorView, keymap, highlightActiveLine, layer, RectangleMarker, type Panel } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
@@ -197,6 +197,22 @@
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
+      // 選択表示は標準のまま保ち、折り返しの上下はカーソルのassocで決める。
+      layer({
+        above: true, class: 'cm-cursorLayer',
+        markers: editor => {
+          const range = editor.state.selection.main;
+          if (!editor.hasFocus || !range.empty || editor.state.readOnly || !editor.state.facet(EditorView.editable) || composition || editor.composing) return [];
+          return RectangleMarker.forRange(editor, 'cm-cursor cm-cursor-primary', range);
+        },
+        update: (update, dom) => {
+          if (update.docChanged || update.selectionSet || update.focusChanged || update.transactions.some(tr => tr.effects.some(e => e.is(compositionMode)))) {
+            // 2つの標準アニメーションを交互に使い、入力と移動の直後は点灯へ戻す。
+            dom.style.animationName = dom.style.animationName === 'cm-blink' ? 'cm-blink2' : 'cm-blink';
+          }
+          return update.transactions.length > 0 || update.focusChanged;
+        },
+      }),
       // テキストファイルはMarkdownとして解釈せず、Live Previewも付けない
       ...(plain ? [] : [
         markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
@@ -204,7 +220,7 @@
       ]),
       search({ literal: true, regexp: false, caseSensitive: true, createPanel: searchPanel }),
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
-      EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
+      EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false', class: composition ? 'nagori-composing' : '' })),
       Prec.highest(keymap.of([
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
@@ -313,7 +329,10 @@
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
   .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
   /* WebKitで短い本文の予約幅が標準の幅へ戻らないよう、透明なスクロールバーの8pxを常に確保する。 */
-  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: var(--accent); }
+  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: transparent; }
+  .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
+  /* 変換中は標準のキャレットを使い、変換範囲の表示を妨げない。 */
+  .editor-host :global(.cm-content.nagori-composing) { caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* テキストファイルは等幅で、行間を詰めて表示する */
   .plain .editor-host :global(.cm-scroller) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; }
@@ -323,7 +342,7 @@
   .editor-host :global(.cm-activeLine) { background: transparent; }
   /* 標準の選択表示を使い、複数行を選んだ時も本文の左右の余白を塗らない。 */
   .editor-host :global(.cm-content::selection), .editor-host :global(.cm-content ::selection) { background: var(--selection); }
-  .preview-only :global(.cm-content) { caret-color: transparent; }
+  .preview-only .editor-host :global(.cm-content) { caret-color: transparent; }
   .editor-host :global(.nagori-bold) { font-weight: 700; color: var(--heading); }
   .editor-host :global(.nagori-italic) { font-style: italic; }
   .editor-host :global(.nagori-strike) { text-decoration: line-through; color: var(--muted); }

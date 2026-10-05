@@ -4,6 +4,26 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 折り返し位置のカーソル（2026-10-05、otofu1024/feature-caret-fix）
+
+作業前のgit log --oneline -1で、指定された起点ac223f6を確認した。変更はsrc/lib/Editor.svelte、docs/specification.md、docs/mac-qa-checklist.md、この記録の4ファイルに限る。仕様を改訂版1.11へ上げた。依存パッケージの追加、Rustの変更、コミット、push、PR作成は行っていない。
+
+macOS 26.6.2の一時WKWebViewに修正前のEditor.svelteと共通CSSを読み込み、折り返した段落の2行目の先頭で長い標準キャレットを再現した。本文19px、行間1.9の条件で、CodeMirrorのcoordsAtPosはtop 75px、bottom 97pxの22pxを返した。標準キャレットは、この座標より上の行間へ伸びて表示された。本文の行高や空行の配置によるずれではなく、WebKitの標準キャレットの描画による問題と判断した。
+
+カーソルだけをlayerとRectangleMarker.forRangeで描く。主選択が空で、本文にフォーカスがあり、編集可能な時だけ表示する。RectangleMarkerはカーソルのassocに従って座標を選ぶ。通常の標準キャレットは透明にし、選択範囲の標準表示と::selectionの色は保った。既存のcm-cursor用CSSを使い、色をアクセント色へ変える。点滅はCodeMirrorと同じ1.2秒周期とし、入力・移動・フォーカス変更・変換終了で点灯へ戻す。
+
+drawSelectionを戻して選択の塗りだけを隠す案も、ライブラリの実装を読んで比較した。drawSelectionは選択用のlayerに加え、標準の選択表示を隠すCSSと内部設定も有効にする。標準表示を再び上書きする必要があるため採用しなかった。主カーソルだけで足りる要件に合わせ、追加モジュールを作らずEditor.svelte内に拡張を置いた。IME変換中は既存のcompositionフラグを使って自前のカーソルを隠し、標準キャレットを戻す方を選んだ。Previewで標準キャレットが戻らないよう、非表示のCSSを優先させた。
+
+修正後のWKWebViewでは、ライトとダークの両方で、折り返し境界のassoc -1は上側のtop 39px、assoc 1は下側のtop 75pxへ表示された。どちらも高さ22pxで、描画したカーソルの上下はCodeMirrorの座標と一致した。幅700pxと1000px、強調文字でも高さ22pxに収まり、テキストファイルでは15px、見出しでは47pxとなった。左右・上下の移動でも1行の文字の高さに収まった。
+
+入力・移動直後の点灯と、650ms後の消灯を確認した。複数行の選択では選択用のlayerがなく、左右の余白が塗られないことを画面で確認した。Previewでは標準キャレットが透明で自前のカーソルもなく、本文と選択を保った。Live Previewへ戻すとカーソルが復帰した。合成したcompositionstartとcompositionendでは、変換中の自前カーソルの非表示と標準キャレットの復帰、終了後の自前カーソルの復帰、本文の保持を確認した。改行直後と入力後はtop 75px、高さ22pxで一致し、後続の段落の位置も同じだった。Undo・Redoで本文が復元された。
+
+一時の検証ページ、実行用Swiftスクリプト、測定JSON、画面画像は/private/tmp/nagori-caretに置いた。測定JSONを検査するverify.pyも同じ場所にある。修正前後の標準的な表示はbefore-light-normal-1000-window.png、current-light-normal-1000-window.png、current-dark-normal-1000-window.pngで比較できる。
+
+npm run checkは0エラー・0警告、npm testは84件成功、src-tauriでのcargo testは17件成功、npm run buildは成功した。ビルドでは既存と同じ500kB超のチャンク警告が出た。日本語の変更文書はyomiyasu_lint.pyで確認した。既存の箇条書き・用語・コロンと、原因の判断に必要な否定対比の指摘は見直したうえで残した。
+
+本体アプリでのマウス操作、フォーカスを外した時の表示、日本語IMEによる実際の変換・確定・キャンセル、保存、右クリックメニュー、目次、幅のドラッグ、スクロールバーは確認待ち。合成した変換イベントの結果を、実際のIMEで合格した記録として扱わない。追加したQA項目6gで確認する。
+
 ## 目次の表示切り替え（2026-10-05、feature/outline-toggle）
 
 作業前のgit log --oneline -3で、起点が03e4808であることを確認した。Markdownの記事を開いている時だけ、本文ヘッダーのLive Previewボタンの横に目次のアイコンボタンを追加した。隣のボタンと同じ角丸・枠・押された時の色を使い、aria-pressedと、状態に応じたaria-label・title「目次を隠す」「目次を表示」を付けた。表示メニューにも「目次を表示 / 非表示」を追加し、ボタンと同じ処理で切り替える。
