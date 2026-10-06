@@ -112,7 +112,7 @@
     const plan = formatPlan(view.state.doc.toString(), view.state.selection.main, kind);
     if (!plan || plan.reason) return;
     if (kind === 'link') { pendingLink = plan; pendingRevision = revision; linkText = plan.linkText ?? ''; linkUrl = plan.existingLink ?? ''; linkError = ''; linkDialog = true; toolbar = null; return; }
-    view.dispatch({ changes: { from: plan.from, to: plan.to, insert: plan.text }, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format' });
+    view.dispatch({ changes: plan.changes ?? { from: plan.from, to: plan.to, insert: plan.text }, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format' });
     view.focus(); updateToolbar();
   }
   function finishLink(event: SubmitEvent) {
