@@ -30,7 +30,7 @@ GUI操作とロジックテストの結果を分けて記録する。自動テ�
 
 ## 開発の進め方
 
-機能追加と修正はdevelopからfeatureブランチを作り、確認後にdevelopへ統合する。mainはユーザーが本番リリースを指示するまでREADMEのみを保持する。詳細は[AGENTS.md](../AGENTS.md)。
+機能追加と修正はmainからfeatureブランチを作り、確認後にPRでmainへ統合する。リリースはmainの確認済みのコミットにタグを付けて区別する。2026-10-06に、それまで統合先だったdevelopをmainへ統合して廃止した。詳細は[AGENTS.md](../AGENTS.md)。
 
 編集・UndoはCodeMirror、保存世代はEditSession、画面と操作の順序はApp.svelte、パスとディスク操作はRustが担当する。既存の保存完了処理を共用し、新しい操作でも保存失敗時に本文を保持する。構成と実装箇所は[アーキテクチャ](architecture.md)を参照。
 
