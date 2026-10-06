@@ -93,10 +93,70 @@ export function inlineContent(node: SyntaxNode): Span {
 }
 const formatNode = { bold: 'StrongEmphasis', italic: 'Emphasis', strike: 'Strikethrough', code: 'InlineCode', link: 'Link' };
 const decorated = new Set(['StrongEmphasis', 'Emphasis', 'Strikethrough', 'InlineCode', 'Link', 'Image']);
-export type FormatPlan = { reason?: string; from: number; to: number; text: string; selection: Span; existingLink?: string; linkText?: string };
+export type FormatPlan = { reason?: string; from: number; to: number; text: string; selection: Span; changes?: { from: number; to: number; insert: string }[]; existingLink?: string; linkText?: string };
 // treeを渡すと、変更後の本文もその木からの差分解析で確かめる(表示用)。省略すると全文解析で確かめる(本文を変える時用)
 export function formatPlan(text: string, selection: Span, kind: FormatKind, given?: Tree): FormatPlan {
   const tree = given ?? markdownParser.parse(text);
+  if (kind === 'link' || selection.from === selection.to) return singleFormatPlan(text, selection, kind, tree, given);
+  const spans: Span[] = [], formats: SyntaxNode[] = [], front = frontMatter(text);
+  walk(tree.topNode, node => {
+    if (!intersects(node, selection) && node.name !== 'Document') return false;
+    if (front && intersects(front, node) && node.name !== 'Document') return false;
+    if (/^(?:FencedCode|CodeBlock|HTMLBlock|Table|LinkReference|MathBlock|MathUnclosed)$/.test(node.name)) return false;
+    if (decorated.has(node.name)) formats.push(node);
+    if (!(node.name === 'Paragraph' || node.name === 'Task' || /^(?:ATXHeading|SetextHeading)/.test(node.name))) return;
+    // 見出し・タスク・引用の記号を除き、本文の区間だけを取り出す
+    const marks: SyntaxNode[] = [];
+    walk(node, n => { if (/^(?:HeaderMark|TaskMarker|QuoteMark)$/.test(n.name)) marks.push(n); });
+    let at = node.from;
+    // 段落の先頭の字下げを含む選択は、従来どおり空白ごとコードにできる
+    if (node.name === 'Paragraph' && selection.from < at && /^[ \t]{0,3}$/.test(text.slice(selection.from, at))) at = selection.from;
+    const start = at;
+    for (const mark of [...marks, { from: node.to, to: node.to }]) {
+      let from = Math.max(at, selection.from), to = Math.min(mark.from, selection.to);
+      if (at !== start) while (from < to && /[ \t]/.test(text[from])) from++;
+      if (mark.from !== node.to) while (to > from && /\s/.test(text[to - 1])) to--;
+      if (kind === 'code') {
+        // Inline Codeは段落内でも行ごとに扱う
+        for (const line of text.slice(from, to).split('\n')) {
+          const end = from + line.replace(/\r$/, '').length;
+          if (from < end) spans.push({ from, to: end });
+          from += line.length + 1;
+        }
+      } else {
+        while (from < to && /\s/.test(text[from])) from++;
+        while (to > from && /\s/.test(text[to - 1])) to--;
+        if (from < to) spans.push({ from, to });
+      }
+      at = mark.to;
+    }
+  });
+  const enclosed = spans.map(span => formats.some(n => n.name === formatNode[kind] && n.from <= span.from && n.to >= span.to));
+  const plans = spans.map(span => singleFormatPlan(text, span, kind, tree, given));
+  // 飛ばす区間は付け外しの判定に含めない。混在時だけ装飾済みの区間を付け直す
+  if (plans.some((plan, i) => !plan.reason && !enclosed[i])) {
+    for (let i = 0; i < plans.length; i++) if (!plans[i].reason && enclosed[i]) plans[i] = singleFormatPlan(text, spans[i], kind, tree, given, true);
+  }
+  const usable: FormatPlan[] = [];
+  for (const plan of plans) {
+    if (!plan.reason && !usable.some(p => intersects(p, plan))) usable.push(plan);
+  }
+  if (!usable.length) {
+    const denied = plans.find(p => p.reason) ?? singleFormatPlan(text, selection, kind, tree, given);
+    return denied.reason ? denied : { ...denied, reason: 'テキストを選択してください', text: '' };
+  }
+  if (usable.length === 1) return usable[0];
+  const changes = usable.map(p => ({ from: p.from, to: p.to, insert: p.text }));
+  const first = usable[0], last = usable.at(-1)!;
+  let insert = '', at = first.from, offset = 0;
+  for (const plan of usable) {
+    insert += text.slice(at, plan.from) + plan.text;
+    at = plan.to;
+    if (plan !== last) offset += plan.text.length - (plan.to - plan.from);
+  }
+  return { from: first.from, to: last.to, text: insert, changes, selection: { from: first.selection.from, to: last.selection.to + offset } };
+}
+function singleFormatPlan(text: string, selection: Span, kind: FormatKind, tree: Tree, given?: Tree, forceApply = false): FormatPlan {
   // 太字・斜体・取り消し線では、選択範囲の前後の空白を外してから付ける(記号の内側に空白があると装飾にならないため)
   if (kind === 'bold' || kind === 'italic' || kind === 'strike') {
     let { from, to } = selection;
@@ -130,7 +190,7 @@ export function formatPlan(text: string, selection: Span, kind: FormatKind, give
   }
   // 同じ装飾の中だけを選んだ時は、その装飾を外す
   const enclosing = formats.filter(n => n.name === name && n.from <= selection.from && n.to >= selection.to).at(-1);
-  if (enclosing) {
+  if (enclosing && !forceApply) {
     const content = inlineContent(enclosing); let plain = text.slice(content.from, content.to);
     if (kind === 'code' && plain.startsWith(' ') && plain.endsWith(' ') && /\S/.test(plain)) plain = plain.slice(1, -1);
     return { from: enclosing.from, to: enclosing.to, text: plain, selection: { from: enclosing.from, to: enclosing.from + plain.length } };
@@ -163,7 +223,7 @@ export function formatPlan(text: string, selection: Span, kind: FormatKind, give
   if (!plain.trim() || /^\s|\s$/.test(plain)) return denied('装飾する文字の前後の空白を除いて選択してください');
   const delimiter = kind === 'bold' ? '**' : kind === 'italic' ? '*' : '~~';
   const insert = delimiter + plain + delimiter;
-  // Reject surrounding delimiter interactions rather than guessing how CommonMark will regroup them.
+  // 周囲の記号と結び付いて、意図した装飾にならない場合は止める
   const changed = text.slice(0, from) + insert + text.slice(to);
   let valid = false;
   const checked = given ? parseChanged(given, changed, [{ fromA: from, toA: to, fromB: from, toB: from + insert.length }]) : markdownParser.parse(changed);
