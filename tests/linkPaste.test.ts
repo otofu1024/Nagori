@@ -14,7 +14,7 @@ function plan(text: string, url: string, from = 0, to = text.length) {
 test('単一行の選択へHTTP・HTTPS・mailtoを貼り、括弧を含むURLを安全に囲む', () => {
   for (const url of ['http://example.com', 'https://example.com/a)b(c', 'mailto:editor@example.com', ' HTTPS://example.com/a?x=1 \n']) {
     const result = plan('表示する文字', url)!;
-    assert.ok(result); assert.equal(result.changes.insert, `[表示する文字](<${url.trim()}>)`);
+    assert.ok(result); const target = url.trim(); assert.equal(result.changes.insert, `[表示する文字](${/[()]/.test(target) ? `<${target}>` : target})`);
     assert.equal(result.selection.anchor, result.changes.insert.length);
     assert.ok(markdownParser.parse(result.changes.insert).toString().includes('Link('));
   }
@@ -35,10 +35,11 @@ test('既存のリンク・参照リンク・コード・画像・保護ブロ�
 test('選択外のMarkdownを保ち、装飾を含む文字とバックスラッシュを囲める', () => {
   const result = plan('**前** 本文 `後`', 'https://example.com', 6, 8)!;
   assert.equal(result.changes.from, 6); assert.equal(result.changes.to, 8);
-  assert.equal(result.changes.insert, '[本文](<https://example.com>)');
-  assert.equal(plan('**太字**', 'https://example.com', 2, 6)!.changes.insert, '[太字**](<https://example.com>)');
+  assert.equal(result.changes.insert, '[本文](https://example.com)');
+  assert.equal(plan('**太字**', 'https://example.com', 2, 6)!.changes.insert, '[太字**](https://example.com)');
   const slash = plan('末尾\\', 'https://example.com/<x>\\')!;
-  assert.equal(slash.changes.insert, '[末尾\\\\](<https://example.com/%3Cx%3E%5C>)');
+  assert.equal(plan('本文', 'https://example.com/a_(b)', 0, 2)!.changes.insert, '[本文](<https://example.com/a_(b)>)');
+  assert.equal(slash.changes.insert, '[末尾\\\\](https://example.com/%3Cx%3E%5C)');
   let link = false; walk(markdownParser.parse(slash.changes.insert).topNode, node => { if (node.name === 'Link') link = true; }); assert.ok(link);
 });
 
@@ -68,7 +69,7 @@ test('文字とPNGが両方ある時はURLの文字を優先して選択をリ�
   const event = { clipboardData: { getData: () => 'https://example.com', items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }] }, preventDefault: () => { prevented = true; } } as unknown as ClipboardEvent;
   const editor = { state, composing: false, compositionStarted: false, dispatch: (plan: TransactionSpec) => { state = state.update(plan).state; } } as unknown as EditorView;
   assert.equal(pasteMarkdown(event, editor, true, () => assert.fail('画像として取り込まない')), true);
-  assert.ok(prevented); assert.equal(state.doc.toString(), '[本文](<https://example.com>)');
+  assert.ok(prevented); assert.equal(state.doc.toString(), '[本文](https://example.com)');
   assert.equal(state.selection.main.head, state.doc.length);
 });
 

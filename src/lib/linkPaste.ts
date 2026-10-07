@@ -17,7 +17,8 @@ export function linkPaste(state: EditorState, clipboard: string) {
   });
   if (blocked) return null;
   const target = url.replace(/[<>\\]/g, c => c === '<' ? '%3C' : c === '>' ? '%3E' : '%5C');
-  const insert = `[${label.replace(/\\/g, '\\\\')}](<${target}>)`;
+  // 括弧や空白を含むURLだけを山括弧で囲み、ふだんのURLは手で書く形のままにする。
+  const insert = `[${label.replace(/\\/g, '\\\\')}](${/[\s()]/.test(target) ? `<${target}>` : target})`;
   // 周囲の記号をまたぐ選択では、リンクとして解析できた場合だけ置き換える。
   let valid = false;
   walk(markdownParser.parse(text.slice(0, selection.from) + insert + text.slice(selection.to)).topNode, node => {
