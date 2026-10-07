@@ -15,7 +15,9 @@
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
-  import { clipboardImage } from './image.ts';
+  import { moveList } from './listEdit.ts';
+  import { moveTable } from './tableEdit.ts';
+  import { pasteMarkdown } from './linkPaste.ts';
 
   let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
@@ -162,14 +164,6 @@
     dom.append(input, count, button('前へ', () => findPrevious(editor)), button('次へ', () => findNext(editor)), button('閉じる', () => { closeSearchPanel(editor); editor.focus(); }));
     return { dom, top: true, mount: () => { input.focus(); input.select(); update(); }, update };
   }
-  // 画像だけをコピーしていた時は、標準の貼り付けを止めて画像の取り込みに回す
-  function pasteImage(event: ClipboardEvent, editor: EditorView) {
-    const image = clipboardImage(event.clipboardData);
-    if (!image || !onPasteImage) return false;
-    event.preventDefault();
-    if (!editor.state.readOnly && !composition && !editor.composing) onPasteImage(image);
-    return true;
-  }
   function contextState(): EditorContextState {
     const editable = !!view && !readonly && !busy && !previewOnly && !composition && !view.composing && !linkDialog;
     const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), view.state.selection.main) : { block: false, heading: false };
@@ -222,6 +216,9 @@
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false', class: composition ? 'nagori-composing' : '' })),
       Prec.highest(keymap.of([
+        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
+        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
+        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && moveTable(editor, 'down') },
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
         { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
@@ -229,7 +226,7 @@
         { key: 'Mod-f', run: openSearchPanel },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
+      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
