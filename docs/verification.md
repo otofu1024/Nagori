@@ -4,6 +4,22 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## ファイル内の検索と置換（2026-10-07、feature/search-replace）
+
+最初のgit log --oneline -1で、指定された起点13d19abを確認した。変更ファイルはsrc/lib/findPanel.ts、src/lib/Editor.svelte、src/App.svelte、tests/findPanel.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の7ファイル。仕様書は§10.2だけを書き直し、改訂版の番号と§15は変えていない。依存パッケージの追加、Rustの変更、ブランチ名の変更、コミット、push、PR作成は行わず、変更を未コミットで残す。
+
+既存の検索パネルをfindPanel.tsへ移し、大文字小文字の区別、正規表現、置換欄の切り替えを追加した。初期値は文字どおりの検索、大文字小文字を区別、正規表現はオフ。件数、前後への移動、EnterとShift＋Enter、Escapeを保った。不正な正規表現は「正規表現が正しくありません」と入力欄のエラー表示で伝える。空の一致から前後へ移る時は、同じ位置を選び直さない。
+
+置換はCodeMirrorのreplaceNextとreplaceAllを使い、グループ参照もSearchQueryの規則に従う。置換欄のEnterは選択中の一致を1件変更し、Cmd＋Enterは全置換する。全置換は1トランザクションで、直前と直後の入力からUndoを分ける。全置換後は「N件を置換しました」と表示する。読み取り専用、ファイル処理中、保存中、Previewは置換を無効にし、検索を残す。App.svelteには保存中の状態を渡す1行を追加した。Markdownとplainの両方で動き、IME変換中はキー操作と検索条件の更新を保留する。
+
+判断した点は、置換欄の入口を「置換欄」の切り替えボタンにしたこと。Cmd＋Option＋Fの割り当ては追加していない。一致を選んでいない時の「置換」はCodeMirrorに合わせて次の一致を選び、次の操作でその一致を変更する。正規表現の検索エンジンとグループ参照を自作せず、既存の依存パッケージを使った。CodeMirrorの文字列カーソルで正規化により位置が厳密でない一致は、全置換の件数から除く。
+
+追加したNodeテスト13件で、初期値、大文字小文字、文字どおりの記号とバックスラッシュ、件数と前後の移動、不正な式と空の検索、正規表現のグループ参照、単発と全件の置換、UndoとRedo、前後の入力とUndoの分離、読み取り専用と置換の無効状態、IME、本文を読み直した直後の無効状態、空の一致、未選択のカーソル位置からの検索、重なる一致、plainの状態を確認した。npm run checkは0エラー・0警告、npm testは104件、src-tauriでのcargo testは17件が成功し、npm run buildも成功した。既存の500kB超チャンク警告は残る。
+
+OrcaのWeb確認ページに実際のEditor.svelteと共通CSSを読み込み、入力イベント、ボタン、合成したキーイベントによる23項目を確認した。検索の切り替え、不正な式、グループ参照、置換欄のEnterとCmd＋Enter、全置換後の件数、UndoとRedo、isComposingとkeyCode 229のEnter抑止、4種類の無効状態と解除、Escape、空の一致、plainでの全置換、Tab順の要素を確認した。ライトとダークの幅1120pxではパネルの高さは92pxで、置換欄を開いても本文を表示できた。入力欄とボタンの並び、枠、押された状態を画面画像で確認した。確認用のページ、結果JSON、画像は/private/tmp/nagori-search-replace-qaにある。
+
+日本語の変更文書3ファイルをyomiyasu_lint.pyで確認した。指摘は見直し候補として扱い、既存の文体や必要な専門用語を残した。実際の日本語IME、Nagori本体でのTabとCmd＋Z、保存と再読み込み、目次や右クリックメニュー、画像の貼り付けとの併用は未確認。Orcaのkeypressは受理されたがページ側のフォーカス移動を確認できず、実機のキー操作で合格した記録にはしていない。[QA項目1a](mac-qa-checklist.md#項目1a-ファイル内の検索と置換)に手順を追加した。
+
 ## 複数段落の装飾（2026-10-06、feature/multi-paragraph-format）
 
 作業前のgit log --oneline -1で、指定された起点454d745を確認した。変更したファイルはsrc/lib/markdown.ts、src/lib/Editor.svelte、tests/editor.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の6ファイル。仕様を改訂版1.12へ上げた。変更は未コミットで残す。
