@@ -82,6 +82,8 @@ pub struct Settings {
     )]
     pub outline_width: u16,
     pub outline_visible: bool,
+    pub focus_mode: bool,
+    pub typewriter_mode: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -94,6 +96,8 @@ impl Default for Settings {
             sidebar_width: 272,
             outline_width: 220,
             outline_visible: true,
+            focus_mode: false,
+            typewriter_mode: false,
         }
     }
 }
@@ -824,6 +828,30 @@ mod tests {
         let legacy: Settings =
             serde_json::from_str(r#"{"theme":"dark","appearanceVersion":1}"#).unwrap();
         assert_eq!(legacy.theme, "dark");
+    }
+
+    #[test]
+    fn settings_writing_modes_default_roundtrip_and_type_check() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(!old.focus_mode && !old.typewriter_mode);
+        for focus in [true, false] {
+            for typewriter in [true, false] {
+                let settings: Settings = serde_json::from_str(&format!(
+                    r#"{{"focusMode":{focus},"typewriterMode":{typewriter}}}"#
+                ))
+                .unwrap();
+                settings.validate().unwrap();
+                let restored: Settings =
+                    serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+                assert_eq!(restored.focus_mode, focus);
+                assert_eq!(restored.typewriter_mode, typewriter);
+            }
+        }
+        for key in ["focusMode", "typewriterMode"] {
+            for value in ["null", "0", "1", r#""false""#, "[]", "{}"] {
+                assert!(serde_json::from_str::<Settings>(&format!(r#"{{"{key}":{value}}}"#)).is_err());
+            }
+        }
     }
 
     #[test]

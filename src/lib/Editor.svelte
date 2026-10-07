@@ -11,6 +11,7 @@
   import { openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { findExtension, findReplaceBlocked } from './findPanel.ts';
   import { restoredScrollTop } from './scrollRestore.ts';
+  import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
@@ -18,9 +19,9 @@
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { clipboardImage } from './image.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -36,6 +37,7 @@
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
   const readOnlyConfig = new Compartment();
+  const focusConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
 
@@ -183,6 +185,7 @@
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
+      focusConfig.of(focusMode(focus, typewriter, plain)),
       // 選択表示は標準のまま保ち、折り返しの上下はカーソルのassocで決める。
       layer({
         above: true, class: 'cm-cursorLayer',
@@ -286,6 +289,7 @@
     }
   });
   $effect(() => { const blocked = readonly || busy || saving || previewOnly; if (view) view.dispatch({ effects: findReplaceBlocked.of(blocked) }); });
+  $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
 
