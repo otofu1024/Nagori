@@ -28,9 +28,10 @@ function selectSource(view: EditorView, position: number) {
 }
 class TextWidget extends WidgetType {
   readonly value: string;
-  constructor(value: string) { super(); this.value = value; }
-  eq(other: TextWidget) { return this.value === other.value; }
-  toDOM() { const span = document.createElement('span'); span.textContent = this.value; span.className = 'nagori-list-marker'; return span; }
+  readonly className: string;
+  constructor(value: string, className = 'nagori-list-marker') { super(); this.value = value; this.className = className; }
+  eq(other: TextWidget) { return this.value === other.value && this.className === other.className; }
+  toDOM() { const span = document.createElement('span'); span.textContent = this.value; span.className = this.className; return span; }
   ignoreEvent() { return false; }
 }
 class TaskWidget extends WidgetType {
@@ -227,7 +228,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       const content = inlineContent(node); mark(content.from, content.to, inlineClasses[node.name], target ? { 'data-href': target, title: `${target}（Cmd＋クリックで開く）` } : undefined);
       if (!active(node)) { hide(node.from, content.from); hide(content.to, node.to); }
       if (node.name === 'InlineCode') {
-        if (!active(node)) ranges.push(Decoration.replace({ widget: new TextWidget(codeDisplay(text.slice(content.from, content.to))) }).range(content.from, content.to));
+        if (!active(node)) ranges.push(Decoration.replace({ widget: new TextWidget(codeDisplay(text.slice(content.from, content.to)), inlineClasses[node.name]) }).range(content.from, content.to));
         return false;
       }
     }
