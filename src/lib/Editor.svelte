@@ -39,6 +39,7 @@
   let pendingLink: FormatPlan | undefined;
   let menuRevision = 0;
   let composition = false, revision = 0, pendingRevision = -1;
+  let pendingFindBlocked: boolean | undefined;
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
   const readOnlyConfig = new Compartment();
@@ -148,10 +149,13 @@
     composition = active; toolbar = null;
     if (active) onComposition(true);
     const editor = view;
-    // CodeMirror queues its final DOM flush first. Rebuild preview and resume saves only after that flush.
+    if (active) return;
+    // CodeMirrorが最後のDOM変更を取り込んでから、装飾と保存を再開する。
     queueMicrotask(() => {
       if (!editor || view !== editor || composition !== active) return;
-      editor.dispatch({ effects: compositionMode.of(active) });
+      const effects = [compositionMode.of(active)];
+      if (!active && pendingFindBlocked !== undefined) { effects.push(findReplaceBlocked.of(pendingFindBlocked)); pendingFindBlocked = undefined; }
+      editor.dispatch({ effects });
       if (!active) { onComposition(false); updateToolbar(); }
     });
   }
@@ -180,6 +184,7 @@
     return true;
   }
   function createState(text: string) {
+    let compositionDeletion: { from: number; to: number } | undefined;
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
       imageDrop({ state: () => ({ plain, readonly, busy, saving, previewOnly, composing: composition, saved: !!onDropImages }), importImages: images => onDropImages?.(images) ?? Promise.resolve(null), notify: reason => onImageError?.(reason) }),
@@ -189,8 +194,8 @@
         above: true, class: 'cm-cursorLayer',
         markers: editor => {
           const range = editor.state.selection.main;
-          if (!editor.hasFocus || !range.empty || editor.state.readOnly || !editor.state.facet(EditorView.editable) || composition || editor.composing) return [];
-          return RectangleMarker.forRange(editor, 'cm-cursor cm-cursor-primary', range);
+          if (!editor.hasFocus || (!range.empty && !composition && !editor.composing) || editor.state.readOnly || !editor.state.facet(EditorView.editable)) return [];
+          return RectangleMarker.forRange(editor, 'cm-cursor cm-cursor-primary', composition || editor.composing ? EditorSelection.cursor(range.head, range.assoc) : range);
         },
         update: (update, dom) => {
           if (update.docChanged || update.selectionSet || update.focusChanged || update.transactions.some(tr => tr.effects.some(e => e.is(compositionMode)))) {
@@ -206,9 +211,26 @@
         codeHighlighting,
         livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
       ]),
+      // 変換開始だけのdispatchで未確定文字のDOMを作り直さない。
+      EditorState.transactionExtender.of(() => composition ? { effects: compositionMode.of(true) } : null),
+      EditorView.domEventObservers({ beforeinput(event, editor) {
+        compositionDeletion = undefined;
+        const range = event.inputType === 'deleteCompositionText' ? event.getTargetRanges()[0] : undefined;
+        if (range && editor.contentDOM.contains(range.startContainer) && editor.contentDOM.contains(range.endContainer)) {
+          compositionDeletion = { from: editor.posAtDOM(range.startContainer, range.startOffset), to: editor.posAtDOM(range.endContainer, range.endOffset) };
+        }
+      } }),
+      EditorView.inputHandler.of((editor, from, to, text, insert) => {
+        const range = compositionDeletion; compositionDeletion = undefined;
+        // 同じ語が続く太字では、文節の選択だけを削除と誤認するため、WebKitの削除範囲を使う。
+        if (!range || text || range.from >= range.to || range.to > editor.state.doc.length || (range.from === from && range.to === to)) return false;
+        const tr = insert();
+        editor.dispatch({ changes: range, selection: tr.selection, userEvent: tr.annotation(Transaction.userEvent), scrollIntoView: tr.scrollIntoView });
+        return true;
+      }),
       findExtension(() => composition, readonly || busy || saving || previewOnly),
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
-      EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false', class: composition ? 'nagori-composing' : '' })),
+      EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       Prec.highest(keymap.of([
         { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
         { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
@@ -290,7 +312,13 @@
       editor.requestMeasure({ read: () => 0, write: restore });
     }
   });
-  $effect(() => { const blocked = readonly || busy || saving || previewOnly; if (view) view.dispatch({ effects: findReplaceBlocked.of(blocked) }); });
+  $effect(() => {
+    const blocked = readonly || busy || saving || previewOnly;
+    if (!view) return;
+    // 保存の完了が変換と重なっても、未確定文字と文節の選択を触らない。
+    if (composition || view.compositionStarted) pendingFindBlocked = blocked;
+    else view.dispatch({ effects: findReplaceBlocked.of(blocked) });
+  });
   $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
@@ -324,8 +352,6 @@
   /* WebKitで短い本文の予約幅が標準の幅へ戻らないよう、透明なスクロールバーの8pxを常に確保する。 */
   .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: transparent; }
   .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
-  /* 変換中は標準のキャレットを使い、変換範囲の表示を妨げない。 */
-  .editor-host :global(.cm-content.nagori-composing) { caret-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* テキストファイルは等幅で、行間を詰めて表示する */
   .plain .editor-host :global(.cm-scroller) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; }

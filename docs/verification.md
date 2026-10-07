@@ -1,8 +1,28 @@
 # Nagori MVP 検証状況
 
-更新：2026-10-07。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
+更新：2026-10-08。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
+
+## 日本語入力の位置ずれとカーソルの高さ（2026-10-08、feature/ime-caret）
+
+段落の途中で変換すると別の位置へ入力される問題、未確定文字を全部消した後の位置ずれ、太字の内側で確定すると文字が重なる問題を直した。変換中のカーソルも文字の高さで描く。起点はcafb444で、変更は未コミットで残した。依存追加、Rustの変更、ブランチ名の変更、コミット、push、PR作成は行っていない。
+
+保存状態と変換が重なる問題は、Editor.svelteから送るfindReplaceBlockedのdispatchが原因だった。保存状態を変換中に切り替える18場面では、cafb444の比較版が0/18、保存状態のdispatchだけを外した比較版が18/18だった。2026-10-07の変更前の13d19abも18/18で、この追加処理による不具合と確認した。13d19abの比較用Editorは、importのパスだけを置き換えたものと一致する。結果は/private/tmp/nagori-ime-qaのbase-race.json、no-save-race.json、old-race.jsonにある。修正後は最後の保存状態を保留し、変換が終わった時に反映する。
+
+字下げと途中の太字がある段落で、未確定文字を空にした後に入力位置が戻る問題は、変換開始直後に送るcompositionModeのdispatchで再現した。これは13d19abにもある。変換状態を本文のトランザクションへまとめ、開始だけのdispatchを削った。修正後のコードへ開始のdispatchだけを戻すと5位置中4位置で再発した。終了を従来のmicrotaskへ戻した比較版は5位置すべて成功したため、終了の待機方法は変えていない。比較結果はstart-dispatch.jsonとend-microtask.jsonにある。
+
+太字の重複では、WebKitがbeforeinputで位置45〜48の3文字を削除すると通知していた。CodeMirrorは、同じ語が直後に続き、最後の文節だけを選んでいる時に位置47〜48の1文字削除として取り込み、2文字を残した。保存状態を切り替えなくても再現し、13d19abの比較版でも重複した。deleteCompositionTextの削除範囲が食い違う時だけ、CodeMirrorのinputHandlerからWebKitの範囲を使う。通常入力と貼り付けは既存の処理へ渡す。修正前の詳細は/private/tmp/nagori-ime-check-resume1/results.jsonにあり、太字の確定・取り消し・unmarkに関わる5項目が失敗していた。修正後はすべて成功した。
+
+カーソルが上の行まで伸びる原因は、変換中に自前の線を隠し、行高の標準カーソルを見せていたことだった。標準カーソルを常に透明にし、変換中もCodeMirrorのlayerで選択の末尾に線を描く。本文19px、行高36.1px、850×650のWKWebViewで、修正前の画像はx=555〜556、y=263〜332の70画素だった。倍率2では高さ35pxにあたる。修正後のDOM座標では線がleft=203.40625、top=75、bottom=97で、高さ22pxになった。文字のtop=75、bottom=97と一致する。修正前の画像は/private/tmp/nagori-ime-qa/base-focused-window.png、修正後は/private/tmp/nagori-ime-check-final/view.pngにある。最終のOSウィンドウ画像は全体が黒いため、正常に撮れたWKWebViewのview.pngで表示を確認した。未確定文字の下線を画像で確認し、点滅と移動直後の点灯も自動確認した。
+
+確認の仕組みはtests/ime-wkwebviewに置いた。macOS 26.6.2の本物のWKWebViewへsetMarkedText、insertText、unmarkTextを送り、普通の段落、太字、リンク、見出し、plain、集中モードとタイプライター表示を試す。保存状態の切り替え、文節移動、確定、取り消し、全部削除した後の再入力、繰り返す文字と句読点、再変換、通常入力、貼り付け、UndoとRedoを含む223項目が成功し、JavaScriptのエラーはなかった。結果、座標、DOM、view.png、window.pngは/private/tmp/nagori-ime-check-finalにある。NSTextInputClientのdeleteBackwardだけでは、最初の呼び出しで文字を消さず変換を終えるため、IMEで短くした未確定文字をsetMarkedTextへ渡す形でBackspaceを再現する。
+
+npm run checkは0エラー・0警告、npm testは145件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存のCodeMirror言語定義の動的importと500kB超チャンクの警告は残る。ログは/private/tmp/nagori-ime-check-finalのcheck.log、node-test.log、cargo-test.log、build.logにある。変更したファイルはsrc/lib/Editor.svelte、tests/ime-wkwebviewの4ファイル、docs/specification.md、docs/mac-qa-checklist.md、この文書の8ファイル。仕様書は§7.3の変換中のカーソルの決まりを更新し、改訂版を1.14にした。
+
+日本語の変更文書3ファイルをyomiyasu_lint.pyで確認した。指摘は既存の箇条書き、用語、意味のある否定対比に限られ、今回の追加文にはなかった。必要な記述はそのまま残す。
+
+実際の日本語IMEの候補ウィンドウ、物理キーによる候補選択と再変換、Nagori本体の保存との併用は未確認。一時WKWebViewの保存は確認用の500msタイマーで行う。Floating Toolbar、右クリックメニュー、目次、Preview、検索・置換、リスト・表、画像との併用は既存テストが通った範囲にとどまり、今回の実機操作では再確認していない。[QA項目3a](mac-qa-checklist.md#項目3a-段落途中の変換とカーソルの高さ)に実機での手順を追加した。
 
 ## ファイル内の検索と置換（2026-10-07、feature/search-replace）
 
