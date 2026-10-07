@@ -13,13 +13,12 @@
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
   import FileTree from './lib/FileTree.svelte';
+  import RecentFiles from './lib/RecentFiles.svelte';
   import ProblemDialog from './lib/ProblemDialog.svelte';
   import SaveAsDialog from './lib/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
   import nagoriWordmark from './lib/assets/nagori-wordmark.png';
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
-  import sidebarCardLight from './lib/assets/sidebar-card-light.png';
-  import sidebarCardDark from './lib/assets/sidebar-card-dark.png';
   import type { EditorApi, EditorContextMenu } from './lib/editor';
   import type { BlockKind } from './lib/blockEdit';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
@@ -990,6 +989,15 @@
         >
       </div>
     </div>
+    {#if project && settings.recentFiles.length}
+      <RecentFiles
+        recent={settings.recentFiles}
+        entries={[...index, ...Object.values(tree).flat(), ...(current ? [current] : [])]}
+        current={current?.path}
+        {busy}
+        onSelect={(entry) => void selectEntry(entry)}
+      />
+    {/if}
     <FileTree
       {project}
       {rows}
@@ -1023,12 +1031,6 @@
           /></label
         >
       </details>
-      <!-- アプリアイコンの波とNを描いたカード。絵は飾りなので読み上げ対象にしない -->
-      <div class="sidebar-card">
-        <img class="sidebar-card-art sidebar-card-light" src={sidebarCardLight} alt="" width="264" height="336" />
-        <img class="sidebar-card-art sidebar-card-dark" src={sidebarCardDark} alt="" width="264" height="336" />
-        <p>A calmer space<br />for your ideas.</p>
-      </div>
     </div>
   </aside>
   {#if sidebarVisible && settingsLoaded}

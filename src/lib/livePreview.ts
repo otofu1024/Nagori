@@ -233,6 +233,11 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
     }
     if (/^(?:ATXHeading|SetextHeading)/.test(node.name)) {
       const level = Number(node.name.at(-1)); line(node.from, `nagori-heading nagori-h${level}`);
+      if (level <= 3) {
+        const last = state.doc.lineAt(node.to);
+        const rule = node.name.startsWith('Setext') && !active(node) ? state.doc.line(last.number - 1) : last;
+        line(rule.from, 'nagori-heading-rule');
+      }
       if (!active(node)) for (const part of children(node).filter(n => n.name === 'HeaderMark')) {
         if (node.name.startsWith('Setext')) {
           const underline = state.doc.lineAt(part.from); hide(Math.max(node.from, underline.from - 1), underline.to);

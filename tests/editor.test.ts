@@ -24,6 +24,21 @@ function decorationRanges(state: EditorState, rendered = false) {
   for (const set of sets) if (typeof set !== 'function') set.between(0, state.doc.length, (from, to, value) => { result.push({ from, to, spec: value.spec }); });
   return result;
 }
+test('見出し1〜3だけに線を付け、Setextでは最後に表示する行へ付ける', () => {
+  const text = '# 一\n\n## 二\n\n### 三\n\n#### 四\n\n##### 五\n\n###### 六\n\n七\n八\n===\n\n九\n---\n\n本文';
+  const rules = (state: EditorState) => decorationRanges(state).filter(range => range.spec.class === 'nagori-heading-rule').map(range => range.from);
+  const expected = ['# 一', '## 二', '### 三', '八', '九'].map(part => text.indexOf(part));
+  let state = editor(text);
+  assert.deepEqual(rules(state), expected);
+  for (const part of ['七', '八', '===']) {
+    state = state.update({ selection: { anchor: text.indexOf(part) } }).state;
+    assert.deepEqual(rules(state), [expected[0], expected[1], expected[2], text.indexOf('==='), expected[4]]);
+  }
+  state = state.update({ effects: previewOnlyMode.of(true) }).state;
+  assert.deepEqual(rules(state), expected);
+  assert.equal(state.doc.toString(), text);
+  assert.equal(undo({ state, dispatch: () => {} }), false);
+});
 test('front matter including empty block stays source while following Markdown parses', () => {
   for (const text of ['---\n---\n\n**ok**', '---\ntitle: **source**\n---\n\n**ok**']) {
     assert.ok(frontMatter(text));
