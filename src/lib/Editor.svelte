@@ -18,13 +18,16 @@
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { clipboardImage } from './image.ts';
+  import { imageDrop } from './imageDrop.ts';
+  import { codeLanguage, codeHighlighting } from './codeLanguages.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
     initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
+    onDropImages?: (images: File[]) => Promise<string | null>; onImageError?: (reason: string) => void;
   } = $props();
   let host: HTMLDivElement;
   let root: HTMLDivElement;
@@ -185,6 +188,7 @@
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
+      imageDrop({ state: () => ({ plain, readonly, busy, saving, previewOnly, composing: composition, saved: !!onDropImages }), importImages: images => onDropImages?.(images) ?? Promise.resolve(null), notify: reason => onImageError?.(reason) }),
       focusConfig.of(focusMode(focus, typewriter, plain)),
       // 選択表示は標準のまま保ち、折り返しの上下はカーソルのassocで決める。
       layer({
@@ -204,7 +208,8 @@
       }),
       // テキストファイルはMarkdownとして解釈せず、Live Previewも付けない
       ...(plain ? [] : [
-        markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
+        markdown({ base: commonmarkLanguage, extensions: markdownExtensions, codeLanguages: codeLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
+        codeHighlighting,
         livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
       ]),
       findExtension(() => composition, readonly || busy || saving || previewOnly),

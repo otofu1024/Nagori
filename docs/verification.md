@@ -40,6 +40,59 @@ npm run checkは0エラー・0警告、npm testは98件、src-tauriでのcargo t
 
 判断した点は、plainの集中モードを無効にすること、引用全体を1ブロックとすること、入れ子のリストは内側の項目を優先すること。Nagori本体でのネイティブメニューと実際のキー入力、再起動による設定の復元、日本語IMEの候補選択、OSの右クリックメニュー、保存と画像貼り付けを併用した操作は未確認。[QA項目6h](mac-qa-checklist.md#項目6h-集中モードとタイプライター表示)に手順を追加した。
 
+## 画像のドロップとコードの色分け（2026-10-07、feature/image-drop-highlight）
+
+追加修正ではApp.svelteのwindow全体でファイルのdragoverとdropの標準動作を止め、エディタ外では取り込まず何もしないようにした。追加テストでFilesを含むイベントのdefaultPreventedと、文字列の標準動作・イベントの伝播を確認した。型チェックは0エラー・0警告、Nodeテスト99件とビルドは成功し、Finderから各領域への実機ドロップはQA項目6a追加の手順9に残した。
+
+起点はgit log --oneline -1で13d19abを確認した。変更は未コミットで残す。仕様の改訂番号と§15は変更していない。
+
+変更したファイルはsrc/lib/imageDrop.ts、src/lib/codeLanguages.ts、src/lib/Editor.svelte、src/App.svelte、src/app.css、src-tauri/tauri.conf.json、package.json、package-lock.json、tests/image-drop.test.ts、tests/code-languages.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の13ファイル。Editor.svelteへの変更は拡張の登録とプロパティに限り、App.svelteには取り込みの入口を追加した。Rustのコマンドは追加していない。
+
+画像はWebのDataTransfer.filesからバイト列を読み、既存のimage_pasteへ渡す方式とした。TauriのdragDropEnabledをfalseにしてWebのドロップへ渡す。ファイルパスを読むコマンドや権限は増やしていない。貼り付けと同じpasted-imageの命名、番号付きの重複回避、相対パスの記法、画像の検証、20MiB・1,600万画素の上限、プロジェクト内への書き込みを再利用する。[Tauriのドロップ設定](https://v2.tauri.app/reference/config/#dragdropenabled)も確認した。
+
+複数画像は全件の形式とサイズを確認してから順にコピーする。画像以外が混じる場合は全体を拒否する方針を選んだ。記法を改行で区切ってドロップ位置へ1回で挿入し、直前の入力と履歴を分けるためCmd＋Zで全体が戻る。失敗、保存前、読み取り専用、Preview、保存中、ファイル処理中、IME変換中、plainモードでは取り込まず通知する。コピー途中の失敗では本文を変えず、複製済みの画像は残す。コピー後に記事や本文、変換状態が変わった時も挿入しない。文字列はCodeMirrorの通常のドロップを使う。
+
+色分けは対象言語に絞ったLanguageDescriptionの一覧を使う。各定義を動的importで読み込み、未知の言語を曖昧な部分一致で選ばない。JavaScriptとTypeScript、Java・C・C++はそれぞれ同じパッケージを再利用する。CSSではコード行の内部だけにテーマの色を付ける。Inline Code、plainモード、背景、等幅フォント、余白は変更しない。[CodeMirrorの言語と色分けのAPI](https://codemirror.net/docs/ref/)に従う。
+
+追加した直接依存はlang-javascript 6.2.5、lang-json 6.0.2、lang-css 6.3.1、lang-html 6.4.12、lang-python 6.2.1、lang-rust 6.0.2、lang-sql 6.10.0、lang-yaml 6.1.3、legacy-modes 6.5.4。いずれも@codemirror配下で、許可されたパッケージのみ。JavaScript・CSS・HTMLは起点でも間接依存として入っていた。lockfileで新しく増えたパッケージは次のとおり。
+
+@codemirror/lang-json 6.0.2、@codemirror/lang-python 6.2.1、@codemirror/lang-rust 6.0.2、@codemirror/lang-sql 6.10.0、@codemirror/lang-yaml 6.1.3、@codemirror/legacy-modes 6.5.4、@lezer/json 1.0.3、@lezer/python 1.1.19、@lezer/rust 1.0.3、@lezer/yaml 1.0.4。
+
+HTML・JavaScript・CSSは既存のlang-markdownの静的依存から分離されない。コーディネーターの了承を得て既存の初期チャンクを再利用した。ビルドには、この3言語の動的importが効かないという警告が出る。500kB超のMathJaxの警告も残る。追加した各言語の定義は別チャンクで、Java・C・C++はclikeを共有する。
+
+同じ依存環境で起点をビルドし、生成したJavaScriptを比較した。表の単位はbyteで、gzipはNodeのgzipSyncの既定設定で生成ファイルを圧縮した実測値。indexだけでなく静的importで初期に読み込む共通チャンクも数えた。
+
+| 対象 | 初期に読み込むチャンク | raw | gzip |
+| --- | --- | ---: | ---: |
+| 起点13d19ab | `index-BTJKOOgv.js` | 660,407 | 227,227 |
+| 変更後 | `index-DICp_4zT.js` | 371,000 | 135,238 |
+| 変更後 | `dist-C5buD2pf.js` | 300,050 | 96,060 |
+| 変更後 | `dist-DW05D6Sb.js` | 8,442 | 3,560 |
+
+起点の初期JavaScript合計は660,407byte、gzip 227,227byte。変更後は679,492byte、gzip 234,858byteで、rawは19,085byte、gzipは7,631byte増えた。新しい言語の定義は初期読込に入らないが、色分けとStreamLanguageの共通処理、ドロップ処理、一覧の登録コードが増えている。言語定義を別ファイルへ移しても共通処理は初期チャンクに残ったため、ファイルを増やす案は採用しなかった。
+
+| 言語 | 遅延読み込みのチャンク | raw | gzip |
+| --- | --- | ---: | ---: |
+| Python | `dist-8gLk_9H8.js` | 44,545 | 19,040 |
+| Rust | `dist-BFGYvV_g.js` | 83,646 | 30,315 |
+| JSON | `dist-Zb2goFCx.js` | 1,959 | 1,245 |
+| YAML | `dist-KqgzMatl.js` | 11,529 | 5,138 |
+| SQL | `dist-C3eDOiHT.js` | 15,804 | 6,909 |
+| Shell | `shell-DwuoZtxw.js` | 2,434 | 1,198 |
+| TOML | `toml-BPTmHmyx.js` | 1,045 | 529 |
+| Swift | `swift-DKB6_1j6.js` | 3,762 | 1,814 |
+| Go | `go-zaFg-XIf.js` | 2,757 | 1,297 |
+| Java・C・C++ | `clike-KOqmMNJE.js` | 21,967 | 7,687 |
+| Diff | `diff-ChtP43wD.js` | 302 | 234 |
+
+Nodeテストを7件追加した。取り込み禁止状態の理由、形式と上限、コピー前の全件検査、複数画像の順序と改行、1回のUndo、途中の失敗、言語名と別名の判定、初期未読込、17種類の定義の読込とフェンス解析、未知の言語を確認した。npm run checkは0エラー・0警告、npm testは98件、src-tauriのcargo testは17件が成功した。npm run buildも成功した。
+
+日本語文書3ファイルをyomiyasuのリンターで確認した。既存の箇条書きの比率、文末コロン、意味のある否定表現の指摘は残し、担当外の節は変更していない。今回追加した文章には指摘がなかった。
+
+OrcaのWeb版確認ページで20項目を確認した。合成したファイルドロップの位置と順序、1回のUndo・Redo、plain・読み取り専用・保存中・処理中・Preview・保存前・合成IMEでの拒否と理由、文字列の通常ドロップ、dropCursorの表示と撤去、ライトとダークのコード色、Inline Codeと未知の言語の無着色、Previewでの色分けが成功した。表示された画面でもコードの背景と余白を保ったまま色が付くことを確認した。確認ページの画像コピーはモックで、実ファイルへのコピーは既存のRustテストで確認した。
+
+Nagori本体へのFinderドロップ、実際の日本語IME、ドロップ後の保存と再読み込み、右クリックメニューと目次の併用は未確認。QA項目6a追加に手順を残した。確認用ファイル、画面画像、結果JSON、起点のビルドとサイズ一覧は、このworktreeのnode_modules/.cache/nagori-image-qaにある。確認サーバーの停止後は、このディレクトリを削除してよい。
+
 ## 複数段落の装飾（2026-10-06、feature/multi-paragraph-format）
 
 作業前のgit log --oneline -1で、指定された起点454d745を確認した。変更したファイルはsrc/lib/markdown.ts、src/lib/Editor.svelte、tests/editor.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の6ファイル。仕様を改訂版1.12へ上げた。変更は未コミットで残す。

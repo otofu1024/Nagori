@@ -26,6 +26,7 @@
   import { AppFlow } from './lib/appFlow';
   import { containsPath, renamedPath, parentPath, localLink, type Entry, type Naming } from './lib/navigation';
   import { imageMime } from './lib/image';
+  import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/imageDrop';
 
   import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
   type OpenRequest = { workspace: string; path: string | null };
@@ -650,6 +651,18 @@
       await refreshTree();
     }, false);
   }
+  async function dropImages(images: File[]): Promise<string | null> {
+    const target = session;
+    const reason = imageDropReason({ plain: current?.kind !== 'markdown', readonly, busy, saving: target?.isSaving ?? false, composing, previewOnly, saved: !!target?.path });
+    if (reason) { notify(reason); return null; }
+    let markdown: string | null = null;
+    await operation(async () => {
+      markdown = await importDroppedImages(images, bytes => invoke<{ markdown: string }>('image_paste', bytes, { headers: { 'x-document-path': encodeURIComponent(target!.path) } }));
+      await refreshTree();
+    }, false);
+    await tick();
+    return session === target ? markdown : null;
+  }
   async function link(href: string) {
     try {
       if (/^https?:\/\//i.test(href)) {
@@ -920,7 +933,7 @@
   });
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydown={keydown} ondragover={preventFileNavigation} ondrop={preventFileNavigation} />
 <div
   class="app-shell"
   class:working={busy}
@@ -1103,6 +1116,8 @@
               onLink={(href) => void link(href)}
               onContextMenu={(context) => void editorContextMenu(context)}
               onPasteImage={plain ? undefined : (image) => void pasteImage(image)}
+              onDropImages={dropImages}
+              onImageError={notify}
               {resolveImage}
               onReady={(api) => (editor = api)}
               onOutline={(headings) => (outline = headings)}
