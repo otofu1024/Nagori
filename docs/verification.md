@@ -1,8 +1,28 @@
 # Nagori MVP 検証状況
 
-更新：2026-10-06。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
+更新：2026-10-07。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
+
+## 集中モードとタイプライター表示（2026-10-07、feature/focus-mode）
+
+作業前のgit log --oneline -1で指定された起点13d19abを確認した。変更したファイルはsrc/lib/focusMode.ts、src/lib/Editor.svelte、src/App.svelte、src/lib/settings.ts、src-tauri/src/files.rs、src-tauri/src/lib.rs、tests/focus-mode.test.ts、tests/settings.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の11ファイル。仕様は§13の本文だけを書き足し、改訂版の番号と§15は変えていない。変更は未コミットで残す。
+
+集中モードは、既存の構文木で選択の両端のブロックを調べる。段落、見出し、リスト項目、引用、コード、表、数式ブロックを扱い、選択が触れるブロックを通常の濃さで保つ。ほかの行とWidgetの不透明度は0.5にした。画像とInline Mathは親の行と一緒に薄くし、表と数式のブロックWidgetには画面内のDOMだけを調べて同じ濃さを付ける。行にはCodeMirrorの行装飾を使い、Active LineやLive Previewの装飾と両立させる。同じブロック内の移動では行装飾を作り直さない。本文全体の文字列化や独自の全文解析は追加していない。
+
+タイプライター表示は、入力・削除・Undo・Redoとキーによる選択移動の後にカーソルを中央へ寄せる。CodeMirrorのscrollHandlerで通常の追従を受け取り、requestMeasureで座標を読んでから縦のスクロール位置を変える。クリック・ドロップ・検索の選択移動と、目次の上端への移動は中央へ寄せない。ホイールとスクロールバーを触った時は待機中の追従も取り消す。IME変換中は追従と装飾の作り直しを止め、入力による位置のずれだけを装飾に反映する。末尾の余白は既存の半画面分を使い、先頭付近はスクロール位置0で止める。
+
+2つの切り替えは表示メニューに置き、focusModeとtypewriterModeを設定に保存する。旧設定で欠けた項目はTypeScriptとRustの両方でオフになり、Rustでは真偽値以外を受け付けない。IME変換中の切り替えはAppの共通処理で止める。plainモードでは集中モードを無効にし、タイプライター表示を使えるようにした。両方オフならCompartmentから拡張を外す。Editor.svelteへの変更はpropsとCompartmentへの登録・再設定に限った。
+
+キーは集中モードをMod+Shift+J、タイプライター表示をMod+Shift+Tにした。NagoriのメニューとEditor、CodeMirrorのdefaultKeymap・historyKeymap・searchKeymapに同じ割り当てがないことを確認した。[AppleのMacキーボードショートカット](https://support.apple.com/en-us/102650)ではControl+Command+Fを全画面に割り当てているため避けた。Command+Shift+TはFinder内でタブバーの切り替えに使うが、Nagoriにはタブ機能がなく、OS全体の操作とは重複しない。利用者が変更したシステムの割り当てや、外部アプリが登録するキーは未確認。
+
+追加したNodeテスト7件で、ブロックの境界、インデント付きコード、入れ子のリスト、複数ブロックの選択、追従する操作の判定、中央位置の計算、拡張の撤去、plainモード、キーの重複、100KiBを超える文書での行装飾の再利用、IMEと手動スクロール、設定の独立した保存・復元を確認した。座標をrequestMeasureのread内で読むことも検査する。Rustに1件追加し、旧設定の初期値、全4通りの保存・復元、不正な型の拒否を確認した。
+
+macOSの一時WKWebViewにEditor.svelteと共通CSSを読み込み、ライトとダークで集中するブロックの濃さ、同じブロック内の移動、複数ブロックの選択、Live Previewの画像・表・数式、Preview、拡張を外した後の表示を確認した。タイプライター表示では中央への移動、入力後の復帰、Undo、クリック、先頭、末尾、変換状態、plainモード、両方オン、折り返し、ホイールを確認した。118598バイトの文書で20回カーソルを移した時は、画面のDOMは46ブロックにとどまった。確認ページの57項目はすべて成功し、JavaScriptのエラーはなかった。一時ページ、結果JSON、ライト・ダークの画像は/private/tmp/nagori-focus-qaにある。
+
+npm run checkは0エラー・0警告、npm testは98件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存の500kB超チャンク警告は残る。日本語文書3ファイルをyomiyasuのリンターで確認した。依存追加、ブランチ名の変更、コミット、push、PR作成は行っていない。
+
+判断した点は、plainの集中モードを無効にすること、引用全体を1ブロックとすること、入れ子のリストは内側の項目を優先すること。Nagori本体でのネイティブメニューと実際のキー入力、再起動による設定の復元、日本語IMEの候補選択、OSの右クリックメニュー、保存と画像貼り付けを併用した操作は未確認。[QA項目6h](mac-qa-checklist.md#項目6h-集中モードとタイプライター表示)に手順を追加した。
 
 ## 複数段落の装飾（2026-10-06、feature/multi-paragraph-format）
 

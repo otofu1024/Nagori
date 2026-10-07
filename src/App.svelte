@@ -823,6 +823,11 @@
   function togglePreview() {
     if (!busy && !composing && current?.kind === 'markdown' && session) previewOnly = !previewOnly;
   }
+  function toggleWritingMode(key: 'focusMode' | 'typewriterMode') {
+    if (starting || !settingsLoaded || composing || editor?.isComposing()) return;
+    settings[key] = !settings[key];
+    void persist();
+  }
   function toggleOutline() {
     if (starting || !settingsLoaded) return;
     settings.outlineVisible = !settings.outlineVisible;
@@ -841,6 +846,8 @@
     else if (action === 'find') editor?.find();
     else if (action === 'preview-toggle') togglePreview();
     else if (action === 'outline-toggle') toggleOutline();
+    else if (action === 'focus-toggle') toggleWritingMode('focusMode');
+    else if (action === 'typewriter-toggle') toggleWritingMode('typewriterMode');
     else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
       editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
   }
@@ -1086,6 +1093,8 @@
               {busy}
               {plain}
               previewOnly={previewOnly && !plain}
+              focus={settings.focusMode}
+              typewriter={settings.typewriterMode}
               fontSize={settings.fontSize}
               onChange={changed}
               onComposition={composition}

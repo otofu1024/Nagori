@@ -1,8 +1,8 @@
 import { SIDEBAR, OUTLINE, storedPaneWidth } from './paneWidths.ts';
 export type Theme = 'light' | 'dark';
 // 'system'は初回起動でテーマが未決定であることを表す
-export type Settings = { lastProject: string | null; lastFile: string | null; theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean };
-export const defaults: Settings = { lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true };
+export type Settings = { lastProject: string | null; lastFile: string | null; theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean };
+export const defaults: Settings = { lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false };
 
 export function startupSettings(saved: Partial<Settings>, prefersDark: () => boolean): Settings {
   const settings = { ...defaults, ...saved };
