@@ -1067,23 +1067,7 @@
               disabled={starting || !settingsLoaded}
               onclick={toggleOutline}><Icon name="outline" size={16} /></button
             >{/if}
-          <details class="document-menu">
-            <summary aria-label="記事の操作" title="記事の操作"><Icon name="more" /></summary>
-            <div class="menu-popover">
-              {#if !plain}<button disabled={readonly || previewOnly || busy} onclick={() => void insertImage()}>画像を挿入…</button
-                >{/if}<button onclick={() => editor?.find()}>{plain ? 'ファイル内を検索' : '記事内を検索'} <kbd>⌘ F</kbd></button><button
-                onclick={() => void flush()}>保存 <kbd>⌘ S</kbd></button
-              >
-              {#if !plain}<hr />
-                <button onclick={() => editor?.format('bold')} disabled={readonly || previewOnly || busy}>太字 <kbd>⌘ B</kbd></button
-                ><button onclick={() => editor?.format('italic')} disabled={readonly || previewOnly || busy}>斜体 <kbd>⌘ I</kbd></button
-                ><button onclick={() => editor?.format('strike')} disabled={readonly || previewOnly || busy}>取り消し線</button><button
-                  onclick={() => editor?.format('code')}
-                  disabled={readonly || previewOnly || busy}>インラインコード</button
-                ><button onclick={() => editor?.format('link')} disabled={readonly || previewOnly || busy}>リンク <kbd>⌘ K</kbd></button
-                >{/if}
-            </div>
-          </details>{/if}
+          {/if}
       </div>
     </header>
     <section class="content" aria-label="記事の編集とプレビュー">
