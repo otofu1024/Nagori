@@ -27,6 +27,13 @@
   --shadow: 0 10px 30px #23324f12;
   --radius: 12px;
   --code-bg: #f1f5fa;
+  --syntax-keyword: #85558b;
+  --syntax-string: #477451;
+  --syntax-number: #98642f;
+  --syntax-comment: #738196;
+  --syntax-function: #356d95;
+  --syntax-type: #477b80;
+  --syntax-property: #85683f;
   --surface-soft: var(--code-bg);
   --selection: #b6eeee;
   --link: #007b83;
@@ -54,10 +61,24 @@
   --danger: #ff9bae;
   --shadow: 0 10px 30px #0003;
   --code-bg: #203148;
+  --syntax-keyword: #c49acc;
+  --syntax-string: #a0c6a6;
+  --syntax-number: #d5b185;
+  --syntax-comment: #91a0b6;
+  --syntax-function: #93bddc;
+  --syntax-type: #8dc3c6;
+  --syntax-property: #cfb58d;
   --selection: #235a68;
   --link: #65dfd5;
 }
 * { box-sizing: border-box; }
+.nagori-code-line .nagori-syntax-keyword { color: var(--syntax-keyword); }
+.nagori-code-line .nagori-syntax-string { color: var(--syntax-string); }
+.nagori-code-line .nagori-syntax-number { color: var(--syntax-number); }
+.nagori-code-line .nagori-syntax-comment { color: var(--syntax-comment); }
+.nagori-code-line .nagori-syntax-function { color: var(--syntax-function); }
+.nagori-code-line .nagori-syntax-type { color: var(--syntax-type); }
+.nagori-code-line .nagori-syntax-property { color: var(--syntax-property); }
 body { margin: 0; color: var(--text); background: var(--surface); }
 button, input, select { font: inherit; }
 button {

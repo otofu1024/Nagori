@@ -3,26 +3,33 @@
   import Icon from './Icon.svelte';
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
-  import { EditorView, keymap, highlightActiveLine, layer, RectangleMarker, type Panel } from '@codemirror/view';
+  import { EditorView, keymap, highlightActiveLine, layer, RectangleMarker } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
   import { extractHeadings, currentHeading, type OutlineHeading } from './outline.ts';
-  import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, openSearchPanel, closeSearchPanel } from '@codemirror/search';
+  import { openSearchPanel, closeSearchPanel } from '@codemirror/search';
+  import { findExtension, findReplaceBlocked } from './findPanel.ts';
   import { restoredScrollTop } from './scrollRestore.ts';
+  import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
-  import { clipboardImage } from './image.ts';
+  import { imageDrop } from './imageDrop.ts';
+  import { codeLanguage, codeHighlighting } from './codeLanguages.ts';
+  import { moveList } from './listEdit.ts';
+  import { moveTable } from './tableEdit.ts';
+  import { pasteMarkdown } from './linkPaste.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, plain = false, previewOnly = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; plain?: boolean; previewOnly?: boolean; fontSize?: number;
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
+    onDropImages?: (images: File[]) => Promise<string | null>; onImageError?: (reason: string) => void;
   } = $props();
   let host: HTMLDivElement;
   let root: HTMLDivElement;
@@ -35,6 +42,7 @@
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
   const readOnlyConfig = new Compartment();
+  const focusConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
 
@@ -147,29 +155,6 @@
       if (!active) { onComposition(false); updateToolbar(); }
     });
   }
-  function searchPanel(editor: EditorView): Panel {
-    const dom = document.createElement('div'); dom.className = 'nagori-find';
-    const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'このファイルを検索'; input.setAttribute('aria-label', '検索する文字列'); input.setAttribute('main-field', 'true'); input.value = getSearchQuery(editor.state).search;
-    const count = document.createElement('span'); count.setAttribute('aria-live', 'polite');
-    const button = (label: string, action: () => void) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label', label); b.onclick = action; return b; };
-    const update = () => {
-      const query = getSearchQuery(editor.state); let total = 0, current = 0;
-      if (query.valid) { const cursor = query.getCursor(editor.state.doc); for (let match = cursor.next(); !match.done; match = cursor.next()) { total++; if (match.value.from === editor.state.selection.main.from && match.value.to === editor.state.selection.main.to) current = total; } }
-      count.textContent = `${current} / ${total}`;
-    };
-    input.oninput = () => { editor.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: input.value, literal: true, regexp: false, caseSensitive: true })) }); if (input.value) findNext(editor); update(); };
-    input.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); closeSearchPanel(editor); editor.focus(); } else if (event.key === 'Enter') { event.preventDefault(); (event.shiftKey ? findPrevious : findNext)(editor); } };
-    dom.append(input, count, button('前へ', () => findPrevious(editor)), button('次へ', () => findNext(editor)), button('閉じる', () => { closeSearchPanel(editor); editor.focus(); }));
-    return { dom, top: true, mount: () => { input.focus(); input.select(); update(); }, update };
-  }
-  // 画像だけをコピーしていた時は、標準の貼り付けを止めて画像の取り込みに回す
-  function pasteImage(event: ClipboardEvent, editor: EditorView) {
-    const image = clipboardImage(event.clipboardData);
-    if (!image || !onPasteImage) return false;
-    event.preventDefault();
-    if (!editor.state.readOnly && !composition && !editor.composing) onPasteImage(image);
-    return true;
-  }
   function contextState(): EditorContextState {
     const editable = !!view && !readonly && !busy && !previewOnly && !composition && !view.composing && !linkDialog;
     const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), view.state.selection.main) : { block: false, heading: false };
@@ -197,6 +182,8 @@
   function createState(text: string) {
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
+      imageDrop({ state: () => ({ plain, readonly, busy, saving, previewOnly, composing: composition, saved: !!onDropImages }), importImages: images => onDropImages?.(images) ?? Promise.resolve(null), notify: reason => onImageError?.(reason) }),
+      focusConfig.of(focusMode(focus, typewriter, plain)),
       // 選択表示は標準のまま保ち、折り返しの上下はカーソルのassocで決める。
       layer({
         above: true, class: 'cm-cursorLayer',
@@ -215,21 +202,25 @@
       }),
       // テキストファイルはMarkdownとして解釈せず、Live Previewも付けない
       ...(plain ? [] : [
-        markdown({ base: commonmarkLanguage, extensions: markdownExtensions, completeHTMLTags: false, pasteURLAsLink: false }),
+        markdown({ base: commonmarkLanguage, extensions: markdownExtensions, codeLanguages: codeLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
+        codeHighlighting,
         livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
       ]),
-      search({ literal: true, regexp: false, caseSensitive: true, createPanel: searchPanel }),
+      findExtension(() => composition, readonly || busy || saving || previewOnly),
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false', class: composition ? 'nagori-composing' : '' })),
       Prec.highest(keymap.of([
+        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
+        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
+        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && moveTable(editor, 'down') },
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
         { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
         { key: 'Mod-k', run: () => { if (plain) return false; apply('link'); return true; } },
-        { key: 'Mod-f', run: openSearchPanel },
+        { key: 'Mod-f', run: editor => !composition && !editor.composing && openSearchPanel(editor) },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: pasteImage, compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
+      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
@@ -282,7 +273,7 @@
       },
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
       block: applyBlock, contextState,
-      format: apply, find: () => { if (view) openSearchPanel(view); },
+      format: apply, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
       goToHeading,
     });
@@ -299,6 +290,8 @@
       editor.requestMeasure({ read: () => 0, write: restore });
     }
   });
+  $effect(() => { const blocked = readonly || busy || saving || previewOnly; if (view) view.dispatch({ effects: findReplaceBlocked.of(blocked) }); });
+  $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
 
@@ -366,9 +359,16 @@
   .editor-host :global(.nagori-table-wrap th) { background: var(--code-bg); color: var(--heading); text-align: left; }
   .editor-host :global(.nagori-image) { display: inline-block; max-width: 100%; color: var(--muted); font-size: .9em; cursor: text; }
   .editor-host :global(.nagori-image img) { max-width: 100%; max-height: 480px; display: block; border-radius: 12px; }
-  .editor-host :global(.nagori-find) { display: flex; align-items: center; gap: 8px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 13px; }
-  .editor-host :global(.nagori-find input) { flex: 1; min-width: 100px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); }
+  .editor-host :global(.nagori-find) { display: grid; gap: 6px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 13px; }
+  .editor-host :global(.nagori-find-row) { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .editor-host :global(.nagori-find-row[hidden]) { display: none; }
+  .editor-host :global(.nagori-find-count) { white-space: nowrap; font-size: 12px; }
+  .editor-host :global(.nagori-find input) { flex: 1; min-width: 120px; font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; color: inherit; background: var(--surface); }
   .editor-host :global(.nagori-find button), button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+  .editor-host :global(.nagori-find button[aria-pressed='true']) { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+  .editor-host :global(.nagori-find input[aria-invalid='true']) { border-color: var(--danger); }
+  .editor-host :global(.nagori-find button:disabled) { opacity: .35; cursor: default; }
+  .editor-host :global(.nagori-find button:focus-visible), .editor-host :global(.nagori-find input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .editor-host :global(.cm-panels) { background: var(--bar); color: var(--text); border-color: var(--border); }
   .editor-host :global(.cm-tooltip) { background: var(--panel); border-color: var(--border); color: var(--text); }
   .editor-host :global(.cm-searchMatch) { background: var(--accent-soft); }

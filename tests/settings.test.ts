@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults, startupSettings, nextTheme, type Settings } from '../src/lib/settings.ts';
 
+test('集中モードとタイプライター表示は旧設定でオフになり、独立して保存・復元できる', () => {
+  const { focusMode: _, typewriterMode: __, ...legacy } = defaults;
+  assert.equal(startupSettings(legacy, () => false).focusMode, false);
+  assert.equal(startupSettings(legacy, () => false).typewriterMode, false);
+  for (const focusMode of [false, true]) for (const typewriterMode of [false, true]) {
+    const saved = { ...defaults, theme: 'light' as const, focusMode, typewriterMode };
+    assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
+  }
+});
+
 test('目次は初期状態と旧設定で表示し、保存した表示・非表示を復元する', () => {
   assert.equal(defaults.outlineVisible, true);
   const { outlineVisible: _, ...legacy } = defaults;

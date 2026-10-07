@@ -556,7 +556,22 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         Some("CmdOrCtrl+Shift+L"),
     )?;
     let outline = action("outline-toggle", "目次を表示 / 非表示", None)?;
-    let view = Submenu::with_items(app, "表示", true, &[&preview, &outline])?;
+    let focus = action(
+        "focus-toggle",
+        "集中モードを切り替え",
+        Some("CmdOrCtrl+Shift+J"),
+    )?;
+    let typewriter = action(
+        "typewriter-toggle",
+        "タイプライター表示を切り替え",
+        Some("CmdOrCtrl+Shift+T"),
+    )?;
+    let view = Submenu::with_items(
+        app,
+        "表示",
+        true,
+        &[&preview, &outline, &focus, &typewriter],
+    )?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
 pub fn run() {

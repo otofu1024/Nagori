@@ -1,8 +1,119 @@
 # Nagori MVP 検証状況
 
-更新：2026-10-06。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
+更新：2026-10-07。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
+
+## ファイル内の検索と置換（2026-10-07、feature/search-replace）
+
+最初のgit log --oneline -1で、指定された起点13d19abを確認した。変更ファイルはsrc/lib/findPanel.ts、src/lib/Editor.svelte、src/App.svelte、tests/findPanel.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の7ファイル。仕様書は§10.2だけを書き直し、改訂版の番号と§15は変えていない。依存パッケージの追加、Rustの変更、ブランチ名の変更、コミット、push、PR作成は行わず、変更を未コミットで残す。
+
+既存の検索パネルをfindPanel.tsへ移し、大文字小文字の区別、正規表現、置換欄の切り替えを追加した。初期値は文字どおりの検索、大文字小文字を区別、正規表現はオフ。件数、前後への移動、EnterとShift＋Enter、Escapeを保った。不正な正規表現は「正規表現が正しくありません」と入力欄のエラー表示で伝える。空の一致から前後へ移る時は、同じ位置を選び直さない。
+
+置換はCodeMirrorのreplaceNextとreplaceAllを使い、グループ参照もSearchQueryの規則に従う。置換欄のEnterは選択中の一致を1件変更し、Cmd＋Enterは全置換する。全置換は1トランザクションで、直前と直後の入力からUndoを分ける。全置換後は「N件を置換しました」と表示する。読み取り専用、ファイル処理中、保存中、Previewは置換を無効にし、検索を残す。App.svelteには保存中の状態を渡す1行を追加した。Markdownとplainの両方で動き、IME変換中はキー操作と検索条件の更新を保留する。
+
+判断した点は、置換欄の入口を「置換欄」の切り替えボタンにしたこと。Cmd＋Option＋Fの割り当ては追加していない。一致を選んでいない時の「置換」はCodeMirrorに合わせて次の一致を選び、次の操作でその一致を変更する。正規表現の検索エンジンとグループ参照を自作せず、既存の依存パッケージを使った。CodeMirrorの文字列カーソルで正規化により位置が厳密でない一致は、全置換の件数から除く。
+
+追加したNodeテスト13件で、初期値、大文字小文字、文字どおりの記号とバックスラッシュ、件数と前後の移動、不正な式と空の検索、正規表現のグループ参照、単発と全件の置換、UndoとRedo、前後の入力とUndoの分離、読み取り専用と置換の無効状態、IME、本文を読み直した直後の無効状態、空の一致、未選択のカーソル位置からの検索、重なる一致、plainの状態を確認した。npm run checkは0エラー・0警告、npm testは104件、src-tauriでのcargo testは17件が成功し、npm run buildも成功した。既存の500kB超チャンク警告は残る。
+
+OrcaのWeb確認ページに実際のEditor.svelteと共通CSSを読み込み、入力イベント、ボタン、合成したキーイベントによる23項目を確認した。検索の切り替え、不正な式、グループ参照、置換欄のEnterとCmd＋Enter、全置換後の件数、UndoとRedo、isComposingとkeyCode 229のEnter抑止、4種類の無効状態と解除、Escape、空の一致、plainでの全置換、Tab順の要素を確認した。ライトとダークの幅1120pxではパネルの高さは92pxで、置換欄を開いても本文を表示できた。入力欄とボタンの並び、枠、押された状態を画面画像で確認した。確認用のページ、結果JSON、画像は/private/tmp/nagori-search-replace-qaにある。
+
+日本語の変更文書3ファイルをyomiyasu_lint.pyで確認した。指摘は見直し候補として扱い、既存の文体や必要な専門用語を残した。実際の日本語IME、Nagori本体でのTabとCmd＋Z、保存と再読み込み、目次や右クリックメニュー、画像の貼り付けとの併用は未確認。Orcaのkeypressは受理されたがページ側のフォーカス移動を確認できず、実機のキー操作で合格した記録にはしていない。[QA項目1a](mac-qa-checklist.md#項目1a-ファイル内の検索と置換)に手順を追加した。
+
+## 集中モードとタイプライター表示（2026-10-07、feature/focus-mode）
+
+作業前のgit log --oneline -1で指定された起点13d19abを確認した。変更したファイルはsrc/lib/focusMode.ts、src/lib/Editor.svelte、src/App.svelte、src/lib/settings.ts、src-tauri/src/files.rs、src-tauri/src/lib.rs、tests/focus-mode.test.ts、tests/settings.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の11ファイル。仕様は§13の本文だけを書き足し、改訂版の番号と§15は変えていない。変更は未コミットで残す。
+
+集中モードは、既存の構文木で選択の両端のブロックを調べる。段落、見出し、リスト項目、引用、コード、表、数式ブロックを扱い、選択が触れるブロックを通常の濃さで保つ。ほかの行とWidgetの不透明度は0.5にした。画像とInline Mathは親の行と一緒に薄くし、表と数式のブロックWidgetには画面内のDOMだけを調べて同じ濃さを付ける。行にはCodeMirrorの行装飾を使い、Active LineやLive Previewの装飾と両立させる。同じブロック内の移動では行装飾を作り直さない。本文全体の文字列化や独自の全文解析は追加していない。
+
+タイプライター表示は、入力・削除・Undo・Redoとキーによる選択移動の後にカーソルを中央へ寄せる。CodeMirrorのscrollHandlerで通常の追従を受け取り、requestMeasureで座標を読んでから縦のスクロール位置を変える。クリック・ドロップ・検索の選択移動と、目次の上端への移動は中央へ寄せない。ホイールとスクロールバーを触った時は待機中の追従も取り消す。IME変換中は追従と装飾の作り直しを止め、入力による位置のずれだけを装飾に反映する。末尾の余白は既存の半画面分を使い、先頭付近はスクロール位置0で止める。
+
+2つの切り替えは表示メニューに置き、focusModeとtypewriterModeを設定に保存する。旧設定で欠けた項目はTypeScriptとRustの両方でオフになり、Rustでは真偽値以外を受け付けない。IME変換中の切り替えはAppの共通処理で止める。plainモードでは集中モードを無効にし、タイプライター表示を使えるようにした。両方オフならCompartmentから拡張を外す。Editor.svelteへの変更はpropsとCompartmentへの登録・再設定に限った。
+
+キーは集中モードをMod+Shift+J、タイプライター表示をMod+Shift+Tにした。NagoriのメニューとEditor、CodeMirrorのdefaultKeymap・historyKeymap・searchKeymapに同じ割り当てがないことを確認した。[AppleのMacキーボードショートカット](https://support.apple.com/en-us/102650)ではControl+Command+Fを全画面に割り当てているため避けた。Command+Shift+TはFinder内でタブバーの切り替えに使うが、Nagoriにはタブ機能がなく、OS全体の操作とは重複しない。利用者が変更したシステムの割り当てや、外部アプリが登録するキーは未確認。
+
+追加したNodeテスト7件で、ブロックの境界、インデント付きコード、入れ子のリスト、複数ブロックの選択、追従する操作の判定、中央位置の計算、拡張の撤去、plainモード、キーの重複、100KiBを超える文書での行装飾の再利用、IMEと手動スクロール、設定の独立した保存・復元を確認した。座標をrequestMeasureのread内で読むことも検査する。Rustに1件追加し、旧設定の初期値、全4通りの保存・復元、不正な型の拒否を確認した。
+
+macOSの一時WKWebViewにEditor.svelteと共通CSSを読み込み、ライトとダークで集中するブロックの濃さ、同じブロック内の移動、複数ブロックの選択、Live Previewの画像・表・数式、Preview、拡張を外した後の表示を確認した。タイプライター表示では中央への移動、入力後の復帰、Undo、クリック、先頭、末尾、変換状態、plainモード、両方オン、折り返し、ホイールを確認した。118598バイトの文書で20回カーソルを移した時は、画面のDOMは46ブロックにとどまった。確認ページの57項目はすべて成功し、JavaScriptのエラーはなかった。一時ページ、結果JSON、ライト・ダークの画像は/private/tmp/nagori-focus-qaにある。
+
+npm run checkは0エラー・0警告、npm testは98件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存の500kB超チャンク警告は残る。日本語文書3ファイルをyomiyasuのリンターで確認した。依存追加、ブランチ名の変更、コミット、push、PR作成は行っていない。
+
+判断した点は、plainの集中モードを無効にすること、引用全体を1ブロックとすること、入れ子のリストは内側の項目を優先すること。Nagori本体でのネイティブメニューと実際のキー入力、再起動による設定の復元、日本語IMEの候補選択、OSの右クリックメニュー、保存と画像貼り付けを併用した操作は未確認。[QA項目6h](mac-qa-checklist.md#項目6h-集中モードとタイプライター表示)に手順を追加した。
+
+## 画像のドロップとコードの色分け（2026-10-07、feature/image-drop-highlight）
+
+追加修正ではApp.svelteのwindow全体でファイルのdragoverとdropの標準動作を止め、エディタ外では取り込まず何もしないようにした。追加テストでFilesを含むイベントのdefaultPreventedと、文字列の標準動作・イベントの伝播を確認した。型チェックは0エラー・0警告、Nodeテスト99件とビルドは成功し、Finderから各領域への実機ドロップはQA項目6iの手順9に残した。
+
+起点はgit log --oneline -1で13d19abを確認した。変更は未コミットで残す。仕様の改訂番号と§15は変更していない。
+
+変更したファイルはsrc/lib/imageDrop.ts、src/lib/codeLanguages.ts、src/lib/Editor.svelte、src/App.svelte、src/app.css、src-tauri/tauri.conf.json、package.json、package-lock.json、tests/image-drop.test.ts、tests/code-languages.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書の13ファイル。Editor.svelteへの変更は拡張の登録とプロパティに限り、App.svelteには取り込みの入口を追加した。Rustのコマンドは追加していない。
+
+画像はWebのDataTransfer.filesからバイト列を読み、既存のimage_pasteへ渡す方式とした。TauriのdragDropEnabledをfalseにしてWebのドロップへ渡す。ファイルパスを読むコマンドや権限は増やしていない。貼り付けと同じpasted-imageの命名、番号付きの重複回避、相対パスの記法、画像の検証、20MiB・1,600万画素の上限、プロジェクト内への書き込みを再利用する。[Tauriのドロップ設定](https://v2.tauri.app/reference/config/#dragdropenabled)も確認した。
+
+複数画像は全件の形式とサイズを確認してから順にコピーする。画像以外が混じる場合は全体を拒否する方針を選んだ。記法を改行で区切ってドロップ位置へ1回で挿入し、直前の入力と履歴を分けるためCmd＋Zで全体が戻る。失敗、保存前、読み取り専用、Preview、保存中、ファイル処理中、IME変換中、plainモードでは取り込まず通知する。コピー途中の失敗では本文を変えず、複製済みの画像は残す。コピー後に記事や本文、変換状態が変わった時も挿入しない。文字列はCodeMirrorの通常のドロップを使う。
+
+色分けは対象言語に絞ったLanguageDescriptionの一覧を使う。各定義を動的importで読み込み、未知の言語を曖昧な部分一致で選ばない。JavaScriptとTypeScript、Java・C・C++はそれぞれ同じパッケージを再利用する。CSSではコード行の内部だけにテーマの色を付ける。Inline Code、plainモード、背景、等幅フォント、余白は変更しない。[CodeMirrorの言語と色分けのAPI](https://codemirror.net/docs/ref/)に従う。
+
+追加した直接依存はlang-javascript 6.2.5、lang-json 6.0.2、lang-css 6.3.1、lang-html 6.4.12、lang-python 6.2.1、lang-rust 6.0.2、lang-sql 6.10.0、lang-yaml 6.1.3、legacy-modes 6.5.4。いずれも@codemirror配下で、許可されたパッケージのみ。JavaScript・CSS・HTMLは起点でも間接依存として入っていた。lockfileで新しく増えたパッケージは次のとおり。
+
+@codemirror/lang-json 6.0.2、@codemirror/lang-python 6.2.1、@codemirror/lang-rust 6.0.2、@codemirror/lang-sql 6.10.0、@codemirror/lang-yaml 6.1.3、@codemirror/legacy-modes 6.5.4、@lezer/json 1.0.3、@lezer/python 1.1.19、@lezer/rust 1.0.3、@lezer/yaml 1.0.4。
+
+HTML・JavaScript・CSSは既存のlang-markdownの静的依存から分離されない。コーディネーターの了承を得て既存の初期チャンクを再利用した。ビルドには、この3言語の動的importが効かないという警告が出る。500kB超のMathJaxの警告も残る。追加した各言語の定義は別チャンクで、Java・C・C++はclikeを共有する。
+
+同じ依存環境で起点をビルドし、生成したJavaScriptを比較した。表の単位はbyteで、gzipはNodeのgzipSyncの既定設定で生成ファイルを圧縮した実測値。indexだけでなく静的importで初期に読み込む共通チャンクも数えた。
+
+| 対象 | 初期に読み込むチャンク | raw | gzip |
+| --- | --- | ---: | ---: |
+| 起点13d19ab | `index-BTJKOOgv.js` | 660,407 | 227,227 |
+| 変更後 | `index-DICp_4zT.js` | 371,000 | 135,238 |
+| 変更後 | `dist-C5buD2pf.js` | 300,050 | 96,060 |
+| 変更後 | `dist-DW05D6Sb.js` | 8,442 | 3,560 |
+
+起点の初期JavaScript合計は660,407byte、gzip 227,227byte。変更後は679,492byte、gzip 234,858byteで、rawは19,085byte、gzipは7,631byte増えた。新しい言語の定義は初期読込に入らないが、色分けとStreamLanguageの共通処理、ドロップ処理、一覧の登録コードが増えている。言語定義を別ファイルへ移しても共通処理は初期チャンクに残ったため、ファイルを増やす案は採用しなかった。
+
+| 言語 | 遅延読み込みのチャンク | raw | gzip |
+| --- | --- | ---: | ---: |
+| Python | `dist-8gLk_9H8.js` | 44,545 | 19,040 |
+| Rust | `dist-BFGYvV_g.js` | 83,646 | 30,315 |
+| JSON | `dist-Zb2goFCx.js` | 1,959 | 1,245 |
+| YAML | `dist-KqgzMatl.js` | 11,529 | 5,138 |
+| SQL | `dist-C3eDOiHT.js` | 15,804 | 6,909 |
+| Shell | `shell-DwuoZtxw.js` | 2,434 | 1,198 |
+| TOML | `toml-BPTmHmyx.js` | 1,045 | 529 |
+| Swift | `swift-DKB6_1j6.js` | 3,762 | 1,814 |
+| Go | `go-zaFg-XIf.js` | 2,757 | 1,297 |
+| Java・C・C++ | `clike-KOqmMNJE.js` | 21,967 | 7,687 |
+| Diff | `diff-ChtP43wD.js` | 302 | 234 |
+
+Nodeテストを7件追加した。取り込み禁止状態の理由、形式と上限、コピー前の全件検査、複数画像の順序と改行、1回のUndo、途中の失敗、言語名と別名の判定、初期未読込、17種類の定義の読込とフェンス解析、未知の言語を確認した。npm run checkは0エラー・0警告、npm testは98件、src-tauriのcargo testは17件が成功した。npm run buildも成功した。
+
+日本語文書3ファイルをyomiyasuのリンターで確認した。既存の箇条書きの比率、文末コロン、意味のある否定表現の指摘は残し、担当外の節は変更していない。今回追加した文章には指摘がなかった。
+
+OrcaのWeb版確認ページで20項目を確認した。合成したファイルドロップの位置と順序、1回のUndo・Redo、plain・読み取り専用・保存中・処理中・Preview・保存前・合成IMEでの拒否と理由、文字列の通常ドロップ、dropCursorの表示と撤去、ライトとダークのコード色、Inline Codeと未知の言語の無着色、Previewでの色分けが成功した。表示された画面でもコードの背景と余白を保ったまま色が付くことを確認した。確認ページの画像コピーはモックで、実ファイルへのコピーは既存のRustテストで確認した。
+
+Nagori本体へのFinderドロップ、実際の日本語IME、ドロップ後の保存と再読み込み、右クリックメニューと目次の併用は未確認。QA項目6iに手順を残した。確認用ファイル、画面画像、結果JSON、起点のビルドとサイズ一覧は、このworktreeのnode_modules/.cache/nagori-image-qaにある。確認サーバーの停止後は、このディレクトリを削除してよい。
+
+## リストの字下げ、表の編集、URLの貼り付け（2026-10-07、feature/list-table-edit）
+
+作業前のgit log --oneline -1で、指定された起点13d19abを確認した。変更は未コミットで残す。変更した10ファイルはsrc/lib/listEdit.ts、src/lib/tableEdit.ts、src/lib/linkPaste.ts、src/lib/Editor.svelte、tests/listEdit.test.ts、tests/tableEdit.test.ts、tests/linkPaste.test.ts、docs/specification.md、docs/mac-qa-checklist.md、この文書。Editorにはキーと貼り付け処理の登録だけを置き、従来の画像ハンドラーはlinkPaste.tsへ移した。AppとRustのソース、依存パッケージ、仕様の改訂番号と§15は変更していない。
+
+リストは構文木の項目単位で字下げし、複数項目、子、継続行をまとめて扱う。番号とタスクのチェック状態を保つ。深くする幅は前の兄弟のリスト記号と直後の空白から決め、浅くする幅は親の記号位置から決める。最も浅い項目と、前に兄弟のない項目ではキーを消費して本文とフォーカスを保つ。引用記号と空行を残し、変更するタブの字下げは表示上の桁数に合わせて空白へ直す。標準のEnter継続は変えていない。
+
+表はTabとShift＋Tabで本文を選び、Enterで同じ列の次行へ移る。区切り行を飛ばし、末尾では見出しと同じ列数の空行を足す。移動時に全体を整形し、全角2桁、結合文字0桁で幅を決める。区切り行の`:`、セル内の`\|`、引用とリストの前置き、セル本文の全角空白を保つ。省略されたセルは空セルとして扱い、見出しより多い本文セルも消さない。新しい列は足さず、通常の移動先は見出しの列数にそろえる。整形と追加を1回のトランザクションへまとめ、直前の入力とはUndoを分ける。
+
+単一行の空でない選択へHTTP・HTTPS・mailtoを貼るとリンクになる。複数行、角括弧、既存リンク、コードでは通常の貼り付けに戻す。Front Matter、数式、HTML、画像、参照定義も書き換えず、貼った結果がリンクとして解析できる場合だけ適用する。URLは空白や括弧を含む時だけ山括弧で囲み、山括弧とバックスラッシュは参照先でエンコードする。統合の時にコーディネーターが、ふだんのURLを手で書く形のまま入れるよう変えた。リンク文字のバックスラッシュはエスケープし、カーソルを末尾へ置く。文字と画像が両方ある場合は、従来どおり文字を優先する。URLなら選択をリンクにし、それ以外なら通常の文字として貼る。画像だけの場合に限って画像取り込みへ回す。画像の検出は既存のclipboardImageを再利用し、URLと画像の変更をそれぞれ既存の編集処理へ渡す。
+
+判断した点は、タスクのチェック記号を字下げ幅へ足さず、CommonMarkのリスト本文に含めること。表の先頭でShift＋Tabを押した時は先頭セルにとどめ、区切り行からは見出しか本文へ移る。既存のGFM解析に合わせてセル分割ではASCIIの空白とタブだけを除き、全角空白を本文として保った。plainとPreview、読み取り専用、ファイル処理中、IME変換中と開始直後には新しいMarkdown操作を行わない。plainでも従来の画像取り込みは保つ。
+
+新しいNodeテスト26件で、3種類のリストと複数項目・子・継続行・引用・タブ、字下げできない時のキー消費、標準のEnter継続、表の移動と行追加・全角幅・寄せ方・エスケープ・空セル・余分なセル、URLの条件と文字優先、画像だけの取り込み、構文木の再利用を確認した。各編集の1回のUndoとRedo、選択の復元、直前の入力の保持も確かめた。npm run checkは0エラー・0警告、npm testは117件、src-tauriでのcargo testは17件が成功し、npm run buildも成功した。既存の500kB超チャンク警告は残る。
+
+Orcaのブラウザ確認ページに実際のEditor.svelteと共通CSSを読み込み、17件を確認した。リストの字下げと子の保持、できない操作のキー消費、表のセル選択とEnter・行追加、URL貼り付け、文字優先と画像だけの取り込み、Undo、plainとPreview、合成IMEの開始と変換中の抑止が成功した。合成IMEではcompositionstartだけの場合と、DOMの文字入力を伴ってview.composingがtrueになる場合を分けた。Enterによる表の移動と追加を後者で抑止できた。見出し、入れ子リスト、編集中の表と標準の選択表示も画面で確認した。一時ページと結果JSONは/private/tmp/nagori-list-table-qaにある。
+
+後続の修正で、画像検出へ加工していないclipboardDataを渡すよう戻した。NumbersやExcel、Wordなどから文字とPNGを一緒にコピーしても、文字を画像として取り込まない。表とリストのキー操作にはensureSyntaxTreeを使い、既存のエディタの解析結果を再利用する。パイプのない解析済みの本文では、その行の構文だけを調べてfalseを返す。GFMの省略セル行にはパイプがない場合もあるため、文字だけで表の外と決めずに表の構文を確かめる。表の後半とリストの子も含めて解析が完了した木を使い、解析が時間内に終わらない時と言語拡張のない呼び出しだけ従来の全文解析へ戻す。
+
+性能はmacOSのarm64、Node v24.12.0で測った。102,554バイトの日本語記事に見出し・リスト・表を置き、末尾の通常本文でmoveTableのEnter処理がfalseを返すまでを計測した。構文木を用意し、最初の20回を除く200回の中央値と95パーセンタイルを比べた。同じ状態を使う時は、修正前1.982ms・2.127ms、修正後0.001ms・0.002msだった。毎回末尾に改行を足した時は、修正前1.951ms・2.109ms、修正後0.001ms・0.003msだった。状態更新、通常の改行処理、DOM描画の時間は含めていない。測定JSONは/private/tmp/nagori-list-table-qa/timing.jsonに保存した。
+
+日本語文書3ファイルをyomiyasuのリンターで確認した。Nagori本体の保存と再読み込み、OSのクリップボード、実際の日本語IME、右クリックメニュー、目次、Floating Toolbarとの併用は未確認で、[QA項目4b](mac-qa-checklist.md#項目4b-リストの字下げ表の移動urlの貼り付け)に手順を足した。コミット、push、PR作成、ブランチ名の変更は行っていない。
 
 ## 複数段落の装飾（2026-10-06、feature/multi-paragraph-format）
 
