@@ -1082,6 +1082,7 @@
             <Editor
               {initialText}
               {documentKey}
+              saving={status === 'saving'}
               {readonly}
               {busy}
               {plain}
