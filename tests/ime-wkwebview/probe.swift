@@ -60,7 +60,7 @@ class Delegate: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
 let delegate = Delegate()
 web.navigationDelegate = delegate
 config.userContentController.add(delegate, name: "ime")
-web.load(URLRequest(url: URL(string: "http://127.0.0.1:1438/ime-check")!))
+web.load(URLRequest(url: URL(string: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "http://127.0.0.1:1438/ime-check")!))
 // 別のウィンドウへ移って変換が終わることを避ける。確認中は実キー入力をしない。
 let focusTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in app.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
 DispatchQueue.main.asyncAfter(deadline: .now() + 300) { print("WKWebView確認が時間切れになりました"); exit(1) }

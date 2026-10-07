@@ -22,6 +22,7 @@
   import { moveList } from './listEdit.ts';
   import { moveTable } from './tableEdit.ts';
   import { pasteMarkdown } from './linkPaste.ts';
+  import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
 
   let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
@@ -116,7 +117,17 @@
   }
   function apply(kind: FormatKind) {
     if (plain) return;
-    if (!view || view.state.readOnly || composition || view.composing || linkDialog) return;
+    if (!view || view.state.readOnly || readonly || busy || previewOnly || composition || view.composing || view.compositionStarted || linkDialog) return;
+    if (view.state.selection.main.empty && (kind === 'bold' || kind === 'italic')) {
+      const plan = typingFormatPlan(view.state, kind);
+      if (plan) {
+        view.dispatch(plan);
+        // 履歴に操作後の位置を記録し、Redoでも記号の真ん中へ戻す。
+        view.dispatch({ selection: view.state.selection, userEvent: 'input.format' });
+        view.focus(); updateToolbar();
+      }
+      return;
+    }
     // 表示用の判定は差分解析の木を使うため、本文を変える前に全文解析で判定し直す
     const plan = formatPlan(view.state.doc.toString(), view.state.selection.main, kind);
     if (!plan || plan.reason) return;
@@ -210,6 +221,7 @@
         markdown({ base: commonmarkLanguage, extensions: markdownExtensions, codeLanguages: codeLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
         codeHighlighting,
         livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href) }),
+        typingFormat(() => composition),
       ]),
       // 変換開始だけのdispatchで未確定文字のDOMを作り直さない。
       EditorState.transactionExtender.of(() => composition ? { effects: compositionMode.of(true) } : null),
@@ -253,7 +265,7 @@
           if (linkDialog) { linkDialog = false; pendingLink = undefined; }
         }
         if (update.geometryChanged || update.viewportChanged) updateOutlinePosition();
-        if (update.docChanged && !update.transactions.some(tr => tr.annotation(Transaction.addToHistory) === false)) onChange(update.state.doc.toString());
+        if (update.docChanged && update.transactions.some(tr => tr.annotation(Transaction.addToHistory) !== false || tr.annotation(typingCleanup))) onChange(update.state.doc.toString());
         if (update.docChanged || update.selectionSet || update.focusChanged) queueMicrotask(() => {
           if (view && !composition && !view.composing && (update.docChanged || update.selectionSet)) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' }) });
           updateToolbar();

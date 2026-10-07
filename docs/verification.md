@@ -4,6 +4,26 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 記事ヘッダーの操作メニュー削除、太字と斜体の入力（2026-10-08、feature/typing-format）
+
+作業前のgit log --oneline -1で、指定の起点cf7533aを確認した。記事ヘッダーの「記事の操作」を項目ごと削除し、専用CSSとmoreアイコンも外した。画像挿入、検索、保存、装飾の既存の関数は、右クリック、メニューバー、キーから使うため残した。READMEと画像挿入のQA手順は、本文の右クリックメニューを使う説明へ直した。仕様書は§8、§9.1、§9.2、§13を更新し、改訂版1.15にした。
+
+選択がない太字・斜体だけをtypingFormat.tsで扱う。Cmd＋Bは`****`、Cmd＋Iは`**`の間から入力する。閉じる直前は本文を変えずに後ろへ出て、開く直後は前へ出る。途中では前半を閉じ、後半を開き直して間へカーソルを置く。太字と斜体を入れ子にでき、外側を途中で閉じる場合も内側の記号を閉じて開き直す。アンダースコアの要素を途中で分ける場合は、単語の途中で閉じるためアスタリスクへそろえる。[CommonMarkの強調の規則](https://spec.commonmark.org/0.31.2/#emphasis-and-strong-emphasis)に従い、解析した構文木をテストで確認した。選択がある時は従来のformatPlanを使う。取り消し線とInline Codeも従来の処理を使う。
+
+コマンドで作った空の範囲だけをStateFieldで追跡する。何も打たずにカーソルを外へ移すか、選択を作るか、フォーカスを失うと自動で消す。自動削除はaddToHistory=falseとし、Undoの履歴に追加しない。履歴の位置を更新する際に空になったEffectも除き、直前の本文入力を1回のUndoで戻せることを確認した。削除後の本文はonChangeへ通知する。手書きの記号と、一度文字を入力した記号は自動で消さない。入れ子の空の記号もまとめて消す。
+
+各コマンドはinput.formatとし、前後の入力からUndoを分ける。本文を変えずに外へ出る場合は履歴用Effectを使う。コマンドの後に選択位置だけを履歴へ記録し、Redoでも記号の間や外へ戻す。IME変換中と開始直後、plain、Preview、読み取り専用、処理中と、コード・Front Matter・数式・HTML・リンクの参照先では何もしない。Live Previewの処理は変更していない。空の記号の表示と入力後の装飾を既存の描画関数で確認した。
+
+追加したNodeテスト15件は、開始、閉じる直前と開く直後、途中で閉じる操作、空の解除、移動とフォーカス喪失による削除、手書きの保持、編集による追跡位置の更新、UndoとRedo、入れ子、対象外の記法、Live Preview、Editorの共通入口を確認する。npm run checkは0エラー・0警告、npm testは160件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存のCodeMirror言語定義の動的importと500kB超チャンクの警告は残る。
+
+画面確認にはtests/typing-wkwebview.htmlとtests/typing-wkwebview.jsを追加した。実際のEditor.svelteを使い、キー、EditorApi、NSTextInputClientによる入力、フォーカス喪失、Floating Toolbar、検索と保存のキーを確認する。既存のprobe.swiftは任意の確認ページURLを第2引数で受け取るようにし、引数を省いた時のIME確認ページは維持した。コーディネーターがmacOS 26.6.2のWKWebViewで実行し、既存IMEの223項目と今回の画面確認45項目がすべて成功した。JavaScriptのエラーはなかった。今回の確認ページの初回実行では、検索パネルのクラス名を取り違えた1項目だけが失敗した。確認ページを修正して再実行し、アプリのソースは変更していない。実行中はソースを固定した。結果と画像は/private/tmp/nagori-typing-format-imeと/private/tmp/nagori-typing-format-ui-finalにある。view.pngで入力した太字とカーソルのある要素の記号表示を確認した。
+
+日本語文書4ファイルはyomiyasu_lint.pyで確認した。仕様とQA手順の箇条書き、必要な用語と否定対比、READMEの丁寧な文末への指摘は、意味と既存の文体を保つため残した。
+
+変更したファイルはsrc/App.svelte、src/app.css、src/lib/Icon.svelte、src/lib/Editor.svelte、src/lib/typingFormat.ts、tests/typingFormat.test.ts、tests/typing-wkwebview.html、tests/typing-wkwebview.js、tests/ime-wkwebview/probe.swift、README.md、docs/specification.md、docs/mac-qa-checklist.md、この文書の13ファイル。依存追加、Rustのソース変更、ブランチ名の変更、コミット、push、PR作成は行っていない。変更は未コミットで残す。
+
+Nagori本体のメニューバー、物理キーによる入力、日本語IMEの候補選択、実際の保存と画像操作との併用は未確認。[QA項目4c](mac-qa-checklist.md#項目4c-太字と斜体の入力記事ヘッダー)に確認手順を追加した。
+
 ## 日本語入力の位置ずれとカーソルの高さ（2026-10-08、feature/ime-caret）
 
 段落の途中で変換すると別の位置へ入力される問題、未確定文字を全部消した後の位置ずれ、太字の内側で確定すると文字が重なる問題を直した。変換中のカーソルも文字の高さで描く。起点はcafb444で、変更は未コミットで残した。依存追加、Rustの変更、ブランチ名の変更、コミット、push、PR作成は行っていない。
