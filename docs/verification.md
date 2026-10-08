@@ -24,6 +24,26 @@ OrcaのTabキー操作ではフォーカスが移らず、TabとEnterで開く�
 
 変更ファイルはsrc/App.svelte、src/app.css、src/lib/RecentFiles.svelte、src/lib/navigation.ts、src/lib/Editor.svelte、src/lib/livePreview.ts、tests/recent-files.test.ts、tests/editor.test.ts、README.md、design/README.md、docs/specification.md、docs/mac-qa-checklist.md、この文書と画像2枚。仕様書は改訂版1.16へ上げた。依存追加、ブランチ名の変更、コミット、push、PR作成は行わず、変更は未コミットで残す。日本語文書をyomiyasu_lint.pyで確認し、既存の表現と必要な手順の箇条書きは残した。
 
+## Inline Codeの表示（2026-10-08、feature/inline-code-display）
+
+作業前のgit log --oneline -1で、指定の起点1bad871を確認した。カーソルがコードの外にある時、置き換えたTextWidgetにコード用のクラスが付かず、本文と同じ見た目になっていた。TextWidgetにクラス名を渡せるようにし、Inline Codeでは既存のnagori-codeを使う。eqでは文字列とクラス名を比べる。既定のnagori-list-markerは保ち、Editor.svelteのCSSをそのまま使う。
+
+Nodeテストを2件追加した。Widgetが作るDOMのクラスと文字列、同じ文字列で異なるクラスの比較、リスト・改行・エスケープ・文字参照の表示、カーソルと選択による記号の表示、Previewでの置き換え、原文とUndoを確認する。修正前はコードのクラス名で失敗し、修正後は成功した。npm run checkは0エラー・0警告、npm testは162件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存の言語定義の動的importと500kB超チャンクの警告は残る。
+
+画面確認用にtests/inline-code-wkwebview.htmlとtests/inline-code-wkwebview.jsを追加した。実際のEditorを使い、ライトとダーク、Live PreviewとPreviewで、本文・見出し・太字・リンク・表の中のコードを確認する。複数のバッククォート、改行を含むコード、長いコードの折り返しも含む。置き換え後のDOM、等幅フォント、背景、角丸、余白、文字の大きさと原文保持を確かめる。
+
+Orcaのブラウザでは表示104項目と、記号の切り替え・コード内のCmd＋BとCmd＋I・合成コピー・ほかの文字Widgetの保持の5項目が成功した。カーソルとFloating Toolbarの2項目は本文にフォーカスがない状態で失敗した。コーディネーターがmacOSの一時WKWebViewで同じ確認ページを実行し、ネイティブ入力を含む113項目すべてが成功した。コード内のカーソル、選択時のFloating Toolbarの判定、IME確定後のコード表示も確認できた。既存の太字・斜体の入力モード45項目もすべて成功し、JavaScriptのエラーはなかった。
+
+既存IMEの223項目は、初回にnormal/backspace/文字の高さの1項目が失敗した。続けた2回は223項目すべて成功した。初回の採取ではカーソルのDOMがなく、標準カーソルの座標はtop 75px、height 22pxだった。成功した2回の自前カーソルはtop 75px、height 22pxで一致する。本文とDOMの入力位置は3回とも49だった。対象は普通の段落で、採取したDOMには変更対象のTextWidgetがない。描画前に座標を採取した可能性があるが、タイミングの原因は確定していない。今回の変更でこの判定やカーソルの処理は変えていない。
+
+結果と画像は/private/tmp/nagori-inline-code-ui、/private/tmp/nagori-inline-code-typing、/private/tmp/nagori-inline-code-ime、/private/tmp/nagori-inline-code-ime2、/private/tmp/nagori-inline-code-ime3にある。ライトとダークの画像でも、見出し・太字・リンク・表の中のコードと長いコードの背景を確認した。ブラウザの結果は/private/tmp/nagori-inline-code-browser-results.json、画像は/private/tmp/nagori-inline-code-light.pngと/private/tmp/nagori-inline-code-dark.pngに保存した。
+
+日本語文書2ファイルをyomiyasu_lint.pyで確認した。既存の否定対比とQA手順の箇条書き比率への指摘は、意味と手順を保つため残した。今回の追加文への指摘はなかった。
+
+変更したファイルはsrc/lib/livePreview.ts、tests/editor.test.ts、tests/inline-code-wkwebview.html、tests/inline-code-wkwebview.js、docs/mac-qa-checklist.md、この文書の6ファイル。仕様書、依存パッケージ、Rustのソース、ブランチ名は変更せず、コミット、push、PR作成は行わない。変更は未コミットで残す。
+
+Nagori本体の物理キー、OSのクリップボード、日本語IMEの候補選択、保存と再読み込みは未確認。[QA項目4d](mac-qa-checklist.md#項目4d-inline-codeの表示)に確認手順を追加した。
+
 ## 記事ヘッダーの操作メニュー削除、太字と斜体の入力（2026-10-08、feature/typing-format）
 
 作業前のgit log --oneline -1で、指定の起点cf7533aを確認した。記事ヘッダーの「記事の操作」を項目ごと削除し、専用CSSとmoreアイコンも外した。画像挿入、検索、保存、装飾の既存の関数は、右クリック、メニューバー、キーから使うため残した。READMEと画像挿入のQA手順は、本文の右クリックメニューを使う説明へ直した。仕様書は§8、§9.1、§9.2、§13を更新し、改訂版1.15にした。

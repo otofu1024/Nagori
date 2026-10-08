@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { history, undo } from '@codemirror/commands';
-import { EditorView } from '@codemirror/view';
+import { EditorView, type WidgetType } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { frontMatter, markdownParser, markdownExtensions, walk, references, linkTarget, formatPlan, linkMarkdown, touches, codeDisplay } from '../src/lib/markdown.ts';
 import { livePreview, previewOnlyMode, compositionMode, buildPreview } from '../src/lib/livePreview.ts';
@@ -107,6 +107,65 @@ test('IME cancel restores editing selection preview while Preview retains render
     state = state.update({ effects: compositionMode.of(active) }).state;
     assert.ok(decorationRanges(state, true).some(r => r.from === 0 && r.to === 2));
   }
+});
+test('Inline Codeの置き換えWidgetにコードのクラスを付け、ほかの文字Widgetのクラスを保つ', () => {
+  const samples = [
+    ['`npm run build`', 'npm run build'],
+    ['# `見出し`', '見出し'],
+    ['**`太字`**', '太字'],
+    ['[`リンク`](https://example.com)', 'リンク'],
+    ['``a`b``', 'a`b'],
+    ['` a\n b `', 'a  b'],
+    ['`' + 'long code '.repeat(50) + '`', 'long code '.repeat(50)],
+  ];
+  const widgets = samples.map(([source, value]) => {
+    const state = editor(source + '\n\n末尾');
+    const widget = decorationRanges(state, true).find(r => r.spec.widget)!.spec.widget as WidgetType;
+    return { widget, value };
+  });
+  const other = decorationRanges(editor('- 項目\n\n改行\n続き &amp; \\*\n\n末尾'), true).filter(r => r.spec.widget).map(r => r.spec.widget as WidgetType);
+  const sameText = decorationRanges(editor('`a` &#97;\n\n末尾'), true).filter(r => r.spec.widget).map(r => r.spec.widget as WidgetType);
+  const anotherCode = decorationRanges(editor('`a`\n\n末尾'), true).find(r => r.spec.widget)!.spec.widget as WidgetType;
+  const saved = (globalThis as { document?: unknown }).document;
+  (globalThis as { document?: unknown }).document = { createElement: () => ({ className: '', textContent: '' }) };
+  try {
+    for (const { widget, value } of widgets) {
+      const span = widget.toDOM(null as unknown as EditorView);
+      assert.equal(span.className, 'nagori-code');
+      assert.equal(span.textContent, value);
+      assert.equal(widget.ignoreEvent(null as unknown as Event), false);
+    }
+    assert.deepEqual(other.map(widget => {
+      const span = widget.toDOM(null as unknown as EditorView);
+      assert.equal(span.className, 'nagori-list-marker');
+      return span.textContent;
+    }), ['•', ' ', '&', '*']);
+    assert.equal(sameText[0].eq(sameText[1]), false);
+    assert.equal(sameText[0].eq(anotherCode), true);
+    assert.equal(sameText[0].eq(widgets[0].widget), false);
+  } finally {
+    if (saved === undefined) delete (globalThis as { document?: unknown }).document;
+    else (globalThis as { document?: unknown }).document = saved;
+  }
+});
+test('Inline Codeはカーソルと選択で記号を見せ、Previewでは置き換えを保つ', () => {
+  const text = '前 `npm run build` 後\n\n末尾', from = text.indexOf('`'), to = text.lastIndexOf('`') + 1;
+  let state = editor(text);
+  const replaced = () => decorationRanges(state, true).some(r => r.from === from + 1 && r.to === to - 1 && r.spec.widget);
+  assert.equal(replaced(), true);
+  for (const selection of [EditorSelection.cursor(from + 2), EditorSelection.range(from, to)]) {
+    state = state.update({ selection }).state;
+    assert.equal(replaced(), false);
+    assert.ok(decorationRanges(state, true).some(r => r.from === from + 1 && r.to === to - 1 && r.spec.class === 'nagori-code'));
+    assert.ok(!decorationRanges(state, true).some(r => r.from === from && r.to === from + 1));
+    state = state.update({ effects: previewOnlyMode.of(true) }).state;
+    assert.equal(replaced(), true);
+    state = state.update({ effects: previewOnlyMode.of(false) }).state;
+  }
+  state = state.update({ selection: { anchor: text.length } }).state;
+  assert.equal(replaced(), true);
+  assert.equal(state.doc.toString(), text);
+  assert.equal(undo({ state, dispatch: () => {} }), false);
 });
 test('装飾の付け外しとコードの空白を保ち、複数段落とタスクの本文にも付ける', () => {
   for (const kind of ['bold', 'italic', 'strike'] as const) {
