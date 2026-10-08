@@ -62,10 +62,11 @@
   let tree = $state<Record<string, Entry[]>>({}),
     expanded = $state<string[]>(['']),
     selected = $state('');
-  let index = $state<Entry[]>([]),
+  // 索引とゴミ箱は丸ごと置き換えるだけなので、要素ごとのProxyを作らないraw状態にする
+  let index = $state.raw<Entry[]>([]),
     // サイドバーの表示。フォルダ以外は一覧に切り替える。保存はしない
     view = $state<SidebarView>('tree'),
-    trashItems = $state<TrashItem[]>([]),
+    trashItems = $state.raw<TrashItem[]>([]),
     busy = $state(false),
     starting = $state(true),
     notice = $state(''),
