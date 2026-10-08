@@ -1,5 +1,6 @@
 mod cli;
 mod files;
+mod search;
 mod trash;
 use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved, Settings};
 use trash::TrashItem;
@@ -252,6 +253,27 @@ async fn workspace_list(state: State<'_, Backend>, path: String) -> Result<Vec<E
 async fn workspace_index(state: State<'_, Backend>) -> Result<Vec<Entry>> {
     work(&state, move |w| files::index(w.root()?)).await
 }
+// 検索は時間がかかるため、ワークスペースのロックを持たずに別のスレッドで動かす。保存などの処理を待たせない
+#[tauri::command]
+async fn workspace_search(
+    state: State<'_, Backend>,
+    query: String,
+    case_sensitive: bool,
+    regexp: bool,
+) -> Result<search::SearchResult> {
+    let root = {
+        let workspace = state
+            .workspace
+            .lock()
+            .map_err(|_| Error::new("INTERNAL", "ファイル処理のロックに失敗しました。"))?;
+        workspace.root()?.to_path_buf()
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        search::run(&root, &query, case_sensitive, regexp)
+    })
+    .await
+    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+}
 #[tauri::command]
 async fn document_open(state: State<'_, Backend>, path: String) -> Result<OpenedDocument> {
     work(&state, move |w| files::open(w.root()?, &path)).await
@@ -287,6 +309,13 @@ async fn file_create(state: State<'_, Backend>, path: String, kind: String) -> R
 #[tauri::command]
 async fn file_rename(state: State<'_, Backend>, path: String, new_name: String) -> Result<Entry> {
     work(&state, move |w| files::rename(w.root()?, &path, &new_name)).await
+}
+#[tauri::command]
+async fn file_move(state: State<'_, Backend>, path: String, to_directory: String) -> Result<Entry> {
+    work(&state, move |w| {
+        files::move_entry(w.root()?, &path, &to_directory)
+    })
+    .await
 }
 #[tauri::command]
 async fn file_trash(
@@ -581,6 +610,11 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
     let paste = P::paste(app, None)?;
     let select_all = P::select_all(app, None)?;
     let find = action("find", "検索…", Some("CmdOrCtrl+F"))?;
+    let workspace_search = action(
+        "workspace-search",
+        "ワークスペース全体を検索…",
+        Some("CmdOrCtrl+Shift+F"),
+    )?;
     let edit = Submenu::with_items(
         app,
         "編集",
@@ -595,6 +629,7 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
             &select_all,
             &separator,
             &find,
+            &workspace_search,
         ],
     )?;
     let bold = action("bold", "太字", Some("CmdOrCtrl+B"))?;
@@ -664,11 +699,13 @@ pub fn run() {
             workspace_open,
             workspace_list,
             workspace_index,
+            workspace_search,
             document_open,
             document_save,
             document_save_as,
             file_create,
             file_rename,
+            file_move,
             file_trash,
             trash_list,
             trash_restore,

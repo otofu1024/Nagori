@@ -2,18 +2,29 @@
   import Icon from './Icon.svelte';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { formatNoteDate, type NoteItem } from './noteLists.ts';
+  import { beginDrag, endDrag } from './fileDrag.ts';
 
   // すべてのノート・スター付き・最近見たノートで使う、記事の一覧
-  let { label, notes, current, busy, empty, dated = false, onSelect, onContextMenu }: {
+  let { label, notes, current, busy, dragEnabled, empty, dated = false, onSelect, onContextMenu }: {
     label: string;
     notes: NoteItem[];
     current: string | undefined;
     busy: boolean;
+    dragEnabled: boolean;
     empty: string;
     dated?: boolean;
     onSelect: (entry: NoteItem) => void;
     onContextMenu: (event: MouseEvent, entry: NoteItem) => void;
   } = $props();
+
+  // 一覧からはゴミ箱へ移せる。フォルダは File Tree にしか出ないため、移動先にはしない
+  function dragStart(event: DragEvent, note: NoteItem) {
+    if (!dragEnabled) {
+      event.preventDefault();
+      return;
+    }
+    beginDrag(event, note);
+  }
 
   function rowKeydown(event: KeyboardEvent, note: NoteItem) {
     if (event.shiftKey && event.key === 'F10') {
@@ -31,10 +42,13 @@
       class:active={current === note.path}
       aria-current={current === note.path ? 'page' : undefined}
       title={note.path}
+      draggable={dragEnabled ? 'true' : 'false'}
       disabled={busy}
       onclick={() => onSelect(note)}
       oncontextmenu={(event) => onContextMenu(event, note)}
       onkeydown={(event) => rowKeydown(event, note)}
+      ondragstart={(event) => dragStart(event, note)}
+      ondragend={endDrag}
     >
       <span class="file-icon"><Icon name="file" /></span>
       <span class="recent-label">

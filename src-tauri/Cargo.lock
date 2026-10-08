@@ -2181,6 +2181,7 @@ dependencies = [
  "image",
  "libc",
  "notify",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

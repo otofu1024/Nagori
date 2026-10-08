@@ -23,6 +23,7 @@
   import { moveTable } from './tableEdit.ts';
   import { pasteMarkdown } from './linkPaste.ts';
   import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
+  import { matchSpan } from './workspaceSearch.ts';
 
   let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
@@ -310,6 +311,12 @@
       format: apply, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
       goToHeading,
+      revealRange: (line, column, length) => {
+        const span = view && !composition && !view.composing ? matchSpan(view.state.doc, line, column, length) : null;
+        if (!view || !span) return;
+        view.dispatch({ selection: { anchor: span.from, head: span.to }, effects: EditorView.scrollIntoView(span.from, { y: 'center' }) });
+        view.focus();
+      },
     });
     return () => { editor.scrollDOM.removeEventListener('contextmenu', contextmenu, true); editor.scrollDOM.removeEventListener('keydown', contextKeys, true); clearTimeout(outlineTimer); resize.disconnect(); scrollbar.destroy(); view?.destroy(); view = undefined; };
   });

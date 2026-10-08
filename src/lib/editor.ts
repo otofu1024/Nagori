@@ -14,4 +14,6 @@ export interface EditorApi {
   find(): void;
   refreshImages(): void;
   goToHeading(index: number): void;
+  // 行・列（0始まりのUTF-16）・長さで範囲を選び、画面の中央へ寄せる
+  revealRange(line: number, column: number, length: number): void;
 }

@@ -240,6 +240,10 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .folder-glyph.on-path .folder-back { fill: var(--folder-current-back); }
 .folder-glyph.on-path .folder-front { fill: var(--folder-current-front); }
 .tree-row.active .file-icon { color: var(--accent); }
+/* ドラッグで移せる場所の目印。フォルダの行、ナビのゴミ箱、一番上（File Treeの空いた所とワークスペース名） */
+.tree-row.drop-target, .nav-row.drop-target { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.file-tree.drop-root { box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 12px; }
+.workspace-heading.drop-target { color: var(--accent); }
 .tree-chevron { display: flex; width: 10px; color: var(--muted); }
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-empty { font-size: 13px; line-height: 1.9; color: var(--muted); padding: 16px 10px; }
