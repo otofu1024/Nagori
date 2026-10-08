@@ -15,10 +15,12 @@ export function paneLayout(width: number, sidebarWidth: number, outlineWidth: nu
   const sidebarMax = Math.max(SIDEBAR.min, Math.min(SIDEBAR.max, Math.floor(width - EDITOR_SPACE)));
   const sidebar = sidebarVisible ? resizePane(sidebarWidth, SIDEBAR.min, sidebarMax) : 0;
   const available = width - sidebar - EDITOR_SPACE;
+  const outlineMax = Math.max(OUTLINE.min, Math.min(OUTLINE.max, Math.floor(available)));
   return {
     sidebar,
     sidebarMax,
-    outlineMax: Math.max(OUTLINE.min, Math.min(OUTLINE.max, Math.floor(available))),
-    showOutline: available >= outlineWidth,
+    outline: resizePane(outlineWidth, OUTLINE.min, outlineMax),
+    outlineMax,
+    showOutline: available >= OUTLINE.min,
   };
 }
