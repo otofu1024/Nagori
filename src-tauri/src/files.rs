@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
-    io::{Read, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 pub const DOCUMENT_LIMIT: usize = 2 * 1024 * 1024;
@@ -41,6 +43,9 @@ pub struct Entry {
     pub path: String,
     pub name: String,
     pub kind: String,
+    // ファイルの更新日時（Unixのミリ秒）。ディレクトリや取得できない時は省く
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +89,8 @@ pub struct Settings {
     pub outline_visible: bool,
     pub focus_mode: bool,
     pub typewriter_mode: bool,
+    // キーはワークスペースのルートの絶対パス、値はスターを付けた記事の相対パス
+    pub starred: BTreeMap<String, Vec<String>>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -98,6 +105,7 @@ impl Default for Settings {
             outline_visible: true,
             focus_mode: false,
             typewriter_mode: false,
+            starred: BTreeMap::new(),
         }
     }
 }
@@ -142,6 +150,12 @@ impl Settings {
         if !["system", "light", "dark"].contains(&self.theme.as_str())
             || !(12..=32).contains(&self.font_size)
             || self.recent_files.len() > 100
+            || self.starred.len() > 100
+            || self.starred.iter().any(|(root, paths)| {
+                root.is_empty()
+                    || paths.len() > 1000
+                    || paths.iter().any(|path| path.is_empty())
+            })
         {
             return Err(Error::new("INVALID", "設定値が範囲外です。"));
         }
@@ -285,6 +299,15 @@ pub fn entry(root: &Path, path: &Path) -> Result<Entry> {
     } else {
         "other"
     };
+    let modified = if metadata.is_dir() {
+        None
+    } else {
+        metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|time| time.as_millis() as u64)
+    };
     Ok(Entry {
         path: relative(root, path)?,
         name: path
@@ -293,6 +316,7 @@ pub fn entry(root: &Path, path: &Path) -> Result<Entry> {
             .ok_or_else(|| Error::new("INVALID", "UTF-8で表現できないファイル名です。"))?
             .into(),
         kind: kind.into(),
+        modified,
     })
 }
 pub fn list(root: &Path, path: &str) -> Result<Vec<Entry>> {
@@ -536,23 +560,23 @@ pub fn create(root: &Path, path: &str, kind: &str) -> Result<Entry> {
     }
     entry(root, &absolute)
 }
+// 同じボリューム内で、既存の項目を上書きせずに移す。別のボリュームの時はEXDEVを返す
 #[cfg(target_os = "macos")]
-fn rename_exclusive(from: &Path, to: &Path) -> Result<()> {
+pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
-    let from = CString::new(from.as_os_str().as_bytes())
-        .map_err(|_| Error::new("INVALID", "不正なパスです。"))?;
-    let to = CString::new(to.as_os_str().as_bytes())
-        .map_err(|_| Error::new("INVALID", "不正なパスです。"))?;
+    let invalid = || io::Error::new(io::ErrorKind::InvalidInput, "不正なパスです。");
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| invalid())?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| invalid())?;
     // SAFETY: both C strings are valid and live through this synchronous syscall.
     if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error());
     }
     Ok(())
 }
 #[cfg(not(target_os = "macos"))]
-fn rename_exclusive(_from: &Path, _to: &Path) -> Result<()> {
-    Err(Error::new(
-        "UNSUPPORTED",
+pub fn rename_exclusive(_from: &Path, _to: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
         "名前変更は現在macOSのみ対応しています。",
     ))
 }
@@ -592,8 +616,8 @@ pub fn rename(root: &Path, path: &str, new_name: &str) -> Result<Entry> {
                 .tempdir_in(from.parent().unwrap())?;
             let staged = directory.path().join("item");
             rename_exclusive(&from, &staged)?;
-            if let Err(error) = rename_exclusive(&staged, &to) {
-                if let Err(rollback) = rename_exclusive(&staged, &from) {
+            if let Err(error) = rename_exclusive(&staged, &to).map_err(Error::from) {
+                if let Err(rollback) = rename_exclusive(&staged, &from).map_err(Error::from) {
                     let retained = directory.keep();
                     return Err(Error::new(
                         "IO",
@@ -613,16 +637,6 @@ pub fn rename(root: &Path, path: &str, new_name: &str) -> Result<Entry> {
     resolve(root, &relative(root, &to)?, true)?;
     rename_exclusive(&from, &to)?;
     entry(root, &to)
-}
-pub fn trash(root: &Path, path: &str) -> Result<()> {
-    let absolute = resolve(root, path, false)?;
-    if absolute == root {
-        return Err(Error::new(
-            "INVALID",
-            "プロジェクトのルートは削除できません。",
-        ));
-    }
-    ::trash::delete(&absolute).map_err(|e| Error::new("TRASH", e.to_string()))
 }
 pub fn read_image(path: &Path) -> Result<Image> {
     if !image_extension(path) {
@@ -912,6 +926,61 @@ mod tests {
             assert_eq!(restored.sidebar_width, 272);
             assert_eq!(restored.outline_width, 220);
         }
+    }
+
+    #[test]
+    fn settings_starred_defaults_roundtrip_and_validate() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(old.starred.is_empty());
+        old.validate().unwrap();
+        let stored: Settings = serde_json::from_str(
+            r#"{"starred":{"/Users/me/notes":["a.md","posts/b.md"],"/Users/me/other":[]}}"#,
+        )
+        .unwrap();
+        stored.validate().unwrap();
+        let restored: Settings =
+            serde_json::from_slice(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(restored.starred, stored.starred);
+        assert_eq!(restored.starred["/Users/me/notes"], ["a.md", "posts/b.md"]);
+        // 型が違う、または件数や空の値が上限を超える設定は拒否する
+        for value in [r#""a.md""#, "[]", r#"{"/x":"a.md"}"#, r#"{"/x":[1]}"#] {
+            assert!(serde_json::from_str::<Settings>(&format!(r#"{{"starred":{value}}}"#)).is_err());
+        }
+        let many_paths = Settings {
+            starred: BTreeMap::from([("/x".to_owned(), vec!["a.md".to_owned(); 1001])]),
+            ..Settings::default()
+        };
+        assert!(many_paths.validate().is_err());
+        let many_roots = Settings {
+            starred: (0..101).map(|i| (format!("/root/{i}"), vec![])).collect(),
+            ..Settings::default()
+        };
+        assert!(many_roots.validate().is_err());
+        let empty_path = Settings {
+            starred: BTreeMap::from([("/x".to_owned(), vec![String::new()])]),
+            ..Settings::default()
+        };
+        assert!(empty_path.validate().is_err());
+    }
+
+    #[test]
+    fn entries_report_modified_time_for_files_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir(root.join("folder")).unwrap();
+        fs::write(root.join("note.md"), "x").unwrap();
+        let file = entry(root, &root.join("note.md")).unwrap();
+        let modified = file.modified.expect("ファイルには更新日時を入れる");
+        let now = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(modified <= now && now - modified < 60_000);
+        assert!(entry(root, &root.join("folder")).unwrap().modified.is_none());
+        let json = serde_json::to_value(&file).unwrap();
+        assert!(json["modified"].is_u64());
+        let folder = serde_json::to_value(entry(root, &root.join("folder")).unwrap()).unwrap();
+        assert!(folder.get("modified").is_none());
     }
 
     #[test]

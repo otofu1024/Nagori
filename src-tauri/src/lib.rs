@@ -1,6 +1,8 @@
 mod cli;
 mod files;
+mod trash;
 use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved, Settings};
+use trash::TrashItem;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::VecDeque,
@@ -179,12 +181,20 @@ async fn work<T: Send + 'static>(
     .await
     .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
+// アプリ内のゴミ箱の置き場所。アプリのデータの場所の下に作り、ワークスペースには何も作らない
+fn trash_base(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
+    app.path()
+        .app_data_dir()
+        .map(|directory| directory.join("trash"))
+        .map_err(|e| Error::new("TRASH", e.to_string()))
+}
 #[tauri::command]
 async fn workspace_open(
     app: tauri::AppHandle,
     state: State<'_, Backend>,
     path: String,
 ) -> Result<String> {
+    let trash_base = trash_base(&app).ok();
     work(&state, move |workspace| {
         let root = std::fs::canonicalize(&path)?;
         if !root.is_dir() {
@@ -195,6 +205,10 @@ async fn workspace_open(
             .to_str()
             .ok_or_else(|| Error::new("INVALID", "UTF-8で表現できないパスです。"))?
             .to_owned();
+        // 30日を過ぎた項目の整理は失敗しても開く処理を止めない
+        if let Some(base) = &trash_base {
+            trash::purge_expired(base, &root);
+        }
         let watched_root = root.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
@@ -273,8 +287,40 @@ async fn file_rename(state: State<'_, Backend>, path: String, new_name: String) 
     work(&state, move |w| files::rename(w.root()?, &path, &new_name)).await
 }
 #[tauri::command]
-async fn file_trash(state: State<'_, Backend>, path: String) -> Result<()> {
-    work(&state, move |w| files::trash(w.root()?, &path)).await
+async fn file_trash(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    path: String,
+) -> Result<TrashItem> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| {
+        trash::move_to_trash(&base, w.root()?, &path)
+    })
+    .await
+}
+#[tauri::command]
+async fn trash_list(app: tauri::AppHandle, state: State<'_, Backend>) -> Result<Vec<TrashItem>> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| trash::list(&base, w.root()?)).await
+}
+#[tauri::command]
+async fn trash_restore(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    id: String,
+) -> Result<Entry> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| trash::restore(&base, w.root()?, &id)).await
+}
+#[tauri::command]
+async fn trash_delete(app: tauri::AppHandle, state: State<'_, Backend>, id: String) -> Result<()> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| trash::delete(&base, w.root()?, &id)).await
+}
+#[tauri::command]
+async fn trash_empty(app: tauri::AppHandle, state: State<'_, Backend>) -> Result<()> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| trash::empty(&base, w.root()?)).await
 }
 #[tauri::command]
 async fn image_read(
@@ -617,6 +663,10 @@ pub fn run() {
             file_create,
             file_rename,
             file_trash,
+            trash_list,
+            trash_restore,
+            trash_delete,
+            trash_empty,
             image_read,
             image_insert,
             image_paste,
