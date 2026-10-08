@@ -29,6 +29,11 @@ function clamp(value: unknown, fallback: number, { min, max }: { min: number; ma
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
+// 設定画面で足した数値は、Rust側の読み込みと同じく、範囲外なら初期値へ戻す
+function inRange(value: unknown, fallback: number, { min, max }: { min: number; max: number }): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
+}
+
 function flag(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -45,13 +50,13 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.fontSize = clamp(settings.fontSize, defaults.fontSize, RANGES.fontSize);
   settings.sidebarWidth = storedPaneWidth(settings.sidebarWidth, SIDEBAR);
   settings.outlineWidth = storedPaneWidth(settings.outlineWidth, OUTLINE);
-  settings.editorWidth = Math.round(clamp(settings.editorWidth, defaults.editorWidth, RANGES.editorWidth));
-  settings.lineHeight = clamp(settings.lineHeight, defaults.lineHeight, RANGES.lineHeight);
+  settings.editorWidth = Math.round(inRange(settings.editorWidth, defaults.editorWidth, RANGES.editorWidth));
+  settings.lineHeight = inRange(settings.lineHeight, defaults.lineHeight, RANGES.lineHeight);
   settings.fontFamily = settings.fontFamily === 'serif' ? 'serif' : 'sans';
-  settings.autosaveDelay = Math.round(clamp(settings.autosaveDelay, defaults.autosaveDelay, RANGES.autosaveDelay));
+  settings.autosaveDelay = Math.round(inRange(settings.autosaveDelay, defaults.autosaveDelay, RANGES.autosaveDelay));
   settings.startInPreview = flag(settings.startInPreview, defaults.startInPreview);
   settings.headingRule = flag(settings.headingRule, defaults.headingRule);
-  settings.recentEditedCount = Math.round(clamp(settings.recentEditedCount, defaults.recentEditedCount, RANGES.recentEditedCount));
+  settings.recentEditedCount = Math.round(inRange(settings.recentEditedCount, defaults.recentEditedCount, RANGES.recentEditedCount));
   settings.recentOpenedAt = readOpened(settings.recentOpenedAt);
   settings.trashRetentionDays = (TRASH_RETENTION_OPTIONS as unknown[]).includes(settings.trashRetentionDays) ? settings.trashRetentionDays : defaults.trashRetentionDays;
   return settings;

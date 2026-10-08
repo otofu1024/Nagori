@@ -80,22 +80,22 @@ test('設定画面の項目は、古い設定では初期値になり、保存�
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
 });
 
-test('範囲外の数値は読み込み時に範囲の端へ直し、型が違う値は初期値にする', () => {
+test('設定画面の範囲外の数値と型が違う値は初期値にし、文字サイズは範囲の端へ直す', () => {
   const restored = startupSettings({
     ...defaults,
     editorWidth: 2000, lineHeight: 0.5, autosaveDelay: 100, recentEditedCount: 99, fontSize: 40,
     fontFamily: 'comic' as never, startInPreview: 'yes' as never, headingRule: 0 as never,
   });
-  assert.equal(restored.editorWidth, 1000);
-  assert.equal(restored.lineHeight, 1.4);
-  assert.equal(restored.autosaveDelay, 300);
-  assert.equal(restored.recentEditedCount, 50);
+  assert.equal(restored.editorWidth, 720);
+  assert.equal(restored.lineHeight, 1.9);
+  assert.equal(restored.autosaveDelay, 500);
+  assert.equal(restored.recentEditedCount, 30);
   assert.equal(restored.fontSize, 32);
   assert.equal(restored.fontFamily, 'sans');
   assert.equal(restored.startInPreview, false);
   assert.equal(restored.headingRule, true);
   const low = startupSettings({ ...defaults, editorWidth: 100, autosaveDelay: 99999, recentEditedCount: 1, lineHeight: 9 });
-  assert.deepEqual([low.editorWidth, low.autosaveDelay, low.recentEditedCount, low.lineHeight], [560, 5000, 10, 2.4]);
+  assert.deepEqual([low.editorWidth, low.autosaveDelay, low.recentEditedCount, low.lineHeight], [720, 500, 30, 1.9]);
   assert.equal(startupSettings({ ...defaults, editorWidth: Number.NaN, lineHeight: '1.9' as never }).editorWidth, 720);
   assert.equal(startupSettings({ ...defaults, lineHeight: '1.9' as never }).lineHeight, 1.9);
 });
@@ -138,4 +138,58 @@ test('開いた時刻の記録は、数値だけを新しい順に200件まで�
   assert.equal('bad.md' in restored.recentOpenedAt, false);
   assert.deepEqual(startupSettings({ ...defaults, recentOpenedAt: [] as never }).recentOpenedAt, {});
   assert.deepEqual(startupSettings({ ...defaults, recentOpenedAt: null as never }).recentOpenedAt, {});
+});
+
+test('設定画面の項目は既定値で始まり、古い設定では既定値で読む', () => {
+  assert.equal(defaults.editorWidth, 720);
+  assert.equal(defaults.lineHeight, 1.9);
+  assert.equal(defaults.fontFamily, 'sans');
+  assert.equal(defaults.autosaveDelay, 500);
+  assert.equal(defaults.startInPreview, false);
+  assert.equal(defaults.headingRule, true);
+  assert.equal(defaults.recentEditedCount, 30);
+  assert.equal(defaults.trashRetentionDays, 30);
+  assert.deepEqual(defaults.recentOpenedAt, {});
+  const legacy = { theme: 'dark' as const, fontSize: 17 };
+  assert.deepEqual(startupSettings(legacy, () => false), { ...defaults, theme: 'dark', fontSize: 17 });
+});
+
+test('設定画面の範囲内の値と最近開いた時刻は保存したとおりに復元する', () => {
+  const saved = {
+    ...defaults,
+    theme: 'light' as const,
+    editorWidth: 1000,
+    lineHeight: 2.4,
+    fontFamily: 'serif' as const,
+    autosaveDelay: 5000,
+    startInPreview: true,
+    headingRule: false,
+    recentEditedCount: 50,
+    trashRetentionDays: null,
+    recentOpenedAt: { 'posts/a.md': 1700000000000, 'b.md': 1700000001000 },
+  };
+  assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
+  for (const days of [7, 14, 30, 60, 90]) {
+    assert.equal(startupSettings({ ...defaults, trashRetentionDays: days }, () => false).trashRetentionDays, days);
+  }
+});
+
+test('設定画面の範囲外の値は読み込み時に初期値へ戻す', () => {
+  const broken = {
+    editorWidth: 559,
+    lineHeight: 2.5,
+    fontFamily: 'mono' as unknown as 'sans',
+    autosaveDelay: 299,
+    recentEditedCount: 9,
+    trashRetentionDays: 45,
+  };
+  const restored = startupSettings({ ...defaults, ...broken }, () => false);
+  assert.equal(restored.editorWidth, 720);
+  assert.equal(restored.lineHeight, 1.9);
+  assert.equal(restored.fontFamily, 'sans');
+  assert.equal(restored.autosaveDelay, 500);
+  assert.equal(restored.recentEditedCount, 30);
+  assert.equal(restored.trashRetentionDays, 30);
+  assert.equal(startupSettings({ ...defaults, editorWidth: 1001 }, () => false).editorWidth, 720);
+  assert.equal(startupSettings({ ...defaults, lineHeight: 1.4 }, () => false).lineHeight, 1.4);
 });

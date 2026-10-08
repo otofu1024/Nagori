@@ -195,6 +195,8 @@ async fn workspace_open(
     path: String,
 ) -> Result<String> {
     let trash_base = trash_base(&app).ok();
+    // 設定が読めない時は既定の30日で整理する
+    let retention_days = read_settings(&app).unwrap_or_default().trash_retention_days;
     work(&state, move |workspace| {
         let root = std::fs::canonicalize(&path)?;
         if !root.is_dir() {
@@ -205,9 +207,9 @@ async fn workspace_open(
             .to_str()
             .ok_or_else(|| Error::new("INVALID", "UTF-8で表現できないパスです。"))?
             .to_owned();
-        // 30日を過ぎた項目の整理は失敗しても開く処理を止めない
+        // 保存期限を過ぎた項目の整理は失敗しても開く処理を止めない
         if let Some(base) = &trash_base {
-            trash::purge_expired(base, &root);
+            trash::purge_expired(base, &root, retention_days);
         }
         let watched_root = root.clone();
         let mut watcher =
@@ -409,25 +411,27 @@ fn external_open(app: tauri::AppHandle, url: String) -> Result<()> {
         .open_url(parsed.as_str(), None::<&str>)
         .map_err(|e| Error::new("OPENER", e.to_string()))
 }
+// 保存された設定を読む。ファイルがなければ初期値を返す
+fn read_settings(app: &tauri::AppHandle) -> Result<Settings> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| Error::new("SETTINGS", e.to_string()))?
+        .join("settings.json");
+    if !path.exists() {
+        return Ok(Settings::default());
+    }
+    let bytes = files::read_limited(&path, 64 * 1024)?;
+    let settings: Settings =
+        serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+    settings.validate()?;
+    Ok(settings)
+}
 #[tauri::command]
 async fn settings_get(app: tauri::AppHandle) -> Result<Settings> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let path = app
-            .path()
-            .app_config_dir()
-            .map_err(|e| Error::new("SETTINGS", e.to_string()))?
-            .join("settings.json");
-        if !path.exists() {
-            return Ok(Settings::default());
-        }
-        let bytes = files::read_limited(&path, 64 * 1024)?;
-        let settings: Settings =
-            serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-        settings.validate()?;
-        Ok(settings)
-    })
-    .await
-    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || read_settings(&app))
+        .await
+        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
 #[tauri::command]
 async fn settings_save(app: tauri::AppHandle, settings: Settings) -> Result<()> {
@@ -525,6 +529,7 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         MenuItem::with_id(app, id, text, true, shortcut)
     };
     let about = P::about(app, Some("Nagoriについて"), None)?;
+    let settings = action("settings-open", "設定…", Some("CmdOrCtrl+,"))?;
     let services = P::services(app, None)?;
     let hide = P::hide(app, None)?;
     let hide_others = P::hide_others(app, None)?;
@@ -539,6 +544,8 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         true,
         &[
             &about,
+            &separator,
+            &settings,
             &separator,
             &cli_install,
             &cli_uninstall,
