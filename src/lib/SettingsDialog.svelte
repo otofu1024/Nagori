@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from './settings.ts';
+  import { rangeFill } from './rangeFill.ts';
 
   let {
     dialog = $bindable(),
@@ -50,13 +51,13 @@
           <label><input type="radio" name="theme" value="system" bind:group={settings.theme} onchange={onChange} /> macOSに合わせる</label>
         </fieldset>
         <label class="range-row">本文の文字サイズ <output>{settings.fontSize}px</output>
-          <input type="range" min={RANGES.fontSize.min} max={RANGES.fontSize.max} step="1" bind:value={settings.fontSize} onchange={onChange} />
+          <input type="range" min={RANGES.fontSize.min} max={RANGES.fontSize.max} step="1" style:--fill={rangeFill(settings.fontSize, RANGES.fontSize)} bind:value={settings.fontSize} onchange={onChange} />
         </label>
         <label class="range-row">本文の幅 <output>{settings.editorWidth}px</output>
-          <input type="range" min={RANGES.editorWidth.min} max={RANGES.editorWidth.max} step="10" bind:value={settings.editorWidth} onchange={onChange} />
+          <input type="range" min={RANGES.editorWidth.min} max={RANGES.editorWidth.max} step="10" style:--fill={rangeFill(settings.editorWidth, RANGES.editorWidth)} bind:value={settings.editorWidth} onchange={onChange} />
         </label>
         <label class="range-row">行間 <output>{settings.lineHeight.toFixed(1)}</output>
-          <input type="range" min={RANGES.lineHeight.min} max={RANGES.lineHeight.max} step="0.1" bind:value={settings.lineHeight} onchange={onChange} />
+          <input type="range" min={RANGES.lineHeight.min} max={RANGES.lineHeight.max} step="0.1" style:--fill={rangeFill(settings.lineHeight, RANGES.lineHeight)} bind:value={settings.lineHeight} onchange={onChange} />
         </label>
         <fieldset>
           <legend>字体</legend>
@@ -65,7 +66,7 @@
         </fieldset>
       {:else if section === 'editor'}
         <label class="range-row">自動保存までの時間 <output>{(settings.autosaveDelay / 1000).toFixed(1)}秒</output>
-          <input type="range" min={RANGES.autosaveDelay.min} max={RANGES.autosaveDelay.max} step="100" bind:value={settings.autosaveDelay} onchange={onChange} />
+          <input type="range" min={RANGES.autosaveDelay.min} max={RANGES.autosaveDelay.max} step="100" style:--fill={rangeFill(settings.autosaveDelay, RANGES.autosaveDelay)} bind:value={settings.autosaveDelay} onchange={onChange} />
         </label>
         <fieldset>
           <legend>記事を開いた時の表示</legend>
@@ -77,7 +78,7 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
       {:else if section === 'sidebar'}
         <label class="range-row">最近編集の件数 <output>{settings.recentEditedCount}件</output>
-          <input type="range" min={RANGES.recentEditedCount.min} max={RANGES.recentEditedCount.max} step="1" bind:value={settings.recentEditedCount} onchange={onChange} />
+          <input type="range" min={RANGES.recentEditedCount.min} max={RANGES.recentEditedCount.max} step="1" style:--fill={rangeFill(settings.recentEditedCount, RANGES.recentEditedCount)} bind:value={settings.recentEditedCount} onchange={onChange} />
         </label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.outlineVisible} onchange={onChange} /> 目次を表示する</label>
       {:else}
@@ -98,8 +99,10 @@
 </dialog>
 
 <style>
-  .settings-dialog { width: min(720px, calc(100% - 40px)); max-width: 720px; height: min(640px, calc(100vh - 80px)); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-  /* 高さを決めた中で、上下の帯が縮んで中身が切れないようにする。アプリのfooter(状態表示の32px)の指定も打ち消す */
+  /* 閉じている時はdialogの既定のdisplay: noneに任せ、ページの下に出ないようにする */
+  .settings-dialog { width: min(720px, calc(100% - 40px)); max-width: 720px; height: min(640px, calc(100vh - 80px)); padding: 0; overflow: hidden; }
+  .settings-dialog[open] { display: flex; flex-direction: column; }
+  /* 高さを決めた中で、上下の帯が縮んで中身が切れないようにする */
   .settings-header, .settings-footer { flex: none; }
   .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
   .settings-header h2 { font-size: 18px; font-weight: 650; color: var(--heading); margin: 0; }
@@ -114,12 +117,18 @@
   .settings-panel label { display: flex; align-items: center; gap: 8px; color: var(--text); }
   .settings-panel .range-row { flex-wrap: wrap; gap: 8px; }
   .range-row output { margin-left: auto; color: var(--muted); font-size: 13px; }
-  .range-row input[type='range'] { flex: 0 0 100%; width: 100%; accent-color: var(--accent); margin: 0; }
+  /* 色の付いた部分は --fill(つまみの中心の位置)で止める。ネイティブの描画だと、値が小さいほど色がつまみより左で止まるため */
+  /* アプリ全体のinputの枠線と内側の余白を外す。余白があると色の端の計算がつまみの中心とずれる */
+  .range-row input[type='range'] { border: none; border-radius: 0; padding: 0; -webkit-appearance: none; appearance: none; flex: 0 0 100%; width: 100%; height: 18px; background: transparent; margin: 0; cursor: pointer; }
+  .range-row input[type='range']::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill), var(--border) var(--fill)); }
+  .range-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 3px #0000001f; }
+  .range-row input[type='range']:focus-visible { outline: none; }
+  .range-row input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
   .select-row { justify-content: space-between; }
   .select-row select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
   .settings-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
   .settings-panel input[type='radio'], .settings-panel input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
-  .settings-footer { height: auto; font-size: inherit; color: inherit; display: flex; justify-content: flex-start; padding: 14px 22px; border-top: 1px solid var(--border); }
+  .settings-footer { display: flex; justify-content: flex-start; padding: 14px 22px; border-top: 1px solid var(--border); }
   .settings-footer button { font-size: 13px; padding: 8px 11px; border: 1px solid var(--border); }
   @media (max-width: 560px) {
     .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }

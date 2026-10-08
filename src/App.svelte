@@ -1252,7 +1252,7 @@
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
       <div class="header-actions">
-        {#if (current?.kind === 'markdown' || plain) && session}{#if !plain}<button
+        {#if (current?.kind === 'markdown' || plain) && session}<span class="char-count">{chars.toLocaleString()} 文字</span>{#if !plain}<button
               class="mode-toggle"
               aria-pressed={previewOnly}
               aria-label={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
@@ -1361,11 +1361,6 @@
           ><small>{project ? '⌘ P で、記事をすばやく探せます。' : 'Markdown · ローカル保存 · macOS'}</small>
         </div>{/if}
     </section>
-    <footer>
-      <span>{current?.kind === 'image' ? '画像プレビュー' : 'あなたのファイルは、このMacに。'}</span><span
-        >{session ? `${chars.toLocaleString()} 文字　 ·　 ${plain ? 'テキスト' : 'Markdown'}` : 'Nagori 0.1'}</span
-      >
-    </footer>
   </main>
 </div>
 {#if notice}<div class="toast" role="status">
