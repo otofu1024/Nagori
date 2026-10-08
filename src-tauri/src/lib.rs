@@ -311,6 +311,13 @@ async fn file_rename(state: State<'_, Backend>, path: String, new_name: String) 
     work(&state, move |w| files::rename(w.root()?, &path, &new_name)).await
 }
 #[tauri::command]
+async fn file_move(state: State<'_, Backend>, path: String, to_directory: String) -> Result<Entry> {
+    work(&state, move |w| {
+        files::move_entry(w.root()?, &path, &to_directory)
+    })
+    .await
+}
+#[tauri::command]
 async fn file_trash(
     app: tauri::AppHandle,
     state: State<'_, Backend>,
@@ -698,6 +705,7 @@ pub fn run() {
             document_save_as,
             file_create,
             file_rename,
+            file_move,
             file_trash,
             trash_list,
             trash_restore,
