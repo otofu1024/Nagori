@@ -4,6 +4,26 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 見出しの線、最近見たページ、サイドバーのカード削除（2026-10-08、feature/sidebar-recent）
+
+作業前のgit log --oneline -1で、指定の起点1bad871を確認した。ATXとSetextの見出し1〜3の下に、本文の幅いっぱいの1pxの灰色の線を付けた。既存の--borderを使い、行の背景として描く。線の下の余白は行のpaddingに含め、本文と選択の位置は変更しない。Setextの記号が見える間は記号の行へ線を移す。Live PreviewとPreviewは同じ行装飾とCSSを使う。Inline CodeのTextWidgetには触れていない。
+
+サイドバーに「最近見たページ」を追加した。Quick Openと同じsettings.recentFilesを新しい順に最大5件表示し、同名のファイルには親フォルダの相対パスを添える。既存のファイル情報をアイコンに使い、未展開の履歴は拡張子で種類を補う。選択はFile Treeと同じselectEntryを通り、保存とIME変換の待ち合わせを共有する。折りたたみ状態は設定に保存しない。欄の高さはサイドバーの40%以下とし、File Treeとは別に既存のスクロールバー表示を使う。履歴が空の時とワークスペースがない時は欄を出さない。
+
+サイドバー下部のカード、専用CSS、ライト用とダーク用の画像2枚を削除した。アプリ内のほかの使用箇所がないことを検索で確認し、design/README.mdには削除日を追記して制作時の記録を残した。「別のフォルダを開く」と「本文の表示設定」は残した。
+
+npm run checkは0エラー・0警告、npm testは追加5件を含む165件、src-tauriでのcargo testは18件が成功し、npm run buildも成功した。既存のCodeMirror言語定義の動的importと500kB超チャンクの警告は残る。追加テストでは履歴の順序、件数、重複、同名の区別、空の履歴、種類、名前変更と削除への追従、見出しの線の対象と表示位置、本文とUndoの保持を確認した。
+
+コーディネーターが用意したhttp://127.0.0.1:1512/の確認ページで、ライトとダーク、サイドバー200pxと420pxを確認した。1700×480の画面では履歴の一覧が114px、File Treeが69px残り、履歴をスクロールしてもFile Treeの位置は変わらなかった。クリックで開く処理、保存後の切り替え、名前変更と削除、Quick Openと同じ履歴、折りたたみ、現在のファイルの色、長い名前の省略を確認した。空の履歴も別の確認ページで欄が出ないことを確認した。
+
+ATXの見出し1〜6と複数行のSetextを含む本文では、線の対象、本文幅、1pxの太さ、記号が見える時の位置を確認した。Previewでも同じ線になり、本文は変わらなかった。目次からの移動では見出しの文字を表示領域の上端から約32pxに合わせ、今読んでいる節の強調も一致した。CodeMirrorの既存の集中モードとタイプライター表示を確認ページへ適用し、線の濃さが見出しと一緒に変わることと、カーソルを中央へ寄せることを確認した。35項目の結果は/private/tmp/nagori-sidebar-recent-qa/checks.jsonにある。
+
+画面画像は/private/tmp/nagori-sidebar-recent-qaのlight-narrow.png、light-wide.png、dark-narrow.png、dark-wide.pngに保存した。Setextの記号表示とPreviewはsetext-active-light.png、setext-active-dark.png、setext-preview-light.png、setext-preview-dark.png、低い画面はshort-window.png、集中モードとタイプライター表示はfocus-typewriter.png、空の履歴はempty-history.pngにある。
+
+OrcaのTabキー操作ではフォーカスが移らず、TabとEnterで開く操作の合格判定は保留した。ネイティブのbuttonとtabIndex=0は確認した。フォルダ選択のモックはキャンセルを返すため、別のワークスペースへの切り替えとワークスペース未選択の画面は未確認。保存・名前変更・削除はメモリ上のモックで確認した。Nagori本体の日本語IME、保存失敗、VoiceOver、実ファイルとの併用は未確認で、QA項目6jに残した。
+
+変更ファイルはsrc/App.svelte、src/app.css、src/lib/RecentFiles.svelte、src/lib/navigation.ts、src/lib/Editor.svelte、src/lib/livePreview.ts、tests/recent-files.test.ts、tests/editor.test.ts、README.md、design/README.md、docs/specification.md、docs/mac-qa-checklist.md、この文書と画像2枚。仕様書は改訂版1.16へ上げた。依存追加、ブランチ名の変更、コミット、push、PR作成は行わず、変更は未コミットで残す。日本語文書をyomiyasu_lint.pyで確認し、既存の表現と必要な手順の箇条書きは残した。
+
 ## Inline Codeの表示（2026-10-08、feature/inline-code-display）
 
 作業前のgit log --oneline -1で、指定の起点1bad871を確認した。カーソルがコードの外にある時、置き換えたTextWidgetにコード用のクラスが付かず、本文と同じ見た目になっていた。TextWidgetにクラス名を渡せるようにし、Inline Codeでは既存のnagori-codeを使う。eqでは文字列とクラス名を比べる。既定のnagori-list-markerは保ち、Editor.svelteのCSSをそのまま使う。

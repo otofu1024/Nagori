@@ -386,6 +386,7 @@
   .editor-host :global(.nagori-h2) { font-size: 1.48em; }
   .editor-host :global(.nagori-h3) { font-size: 1.25em; }
   .editor-host :global(.nagori-h4), .editor-host :global(.nagori-h5), .editor-host :global(.nagori-h6) { font-size: 1.1em; }
+  .editor-host :global(.nagori-heading-rule) { padding-bottom: .8em; background: linear-gradient(var(--border), var(--border)) left calc(100% - .5em) / 100% 1px no-repeat; }
   .editor-host :global(.nagori-quote) { border-left: 4px solid var(--border); border-radius: 2px; padding-left: 15px; color: var(--muted); }
   .editor-host :global(.nagori-list-marker) { display: inline; }
   .editor-host :global(input[type='checkbox']) { accent-color: var(--accent-bright); vertical-align: middle; margin-right: 7px; width: 16px; height: 16px; cursor: pointer; }

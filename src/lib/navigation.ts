@@ -12,6 +12,15 @@ export function candidates(entries:Entry[], query:string, recent:string[]):Entry
   return files.map(entry=>({entry,score:fuzzyScore(entry.path,query)})).filter(item=>item.score!==null).sort((a,b)=>b.score!-a.score!||a.entry.path.localeCompare(b.entry.path)).slice(0,50).map(item=>item.entry);
 }
 export function parentPath(path:string) {const slash=path.lastIndexOf('/');return slash<0?'':path.slice(0,slash);}
+export function recentPages(recent:string[], entries:Entry[]) {
+  const kinds = new Map(entries.map(entry => [entry.path, entry.kind]));
+  const pages = [...new Set(recent)].slice(0, 5).map(path => ({
+    path,
+    name: path.split('/').at(-1)!,
+    kind: kinds.get(path) ?? (/\.(md|markdown)$/i.test(path) ? 'markdown' : /\.(png|jpe?g|gif|webp)$/i.test(path) ? 'image' : 'other'),
+  } satisfies Entry));
+  return pages.map(entry => ({ ...entry, parent: pages.some(other => other.path !== entry.path && other.name === entry.name) ? parentPath(entry.path) || 'プロジェクト直下' : '' }));
+}
 export function containsPath(folder:string,path:string) {return folder===path||path.startsWith(folder+'/');}
 export function renamedPath(path:string, old:string, next:string) {return containsPath(old,path)?next+path.slice(old.length):path;}
 export function localLink(documentPath:string,href:string):string {

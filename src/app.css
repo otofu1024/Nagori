@@ -197,6 +197,13 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
 .tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
+.recent-files { display: flex; flex-direction: column; min-height: 0; max-height: 40%; flex-shrink: 0; margin-bottom: 10px; }
+.recent-heading { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 100%; padding: 8px 12px; color: var(--muted); font-size: 12px; text-align: left; }
+.recent-list { min-height: 0; overflow: auto; }
+.recent-list[hidden] { display: none; }
+.recent-label { display: flex; flex-direction: column; min-width: 0; }
+.recent-label small { color: var(--muted); font-size: 11px; }
+.recent-label .file-name, .recent-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row { display: flex; align-items: center; width: 100%; gap: 10px; padding: 9px 12px; text-align: left; margin: 2px 0; font-size: 14.5px; color: var(--text); min-height: 40px; border-radius: 12px; }
 .tree-row.active { background: var(--accent-soft); color: var(--accent); }
 .tree-row.selected:not(.active) { border-color: var(--border); }
@@ -218,14 +225,6 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .settings label { display: block; margin: 10px 0 12px; }
 .settings output { float: right; color: var(--muted); }
 .settings input[type="range"] { width: 100%; accent-color: var(--accent); padding: 0; margin-top: 12px; }
-/* サイドバー下部のカード。絵の下側(波とN)を見せ、左上に短い文を重ねる */
-.sidebar-card { position: relative; height: 196px; margin-top: 12px; border-radius: 18px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
-.sidebar-card-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center bottom; }
-.sidebar-card-dark { display: none; }
-:root[data-theme="dark"] .sidebar-card-light { display: none; }
-:root[data-theme="dark"] .sidebar-card-dark { display: block; }
-.sidebar-card p { position: relative; margin: 0; padding: 22px 22px 0; font-size: 14px; line-height: 1.55; letter-spacing: .01em; color: var(--heading); }
-@media (max-height: 760px) { .sidebar-card { display: none; } }
 main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
 .editor-header { height: 60px; flex-shrink: 0; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .breadcrumb { font-size: 13px; display: flex; align-items: center; gap: 11px; min-width: 0; color: var(--muted); }
