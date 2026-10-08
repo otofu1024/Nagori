@@ -1,4 +1,5 @@
-export type Entry={path:string;name:string;kind:'directory'|'markdown'|'image'|'other'|'symlink'};
+// modifiedはファイルの更新日時（Unixのミリ秒）。ディレクトリや取得できない時は無い
+export type Entry={path:string;name:string;kind:'directory'|'markdown'|'image'|'other'|'symlink';modified?:number};
 export function fuzzyScore(path:string, query:string):number|null {
   const target=path.toLocaleLowerCase(), needle=query.toLocaleLowerCase().trim();
   let at=0, score=0, previous=-2;

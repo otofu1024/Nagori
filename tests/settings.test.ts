@@ -22,6 +22,14 @@ test('目次は初期状態と旧設定で表示し、保存した表示・非�
   }
 });
 
+test('スターは旧設定で空になり、ワークスペースごとに保存・復元できる', () => {
+  assert.deepEqual(defaults.starred, {});
+  const { starred: _, ...legacy } = defaults;
+  assert.deepEqual(startupSettings(legacy, () => false).starred, {});
+  const saved = { ...defaults, theme: 'light' as const, starred: { '/Users/me/notes': ['a.md', 'posts/b.md'], '/Users/me/other': [] } };
+  assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
+});
+
 test('first launch resolves OS once; stored theme survives OS changes and toggles directly', () => {
   for (const dark of [false, true]) {
     const first = startupSettings(defaults, () => dark);
