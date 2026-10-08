@@ -14,7 +14,7 @@
   const items = [
     { view: 'all', label: 'すべてのノート', icon: 'file' },
     { view: 'starred', label: 'スター付き', icon: 'star' },
-    { view: 'recent', label: '最近編集', icon: 'clock' },
+    { view: 'recent', label: '最近見たノート', icon: 'clock' },
     { view: 'trash', label: 'ゴミ箱', icon: 'trash' },
   ] as const;
 

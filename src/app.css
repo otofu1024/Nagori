@@ -197,7 +197,7 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
 .tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
-/* すべてのノート・スター付き・最近編集・ゴミ箱。フォルダと同じ領域を切り替えて使う */
+/* すべてのノート・スター付き・最近見たノート・ゴミ箱。フォルダと同じ領域を切り替えて使う */
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
 .nav-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: 8px 12px; text-align: left; font-size: 14px; color: var(--text); border-radius: 12px; }
 .nav-row .file-icon { color: var(--muted); }

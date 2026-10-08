@@ -1,5 +1,15 @@
 # Nagori MVP 検証状況
 
+## 最近見たノートの名前（2026-10-08、feature/recent-rename）
+
+サイドバーのナビとノート一覧で「最近編集」と出ていた名前を「最近見たノート」に変えた。一覧の中身と並びは変えていない。並びは、最後にNagoriで開いた時刻とファイルの更新日時の新しい方の順のままである。
+
+変えたのは、ナビの項目（src/lib/SidebarNav.svelte）、一覧の見出しと読み上げ用の名前と空の時の案内（src/App.svelte）、設定画面の項目名の表示（「最近見たノートの件数」、src/lib/SettingsDialog.svelte）、コードのコメント、テストの名前、README、仕様書（改訂版1.22）、QA手順書の該当の箇所である。設定の項目名（recentEditedCount）、関数・変数・ファイルの名前は変えていない。保存した設定との互換は保たれる。
+
+確認したこと。tests/recentLabel.test.tsを足した。サイドバー・一覧・設定画面の画面のファイルに「最近編集」が残らないこと、ナビの項目名が「最近見たノート」であること、設定の項目名recentEditedCountが残ることを確かめる。`npm run check`は0エラー・0警告、`npm test`は203件すべて成功、`cd src-tauri && cargo test`は38件すべて成功、`npm run build`は成功した。
+
+確かめられなかったこと。Macアプリで、ナビと一覧の見出しの表示、VoiceOverの読み上げ、既存の設定ファイルでの件数の引き継ぎ。Web版の確認ページの画面撮影。これらは[QA項目6o](mac-qa-checklist.md#項目6o-最近見たノートの名前)の手順で確認する。
+
 ## 設定画面の表示と本文の文字数（2026-10-08、feature/settings-fix）
 
 閉じている設定画面がページの下に出ていた原因は、`.settings-dialog`の`display: flex`が、閉じたdialogの既定の`display: none`を上書きしていたことだった。`display: flex`を`.settings-dialog[open]`へ移し、開いている時だけflexにした。
