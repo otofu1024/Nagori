@@ -130,7 +130,7 @@
   const recentList = $derived(recentlyEdited(index, settings.recentOpenedAt, settings.recentEditedCount));
   const navCounts = $derived({ all: allList.length, starred: starredList.length, recent: recentList.length, trash: trashItems.length });
   // ナビで選んだ一覧の見出し。フォルダの表示のときは使わない
-  const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近編集', trash: 'ゴミ箱' };
+  const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近見たノート', trash: 'ゴミ箱' };
   const starred = $derived(!!current && starredPaths.includes(current.path));
   $effect(() => {
     document.documentElement.dataset.theme = theme;
@@ -400,7 +400,7 @@
       throw error;
     }
   }
-  // 保存した記事の更新日時を今にして、最近編集の一覧へ反映する
+  // 保存した記事の更新日時を今にして、最近見たノートの一覧へ反映する
   async function saveDocument(path: string, text: string, baseline: string) {
     const result = await invoke<{ baseline: string }>('document_save', { path, text, baseline });
     index = index.map((entry) => (entry.path === path ? { ...entry, modified: Date.now() } : entry));
@@ -1004,7 +1004,7 @@
   }
   async function resetSettings() {
     if (!settingsLoaded) return;
-    const ok = await confirm('表示・エディタ・サイドバー・ゴミ箱の設定を初期値に戻します。最近編集の記録、スター、ワークスペースは消しません。', {
+    const ok = await confirm('表示・エディタ・サイドバー・ゴミ箱の設定を初期値に戻します。最近見たノートの記録、スター、ワークスペースは消しません。', {
       title: '設定を初期値に戻す',
       kind: 'warning',
       okLabel: '初期値に戻す',
@@ -1213,12 +1213,12 @@
       />
     {:else}
       <NoteList
-        label={view === 'all' ? 'すべてのノート' : view === 'starred' ? 'スター付きのノート' : '最近編集したノート'}
+        label={view === 'all' ? 'すべてのノート' : view === 'starred' ? 'スター付きのノート' : '最近見たノート'}
         notes={view === 'all' ? allList : view === 'starred' ? starredList : recentList}
         current={current?.path}
         {busy}
         dated={view === 'recent'}
-        empty={view === 'all' ? 'Markdownの記事はまだありません。' : view === 'starred' ? 'スターを付けた記事はここに並びます。' : '最近編集した記事はここに並びます。'}
+        empty={view === 'all' ? 'Markdownの記事はまだありません。' : view === 'starred' ? 'スターを付けた記事はここに並びます。' : '最近見た記事はここに並びます。'}
         onSelect={(entry) => void selectEntry(entry)}
         onContextMenu={(event, entry) => void contextMenu(event, entry)}
       />

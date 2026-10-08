@@ -5,7 +5,7 @@ export type Theme = 'light' | 'dark';
 // starredはワークスペースのルートの絶対パスをキーに、スターを付けた記事の相対パスを新しい順に持つ
 export type Settings = {
   lastProject: string | null; lastFile: string | null; theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean; starred: Record<string, string[]>;
-  // 記事を最後に開いた時刻（ミリ秒）を相対パスごとに持つ。最近編集の並びに使う
+  // 記事を最後に開いた時刻（ミリ秒）を相対パスごとに持つ。最近見たノートの並びに使う
   recentOpenedAt: Record<string, number>;
   // 設定画面の項目。範囲外の値は読み込み時に範囲の端へ直す
   editorWidth: number; lineHeight: number; fontFamily: FontFamily; autosaveDelay: number; startInPreview: boolean; headingRule: boolean; recentEditedCount: number; trashRetentionDays: TrashRetentionDays;
@@ -72,7 +72,7 @@ export function nextTheme(theme: Theme): Theme {
   return theme === 'dark' ? 'light' : 'dark';
 }
 
-// 「すべて初期値に戻す」。最近編集の記録・スター・ワークスペースは残す
+// 「すべて初期値に戻す」。最近見たノートの記録・スター・ワークスペースは残す
 export function resetPreferences(current: Settings): Settings {
   return {
     ...defaults,

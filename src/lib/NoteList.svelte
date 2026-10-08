@@ -3,7 +3,7 @@
   import { activityScrollbar } from './activityScrollbar.ts';
   import { formatNoteDate, type NoteItem } from './noteLists.ts';
 
-  // すべてのノート・スター付き・最近編集で使う、記事の一覧
+  // すべてのノート・スター付き・最近見たノートで使う、記事の一覧
   let { label, notes, current, busy, empty, dated = false, onSelect, onContextMenu }: {
     label: string;
     notes: NoteItem[];

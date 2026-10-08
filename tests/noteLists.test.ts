@@ -39,7 +39,7 @@ test('同じ名前の記事は親フォルダを添え、直下の記事には�
   assert.deepEqual(withParentLabels([md('一.md')]).map(note => note.parent), ['']);
 });
 
-test('最近編集は更新日時の新しい順に並べ、日時のない記事は外し、最大30件にする', () => {
+test('最近見たノートは更新日時の新しい順に並べ、日時のない記事は外し、最大30件にする', () => {
   const entries: Entry[] = [md('古い.md', 100), md('新しい.md', 300), md('日時なし.md'), dir('フォルダ'), md('中.md', 200)];
   assert.deepEqual(recentlyEdited(entries).map(note => note.path), ['新しい.md', '中.md', '古い.md']);
   const many = Array.from({ length: 35 }, (_, index) => md(`${index}.md`, index));
@@ -86,7 +86,7 @@ test('日時の表示は今日・昨日・同じ年・別の年で切り替え�
   assert.equal(formatNoteDate(new Date(2026, 0, 1, 0, 0).getTime(), new Date(2026, 0, 1, 23, 0).getTime()), '今日 00:00');
 });
 
-test('最近編集は、更新日時と最後に開いた時刻の新しい方で並び、開いただけの記事も入る', () => {
+test('最近見たノートは、更新日時と最後に開いた時刻の新しい方で並び、開いただけの記事も入る', () => {
   const entries = [
     { path: '更新.md', name: '更新.md', kind: 'markdown' as const, modified: 3000 },
     { path: '開いた.md', name: '開いた.md', kind: 'markdown' as const, modified: 1000 },

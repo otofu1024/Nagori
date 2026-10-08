@@ -1,4 +1,4 @@
-// ノートの一覧（すべてのノート・スター付き・最近編集・ゴミ箱）の並びと表示を決める。画面には出さない純粋な処理。
+// ノートの一覧（すべてのノート・スター付き・最近見たノート・ゴミ箱）の並びと表示を決める。画面には出さない純粋な処理。
 import { containsPath, parentPath, renamedPath, type Entry } from './navigation.ts';
 
 // Rust側のTrashItemと同じ形。deletedAtはミリ秒、sizeはバイト
@@ -36,7 +36,7 @@ export function allNotes(entries: Entry[]): NoteItem[] {
 // 開いた時刻の記録は、この件数までを新しい順に残す
 export const OPENED_LIMIT = 200;
 
-// 最近編集: 更新日時と最後に開いた時刻のうち新しい方の順に、Markdownの記事を最大件数まで並べる。
+// 最近見たノート: 更新日時と最後に開いた時刻のうち新しい方の順に、Markdownの記事を最大件数まで並べる。
 // 開いただけの記事も入る。どちらも取れない記事は外す。並べた日時は新しい方で置き換える
 export function recentlyEdited(entries: Entry[], opened: Record<string, number> = {}, limit = RECENT_NOTE_LIMIT): NoteItem[] {
   const notes = entries
