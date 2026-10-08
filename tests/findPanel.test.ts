@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState, StateEffect, Transaction } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorView, showPanel, type ViewUpdate } from '@codemirror/view';
 import { history, undo, redo } from '@codemirror/commands';
-import { SearchQuery, setSearchQuery } from '@codemirror/search';
+import { SearchQuery, setSearchQuery, getSearchQuery, openSearchPanel } from '@codemirror/search';
 import { findExtension, findReplaceBlocked, searchSummary, navigateMatch, replaceMatches } from '../src/lib/findPanel.ts';
 
 function editor(text: string, query: { search: string; replace?: string; regexp?: boolean; caseSensitive?: boolean }) {
@@ -38,6 +38,94 @@ test('現在位置と前後の移動は文末で折り返す', () => {
   navigateMatch(view); assert.equal(searchSummary(view.state).current, 2);
   navigateMatch(view); assert.equal(searchSummary(view.state).current, 1);
   navigateMatch(view, true); assert.equal(searchSummary(view.state).current, 2);
+});
+
+test('入力中は今の一致の先頭から絞り込み、一致がなくなっても選択を保つ', () => {
+  for (const regexp of [false, true]) {
+    const { view, transactions } = editor('autumn12 autumn12', { search: '', regexp });
+    for (const search of ['a', 'au', 'aut', 'autu', 'autum', 'autumn', 'autumn1', 'autumn12']) {
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search, regexp, literal: true })) });
+      assert.ok(navigateMatch(view, false, true));
+      assert.equal(view.state.selection.main.from, 0);
+      assert.equal(view.state.selection.main.to, search.length);
+      assert.equal(searchSummary(view.state).current, 1);
+      assert.ok(transactions.at(-1)!.isUserEvent('select.search'));
+    }
+    const selected = view.state.selection;
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'autumn123', regexp, literal: true })) });
+    assert.equal(navigateMatch(view, false, true), false);
+    assert.ok(view.state.selection.eq(selected));
+    assert.equal(view.state.doc.toString(), 'autumn12 autumn12');
+    assert.equal(undo(view), false);
+  }
+});
+
+test('重なる文字列の一致も後ろから選べる', () => {
+  const { view } = editor('ababa', { search: 'aba' });
+  view.dispatch({ selection: { anchor: 5 } });
+  navigateMatch(view, true);
+  assert.equal(view.state.selection.main.from, 2);
+  assert.equal(view.state.selection.main.to, 5);
+  navigateMatch(view, true);
+  assert.equal(view.state.selection.main.from, 2);
+});
+
+test('検索欄と置換欄の入力、Enter、前後ボタンは入力欄を全選択しない', () => {
+  const element = () => ({
+    children: [] as ReturnType<typeof element>[], value: '', textContent: '', hidden: false, disabled: false,
+    attributes: {} as Record<string, string>, selectCalls: 0,
+    oninput: null as (() => void) | null, onclick: null as (() => void) | null,
+    onkeydown: null as ((event: object) => void) | null,
+    setAttribute(name: string, value: string) { this.attributes[name] = value; },
+    append(...children: ReturnType<typeof element>[]) { this.children.push(...children); },
+    addEventListener() {},
+    focus() { dom.activeElement = this; }, select() { this.selectCalls++; },
+  });
+  const dom = { createElement: element, activeElement: null as ReturnType<typeof element> | null };
+  const saved = globalThis.document;
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom });
+  try {
+    const { view } = editor('autumn12 autumn12', { search: '' });
+    openSearchPanel(view);
+    const create = view.state.facet(showPanel).find(panel => panel)!;
+    const panel = create(view), root = panel.dom as unknown as ReturnType<typeof element>;
+    const [input, count, , , toggle, previous, next] = root.children[0].children;
+    const replacement = root.children[1].children[0];
+    Object.defineProperty(view, 'root', { value: dom });
+    Object.defineProperty(view, 'plugin', { value: () => ({ specs: [create], panels: [panel] }) });
+    const dispatch = view.dispatch;
+    view.dispatch = (...specs) => {
+      dispatch(...specs);
+      panel.update?.({ transactions: [], docChanged: false } as unknown as ViewUpdate);
+    };
+    panel.mount!();
+    assert.equal(input.selectCalls, 1);
+    assert.equal(count.attributes['aria-live'], 'polite');
+    for (const char of 'autumn12') {
+      input.value += char; input.oninput!();
+      assert.equal(getSearchQuery(view.state).search, input.value);
+      assert.equal(view.state.selection.main.from, 0);
+      assert.equal(view.state.selection.main.to, input.value.length);
+      assert.equal(input.selectCalls, 1);
+    }
+    for (const shiftKey of [false, true]) {
+      root.onkeydown!({ key: 'Enter', target: input, shiftKey, preventDefault() {} });
+      assert.equal(input.selectCalls, 1);
+    }
+    next.onclick!(); previous.onclick!();
+    assert.equal(input.selectCalls, 1);
+    toggle.onclick!();
+    for (const char of 'winter34') {
+      replacement.value += char; replacement.oninput!();
+      assert.equal(getSearchQuery(view.state).replace, replacement.value);
+      assert.equal(replacement.selectCalls, 0);
+    }
+    assert.equal(input.value, 'autumn12');
+    assert.equal(replacement.value, 'winter34');
+  } finally {
+    if (saved === undefined) Reflect.deleteProperty(globalThis, 'document');
+    else Object.defineProperty(globalThis, 'document', { configurable: true, value: saved });
+  }
 });
 
 test('不正な正規表現と空の検索は本文とUndoを変更しない', () => {

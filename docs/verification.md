@@ -4,6 +4,14 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 検索パネルで英数字が1文字ずつ上書きされる不具合（2026-10-08、feature/find-typing）
+
+ユーザーの報告で、検索パネルに英数字を打つと、入力欄の文字が1文字ずつ置き換わることを直した。`autumn`と1文字ずつ打つと、入力欄は`a`、`u`、`t`のように直前の文字が消え、そのたびに1文字で検索していた。原因は、入力のたびに呼んでいた`@codemirror/search`の`findNext`が、一致へ選択を移した後に`selectSearchInput`で検索の入力欄の文字を全部選択することだった。日本語は変換の確定でまとめて入るので目立たなかった。
+
+`src/lib/findPanel.ts`の`navigateMatch`で、一致を自前で探して`select.search`の選択として移し、入力欄を選択しないようにした。入力しながらの検索は今の選択の先頭から探し直し、`a`から`autumn`まで同じ一致に留まって絞り込む。Enter・Shift+Enter・前へ・次へ・正規表現の空の一致・置換の扱いは変えていない。回帰テストを3件足した。
+
+npm run checkは0エラー・0警告、npm testは170件、cargo testは18件が成功し、npm run buildも成功した。Web版で、`autumn`を1文字ずつ打った時の入力欄と件数、Enter・Shift+Enterの移動、Enterの後に続けて打つ文字、置換欄への1文字ずつの入力を確かめた。WKWebViewの確認は、Inline Codeの表示113項目がすべて通った。日本語入力の223項目と入力モードの45項目は、3回のうち1回ずつが全項目成功し、ほかの回は毎回違う1〜2項目が落ちた。今回の変更が触れない処理での測定の揺れと見ている。Nagori本体の物理キーでの入力は未確認。
+
 ## 見出しの線、最近見たページ、サイドバーのカード削除（2026-10-08、feature/sidebar-recent）
 
 作業前のgit log --oneline -1で、指定の起点1bad871を確認した。ATXとSetextの見出し1〜3の下に、本文の幅いっぱいの1pxの灰色の線を付けた。既存の--borderを使い、行の背景として描く。線の下の余白は行のpaddingに含め、本文と選択の位置は変更しない。Setextの記号が見える間は記号の行へ線を移す。Live PreviewとPreviewは同じ行装飾とCSSを使う。Inline CodeのTextWidgetには触れていない。
