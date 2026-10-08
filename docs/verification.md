@@ -4,6 +4,26 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 設定の項目とゴミ箱の保存期限（2026-10-08、feature/settings-backend）
+
+設定に、設定画面で使う項目を足した。Rustのsrc-tauri/src/files.rsのSettingsと、src/lib/settings.tsのSettingsに、本文の幅（editorWidth）、行間（lineHeight）、字体（fontFamily）、自動保存までの待ち時間（autosaveDelay）、Previewで始めるか（startInPreview）、見出しの下線（headingRule）、最近編集の件数（recentEditedCount）、ゴミ箱の保存期限（trashRetentionDays）を入れた。記事ごとに最後に開いた時刻を持つrecentOpenedAtも入れた。項目のない古い設定は既定値で読む。範囲外の数値は読み込み時に初期値へ戻す。recentOpenedAtは時刻が数でない項目を捨て、200件を超えた時は古いものから捨てる。字体はsansとserif以外をsansへ戻す。ゴミ箱の保存期限は7・14・30・60・90日とnull（無期限）だけを残し、それ以外は30日へ戻す。保存時には拒否しない。範囲は数値ごとに定め、TypeScriptではsrc/lib/settings.tsのRANGESにまとめた。
+
+アプリのメニューのNagoriの下に「設定…」（Cmd＋,、アクションのid settings-open）を足した。既存のメニューと同じく、フロントへ nagori:menu のイベントとして届く。画面はワーカーBの担当で、この変更では作っていない。
+
+ゴミ箱の自動の整理は、ワークスペースを開く時に保存されたtrashRetentionDaysで行う。nullの時は整理しない。設定が読めない時は30日とする。設定の読み込みはsettings_getと同じread_settingsにまとめた。
+
+テーマの 'system' は、Rustの検証が既に受け付けていたので変えていない。仕様のテーマの項目は、「macOSに合わせる」を選んだ時だけOSの外観に追従する形に直した。
+
+決めた挙動は次のとおり。範囲外の数値は、既存のsidebarWidthと同じく範囲の端ではなく初期値へ戻す。字体と保存期限は、選べない値を既定値へ戻す。型が違う値（文字列の真偽値、本文の幅がnullなど）は、既存の項目と同じく読み込みを失敗させる。
+
+テストを足した。Rustでは、既定値と古い設定、範囲内の値の保存と読み直し、範囲の両端、範囲外の数値と字体と保存期限の扱い、型の違いの拒否を確かめる settings_panel_fields_default_and_read_back_in_range（src-tauri/src/files.rs）を1件、最近開いた時刻の不正な項目の除外と200件の上限を確かめる recent_opened_times_drop_bad_entries_and_keep_the_newest_200（同）を1件、保存期限の日数の違いと無期限の扱いを確かめる purge_follows_the_saved_retention_and_skips_unlimited（src-tauri/src/trash.rs）を1件足した。TypeScriptでは、tests/settings.test.tsに3件を足し、既定値と古い設定、範囲内の往復と最近開いた時刻、範囲外の初期値への補正を確かめる。npm testは187件すべて成功し、npm run checkは0エラー・0警告、cargo testは38件成功し、npm run buildは成功した。ビルドの500kB超チャンクの警告は既存のまま残る。
+
+迷って判断した点。'system' を起動時に一度だけ解決する既存の処理（startupSettings）は変えていない。「macOSに合わせる」を選んだ後に、OSの切り替えへ追従するかは、画面の担当が起動時の解決をどう扱うかに依る。この変更では判断していない。
+
+確かめられなかったこと。Mac実機で「設定…」の表示とCmd＋,の動き、期限を過ぎた項目が実際にFinderのゴミ箱へ入ること（手順は[QA項目6m](mac-qa-checklist.md#項目6m-設定の項目とゴミ箱の保存期限)）。ワーカーBの画面と組み合わせた動き。「最近見たページ」を「最近編集」へ統合する作業は、画面の担当が行う。この変更では、§4.2と§13の「最近見たページ」の記述と、既存のQA項目6jと6l、verificationの既存の節には手を入れていない。
+
+変更ファイルはsrc-tauri/src/lib.rs、src-tauri/src/files.rs、src-tauri/src/trash.rs、src/lib/settings.ts、tests/settings.test.ts、docs/specification.md、docs/verification.md、docs/mac-qa-checklist.md。
+
 ## サイドバーのナビとノートの一覧（2026-10-08、feature/notes-nav）
 
 サイドバーの上に「すべてのノート」「スター付き」「最近編集」「ゴミ箱」のナビを追加した。項目を押すと、File Treeの場所にその一覧を出す。「フォルダ」の見出しか、選んでいる項目をもう一度押すとFile Treeに戻る。どの一覧を選んでいるかは保存しない。

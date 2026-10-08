@@ -77,13 +77,13 @@ pub struct Settings {
     pub font_size: u8,
     pub recent_files: Vec<String>,
     #[serde(
-        deserialize_with = "deserialize_pane_width::<_, 200, 420, 272>",
-        serialize_with = "serialize_pane_width::<_, 200, 420, 272>"
+        deserialize_with = "deserialize_ranged::<_, 200, 420, 272>",
+        serialize_with = "serialize_ranged::<_, 200, 420, 272>"
     )]
     pub sidebar_width: u16,
     #[serde(
-        deserialize_with = "deserialize_pane_width::<_, 180, 360, 220>",
-        serialize_with = "serialize_pane_width::<_, 180, 360, 220>"
+        deserialize_with = "deserialize_ranged::<_, 180, 360, 220>",
+        serialize_with = "serialize_ranged::<_, 180, 360, 220>"
     )]
     pub outline_width: u16,
     pub outline_visible: bool,
@@ -91,6 +91,25 @@ pub struct Settings {
     pub typewriter_mode: bool,
     // キーはワークスペースのルートの絶対パス、値はスターを付けた記事の相対パス
     pub starred: BTreeMap<String, Vec<String>>,
+    // 設定画面の項目。範囲外の値は保存時に拒否せず、読み込み時に初期値へ戻す
+    #[serde(deserialize_with = "deserialize_ranged::<_, 560, 1000, 720>")]
+    pub editor_width: u16,
+    #[serde(deserialize_with = "deserialize_line_height")]
+    pub line_height: f64,
+    #[serde(deserialize_with = "deserialize_font_family")]
+    pub font_family: String,
+    #[serde(deserialize_with = "deserialize_ranged::<_, 300, 5000, 500>")]
+    pub autosave_delay: u16,
+    pub start_in_preview: bool,
+    pub heading_rule: bool,
+    #[serde(deserialize_with = "deserialize_ranged::<_, 10, 50, 30>")]
+    pub recent_edited_count: u16,
+    // nullは無期限。7・14・30・60・90以外の値は30日へ直す
+    #[serde(deserialize_with = "deserialize_retention")]
+    pub trash_retention_days: Option<u16>,
+    // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
+    #[serde(deserialize_with = "deserialize_recent_opened")]
+    pub recent_opened_at: BTreeMap<String, u64>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -106,12 +125,21 @@ impl Default for Settings {
             focus_mode: false,
             typewriter_mode: false,
             starred: BTreeMap::new(),
+            editor_width: 720,
+            line_height: 1.9,
+            font_family: "sans".into(),
+            autosave_delay: 500,
+            start_in_preview: false,
+            heading_rule: true,
+            recent_edited_count: 30,
+            trash_retention_days: Some(30),
+            recent_opened_at: BTreeMap::new(),
         }
     }
 }
 
 // 読み込みと保存の両方で、範囲外の幅を初期値へ戻す。
-fn deserialize_pane_width<
+fn deserialize_ranged<
     'de,
     D: serde::Deserializer<'de>,
     const MIN: u16,
@@ -130,7 +158,7 @@ fn deserialize_pane_width<
     )
 }
 
-fn serialize_pane_width<
+fn serialize_ranged<
     S: serde::Serializer,
     const MIN: u16,
     const MAX: u16,
@@ -145,6 +173,59 @@ fn serialize_pane_width<
         INITIAL
     })
 }
+// 行間は1.4〜2.4の範囲だけを受け付け、範囲外は初期値の1.9へ戻す
+fn deserialize_line_height<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<f64, D::Error> {
+    let height = f64::deserialize(deserializer)?;
+    Ok(if height.is_finite() && (1.4..=2.4).contains(&height) {
+        height
+    } else {
+        1.9
+    })
+}
+
+// 字体は sans と serif だけを受け付け、それ以外は sans へ戻す
+fn deserialize_font_family<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    let family = String::deserialize(deserializer)?;
+    Ok(match family.as_str() {
+        "serif" => family,
+        _ => "sans".into(),
+    })
+}
+
+// 保存期限はnull（無期限）か選べる日数だけを受け付け、それ以外は30日へ戻す
+fn deserialize_retention<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<u16>, D::Error> {
+    let days = Option::<f64>::deserialize(deserializer)?;
+    Ok(match days {
+        None => None,
+        Some(days) if [7.0, 14.0, 30.0, 60.0, 90.0].contains(&days) => Some(days as u16),
+        Some(_) => Some(30),
+    })
+}
+
+// 最近開いた時刻は、時刻が数でない項目を捨て、上限を超えたら古いものから捨てる
+const RECENT_OPENED_LIMIT: usize = 200;
+fn deserialize_recent_opened<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, u64>, D::Error> {
+    let entries = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut opened: Vec<(String, u64)> = entries
+        .into_iter()
+        .filter_map(|(path, time)| {
+            let time = time.as_f64().filter(|time| time.is_finite() && *time >= 0.0)?;
+            Some((path, time as u64))
+        })
+        .collect();
+    opened.sort_by_key(|(_, time)| std::cmp::Reverse(*time));
+    opened.truncate(RECENT_OPENED_LIMIT);
+    Ok(opened.into_iter().collect())
+}
+
 impl Settings {
     pub fn validate(&self) -> Result<()> {
         if !["system", "light", "dark"].contains(&self.theme.as_str())
@@ -961,6 +1042,122 @@ mod tests {
             ..Settings::default()
         };
         assert!(empty_path.validate().is_err());
+    }
+
+    #[test]
+    fn settings_panel_fields_default_and_read_back_in_range() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.editor_width, 720);
+        assert_eq!(defaults.line_height, 1.9);
+        assert_eq!(defaults.font_family, "sans");
+        assert_eq!(defaults.autosave_delay, 500);
+        assert!(!defaults.start_in_preview);
+        assert!(defaults.heading_rule);
+        assert_eq!(defaults.recent_edited_count, 30);
+        assert_eq!(defaults.trash_retention_days, Some(30));
+        assert!(defaults.recent_opened_at.is_empty());
+        // 項目のない古い設定は初期値で読む
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark","fontSize":17}"#).unwrap();
+        assert_eq!(old.editor_width, 720);
+        assert_eq!(old.trash_retention_days, Some(30));
+        assert!(old.heading_rule && !old.start_in_preview);
+        assert!(old.recent_opened_at.is_empty());
+        // 範囲内の値は保存して読み直しても同じ
+        let stored = r#"{"editorWidth":900,"lineHeight":2.2,"fontFamily":"serif","autosaveDelay":1200,"startInPreview":true,"headingRule":false,"recentEditedCount":45,"trashRetentionDays":90,"recentOpenedAt":{"posts/a.md":1700000000000}}"#;
+        let settings: Settings = serde_json::from_str(stored).unwrap();
+        settings.validate().unwrap();
+        assert_eq!(settings.editor_width, 900);
+        assert_eq!(settings.line_height, 2.2);
+        assert_eq!(settings.font_family, "serif");
+        assert_eq!(settings.autosave_delay, 1200);
+        assert!(settings.start_in_preview && !settings.heading_rule);
+        assert_eq!(settings.recent_edited_count, 45);
+        assert_eq!(settings.trash_retention_days, Some(90));
+        assert_eq!(settings.recent_opened_at["posts/a.md"], 1700000000000);
+        let restored: Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restored.editor_width, 900);
+        assert_eq!(restored.line_height, 2.2);
+        assert_eq!(restored.font_family, "serif");
+        assert_eq!(restored.trash_retention_days, Some(90));
+        assert_eq!(restored.recent_opened_at, settings.recent_opened_at);
+        // 範囲の両端は受け付ける
+        for (width, height, delay, edited) in [(560, 1.4, 300, 10), (1000, 2.4, 5000, 50)] {
+            let settings: Settings = serde_json::from_str(&format!(
+                r#"{{"editorWidth":{width},"lineHeight":{height},"autosaveDelay":{delay},"recentEditedCount":{edited}}}"#
+            ))
+            .unwrap();
+            assert_eq!(settings.editor_width, width);
+            assert_eq!(settings.line_height, height);
+            assert_eq!(settings.autosave_delay, delay);
+            assert_eq!(settings.recent_edited_count, edited);
+        }
+        // 範囲外の数値は初期値へ戻す
+        for (key, value, initial) in [
+            ("editorWidth", "559", 720.0),
+            ("editorWidth", "1001", 720.0),
+            ("lineHeight", "1.39", 1.9),
+            ("lineHeight", "2.41", 1.9),
+            ("autosaveDelay", "299", 500.0),
+            ("autosaveDelay", "5001", 500.0),
+            ("recentEditedCount", "9", 30.0),
+            ("recentEditedCount", "51", 30.0),
+        ] {
+            let settings: Settings = serde_json::from_str(&format!(r#"{{"{key}":{value}}}"#)).unwrap();
+            let actual = match key {
+                "editorWidth" => settings.editor_width as f64,
+                "lineHeight" => settings.line_height,
+                "autosaveDelay" => settings.autosave_delay as f64,
+                _ => settings.recent_edited_count as f64,
+            };
+            assert_eq!(actual, initial, "{key}={value}");
+        }
+        // 字体は sans と serif 以外を sans へ戻す
+        let settings: Settings = serde_json::from_str(r#"{"fontFamily":"mono"}"#).unwrap();
+        assert_eq!(settings.font_family, "sans");
+        // 保存期限は null（無期限）と選べる日数を残し、それ以外は30日へ戻す
+        for days in [7, 14, 30, 60, 90] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"trashRetentionDays":{days}}}"#)).unwrap();
+            assert_eq!(settings.trash_retention_days, Some(days));
+        }
+        let forever: Settings = serde_json::from_str(r#"{"trashRetentionDays":null}"#).unwrap();
+        assert_eq!(forever.trash_retention_days, None);
+        for days in ["0", "1", "45", "365", "-7", "7.5"] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"trashRetentionDays":{days}}}"#)).unwrap();
+            assert_eq!(settings.trash_retention_days, Some(30), "{days}");
+        }
+        // 型が違う値は読み込みを失敗させる
+        for (key, value) in [("startInPreview", "1"), ("headingRule", r#""true""#), ("editorWidth", "null")] {
+            assert!(serde_json::from_str::<Settings>(&format!(r#"{{"{key}":{value}}}"#)).is_err());
+        }
+    }
+
+    #[test]
+    fn recent_opened_times_drop_bad_entries_and_keep_the_newest_200() {
+        // 時刻が数でない項目は捨て、残りはそのまま読む
+        let settings: Settings = serde_json::from_str(
+            r#"{"recentOpenedAt":{"a.md":1000,"b.md":"2026","c.md":null,"d.md":-5,"e.md":2000.0}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            settings.recent_opened_at,
+            BTreeMap::from([("a.md".to_owned(), 1000), ("e.md".to_owned(), 2000)])
+        );
+        // 上限を超えたら、古いものから捨てる
+        let entries: Vec<String> = (0..205)
+            .map(|i| format!(r#""n{i:03}.md":{}"#, 1_000 + i))
+            .collect();
+        let settings: Settings =
+            serde_json::from_str(&format!(r#"{{"recentOpenedAt":{{{}}}}}"#, entries.join(","))).unwrap();
+        assert_eq!(settings.recent_opened_at.len(), 200);
+        assert!(!settings.recent_opened_at.contains_key("n000.md"));
+        assert!(!settings.recent_opened_at.contains_key("n004.md"));
+        assert_eq!(settings.recent_opened_at["n005.md"], 1_005);
+        assert_eq!(settings.recent_opened_at["n204.md"], 1_204);
+        // 配列など、対応しない型は読み込みを失敗させる
+        assert!(serde_json::from_str::<Settings>(r#"{"recentOpenedAt":[]}"#).is_err());
     }
 
     #[test]

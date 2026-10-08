@@ -59,3 +59,57 @@ test('スターは既定で空で、古い設定に項目がなくても空と�
   const saved = { ...defaults, theme: 'light' as const, starred: { '/project': ['草稿/記事.md', '別.md'] } };
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
 });
+
+test('設定画面の項目は既定値で始まり、古い設定では既定値で読む', () => {
+  assert.equal(defaults.editorWidth, 720);
+  assert.equal(defaults.lineHeight, 1.9);
+  assert.equal(defaults.fontFamily, 'sans');
+  assert.equal(defaults.autosaveDelay, 500);
+  assert.equal(defaults.startInPreview, false);
+  assert.equal(defaults.headingRule, true);
+  assert.equal(defaults.recentEditedCount, 30);
+  assert.equal(defaults.trashRetentionDays, 30);
+  assert.deepEqual(defaults.recentOpenedAt, {});
+  const legacy = { theme: 'dark' as const, fontSize: 17 };
+  assert.deepEqual(startupSettings(legacy, () => false), { ...defaults, theme: 'dark', fontSize: 17 });
+});
+
+test('設定画面の範囲内の値と最近開いた時刻は保存したとおりに復元する', () => {
+  const saved = {
+    ...defaults,
+    theme: 'light' as const,
+    editorWidth: 1000,
+    lineHeight: 2.4,
+    fontFamily: 'serif' as const,
+    autosaveDelay: 5000,
+    startInPreview: true,
+    headingRule: false,
+    recentEditedCount: 50,
+    trashRetentionDays: null,
+    recentOpenedAt: { 'posts/a.md': 1700000000000, 'b.md': 1700000001000 },
+  };
+  assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
+  for (const days of [7, 14, 30, 60, 90]) {
+    assert.equal(startupSettings({ ...defaults, trashRetentionDays: days }, () => false).trashRetentionDays, days);
+  }
+});
+
+test('設定画面の範囲外の値は読み込み時に初期値へ戻す', () => {
+  const broken = {
+    editorWidth: 559,
+    lineHeight: 2.5,
+    fontFamily: 'mono' as unknown as 'sans',
+    autosaveDelay: 299,
+    recentEditedCount: 9,
+    trashRetentionDays: 45,
+  };
+  const restored = startupSettings({ ...defaults, ...broken }, () => false);
+  assert.equal(restored.editorWidth, 720);
+  assert.equal(restored.lineHeight, 1.9);
+  assert.equal(restored.fontFamily, 'sans');
+  assert.equal(restored.autosaveDelay, 500);
+  assert.equal(restored.recentEditedCount, 30);
+  assert.equal(restored.trashRetentionDays, 30);
+  assert.equal(startupSettings({ ...defaults, editorWidth: 1001 }, () => false).editorWidth, 720);
+  assert.equal(startupSettings({ ...defaults, lineHeight: 1.4 }, () => false).lineHeight, 1.4);
+});
