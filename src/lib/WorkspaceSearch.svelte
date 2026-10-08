@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import { failure } from './session.ts';
   import { parentPath } from './navigation.ts';
+  import { compositionGate } from './composition.ts';
   import { DEBOUNCE_MS, FILE_LIMIT, groupMatches, hitOf, latestOnly, matchCount, segments, shouldSearch, type SearchHit, type SearchMatch, type SearchResponse } from './workspaceSearch.ts';
 
   let {
@@ -27,6 +28,8 @@
   let returnFocus: HTMLElement | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const latest = latestOnly();
+  // 変換中は検索せず、確定した時に検索する
+  const composition = compositionGate(() => schedule());
   const groups = $derived(groupMatches(response?.results ?? []));
   // ↑↓とEnterで選ぶ順番。描画と同じ並びにする
   const rows = $derived(groups.flatMap((group) => group.rows.map((row) => ({ path: group.file.path, ...row }))));
@@ -46,6 +49,7 @@
     response = null;
     error = '';
     highlighted = 0;
+    composition.reset();
     open = true;
     await tick();
     dialog.showModal();
@@ -135,10 +139,9 @@
     <input
       bind:this={input}
       bind:value={query}
-      oninput={(event) => {
-        // 変換中の途中の文字では検索せず、確定後の入力で検索する
-        if (!(event as Event & { isComposing?: boolean }).isComposing) schedule();
-      }}
+      oninput={(event) => composition.input((event as Event & { isComposing?: boolean }).isComposing)}
+      oncompositionstart={() => composition.start()}
+      oncompositionend={() => composition.end()}
       placeholder="本文を検索…"
       aria-label="本文を検索"
       aria-invalid={!!error}
