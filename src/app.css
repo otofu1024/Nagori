@@ -254,6 +254,7 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .breadcrumb strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .slash { opacity: .6; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.char-count { font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mode-toggle { border: 1px solid var(--border); font-size: 12px; padding: 6px 10px; color: var(--muted); }
 .mode-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
 /* 押されたスターは塗りつぶして示す */
@@ -298,7 +299,6 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 button.primary { background: var(--accent); color: var(--surface); border: 1px solid var(--accent); }
 button.primary:hover { background: var(--link); }
 button.danger { color: var(--danger); border-color: var(--border); }
-footer { height: 32px; flex-shrink: 0; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; color: var(--muted); font-size: 11px; gap: 12px; }
 .image-preview { height: 100%; overflow: auto; padding: 38px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; }
 .image-preview img { max-width: 100%; max-height: calc(100% - 70px); object-fit: contain; border-radius: 13px; }
 .image-preview p { font-size: 14px; color: var(--text); text-align: center; }
@@ -356,5 +356,4 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
   .editor-header { padding: 0 22px; }
   .breadcrumb > span:first-of-type { display: none; }
   .quick-hint span { display: none; }
-  footer { padding: 0 18px; }
 }
