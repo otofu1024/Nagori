@@ -4,6 +4,16 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## 目次が幅不足で隠れている時の案内（2026-10-08、feature/outline-notice）
+
+目次ボタンがオンで見出しがあるのに、幅が足りず目次を隠している時だけ、本文の右上に「画面の幅が足りないため、目次を表示できません」と「ウィンドウを広げるか、サイドバーを狭くしてください」の案内を出すようにした。判断は新しいsrc/lib/outlineNotice.tsに切り出し、案内の表示はsrc/lib/OutlineNotice.svelteに分けた。案内は本文の列の上の流れに場所を取るので、本文の文字と重ならず、クリックや入力を妨げない。案内の領域はaria-live="polite"で常に置き、中身が出た時だけ読まれる。Preview・plainモード（テキストファイル）・見出しのない記事・目次オフ・幅が足りる時は出さない。目次ボタンのtitleは変えていない。
+
+テストを3件追加した。npm testは175件すべて成功し、npm run checkは0エラー・0警告、cargo testは18件成功、npm run buildも成功した。
+
+コーディネーターのWeb版確認ページ（http://127.0.0.1:1515/）で、Orcaのブラウザを使って確かめた。ライトのサイドバー328px・目次360px・幅1189pxで案内が出て、本文の文字と重ならないことを撮影で確認した（/private/tmp/nagori-outline-notice-qa/light-narrow.png）。ダークでも同じ幅で案内が出て読めることを確認した（dark-narrow.png）。幅1470pxへ広げると、ライトとダークの両方で案内が消え、目次が出ることを確認した。Mac実機のWKWebView、VoiceOverでの読み上げが1回だけであること、日本語IMEとの併用は未確認で、[QA項目6k](mac-qa-checklist.md#項目6k-目次の幅が足りない時の案内)に手順を追加した。
+
+変更ファイルはsrc/lib/outlineNotice.ts、src/lib/OutlineNotice.svelte、src/App.svelte、src/app.css、tests/outlineNotice.test.ts、docs/specification.md、docs/mac-qa-checklist.md、docs/verification.md、README.md。
+
 ## 保存した目次の幅が広すぎる時の表示（2026-10-08、feature/outline-fit）
 
 作業前のgit log --oneline -1で、指定の起点6cccedeを確認した。ウィンドウ幅1470px、サイドバー328px、目次360pxでは、本文と余白848pxを引いた残り294pxが保存した目次幅に届かず、表示を選んでも目次が隠れていた。paneLayoutで目次の表示幅を残りの幅へ縮め、180pxも残せない時だけ隠すようにした。ウィンドウを狭めても保存したoutlineWidthは変えず、広げると元の幅へ戻る。サイドバーの幅の計算は変えていない。
