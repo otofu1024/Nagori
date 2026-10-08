@@ -18,6 +18,7 @@
   import SidebarNav, { type SidebarView } from './lib/SidebarNav.svelte';
   import NoteList from './lib/NoteList.svelte';
   import TrashList from './lib/TrashList.svelte';
+  import { endDrag, rootDrop } from './lib/fileDrag.ts';
   import { allNotes, recentlyEdited, starredNotes, setStarred, renameStarred, removeStarred, recordOpened, renameOpened, removeOpened, type NoteItem, type TrashItem } from './lib/noteLists.ts';
   import ProblemDialog from './lib/ProblemDialog.svelte';
   import SaveAsDialog from './lib/SaveAsDialog.svelte';
@@ -132,6 +133,9 @@
   // ナビで選んだ一覧の見出し。フォルダの表示のときは使わない
   const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近見たノート', trash: 'ゴミ箱' };
   const starred = $derived(!!current && starredPaths.includes(current.path));
+  // ドラッグで項目を移したり、ゴミ箱へ移したりできる時か。読み取り専用・保存中・処理中・日本語変換中は止める
+  const dragReady = $derived(!busy && !composing && !readonly && status !== 'saving');
+  let rootHot = $state(false);
   $effect(() => {
     document.documentElement.dataset.theme = theme;
   });
@@ -541,24 +545,7 @@
         if (request.kind === 'rename') {
           const old = request.entry!.path;
           const entry = await invoke<Entry>('file_rename', { path: old, newName: request.value });
-          if (current?.path === old && entry.kind !== current.kind) await loadEntry(entry);
-          else if (current && containsPath(old, current.path)) {
-            current = {
-              ...current,
-              path: renamedPath(current.path, old, entry.path),
-              name: request.entry!.kind === 'directory' ? current.name : entry.name,
-            };
-            if (session) session.path = current.path;
-            settings.lastFile = current.path;
-            releaseImages();
-            if (session) editor?.refreshImages();
-            else if (current.kind === 'image') imageUrl = await blobImage(current.path);
-          }
-          settings.recentFiles = settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
-          settings.recentOpenedAt = renameOpened(settings.recentOpenedAt, old, entry.path);
-          if (project) settings.starred = renameStarred(settings.starred, project, old, entry.path);
-          expanded = expanded.map((path) => renamedPath(path, old, entry.path));
-          selected = entry.path;
+          await followMove(old, entry);
           notify('名前を変更しました。リンク・画像の参照は自動更新されません。');
         } else {
           let name = request.value;
@@ -576,6 +563,57 @@
         naming = { ...request, error: failure(error).message };
       }
     });
+  }
+  // 名前の変更と移動の後、開いている記事・最近開いた記事・スター・開いているフォルダを新しいパスへ移す
+  async function followMove(old: string, entry: Entry) {
+    if (current?.path === old && entry.kind !== current.kind) await loadEntry(entry);
+    else if (current && containsPath(old, current.path)) {
+      current = {
+        ...current,
+        path: renamedPath(current.path, old, entry.path),
+        name: current.path === old ? entry.name : current.name,
+      };
+      if (session) session.path = current.path;
+      settings.lastFile = current.path;
+      releaseImages();
+      if (session) editor?.refreshImages();
+      else if (current.kind === 'image') imageUrl = await blobImage(current.path);
+    }
+    settings.recentFiles = settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
+    settings.recentOpenedAt = renameOpened(settings.recentOpenedAt, old, entry.path);
+    if (project) settings.starred = renameStarred(settings.starred, project, old, entry.path);
+    expanded = expanded.map((path) => renamedPath(path, old, entry.path));
+    selected = entry.path;
+  }
+  // ドラッグで項目を別のフォルダへ移す。一番上へ移す時はtoDirectoryを空にする。同じ名前があれば移さない
+  async function move(entry: Entry, toDirectory: string) {
+    await operation(async () => {
+      const moved = await invoke<Entry>('file_move', { path: entry.path, toDirectory });
+      await followMove(entry.path, moved);
+      if (toDirectory && !expanded.includes(toDirectory)) {
+        await list(toDirectory);
+        expanded = [...expanded, toDirectory];
+      }
+      await refreshTree();
+      await refreshIndex();
+      void persist();
+      notify(`「${moved.name}」を移動しました。`);
+    });
+  }
+  // ワークスペースの名前へ離すと、一番上へ移す
+  function rootDragOver(event: DragEvent) {
+    rootHot = rootDrop(event) !== null;
+    if (!rootHot) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'move';
+  }
+  function rootDropped(event: DragEvent) {
+    const entry = rootDrop(event);
+    rootHot = false;
+    endDrag();
+    if (!entry) return;
+    event.preventDefault();
+    void move(entry, '');
   }
   // アプリ内のゴミ箱へ移す。復元はゴミ箱の一覧から行える
   async function trash(entry: Entry) {
@@ -1162,7 +1200,7 @@
     </div>
   </header>
   <aside id="file-sidebar" class="sidebar" aria-label="ファイルと設定" hidden={!sidebarVisible}>
-    <div class="workspace-heading">
+    <div class="workspace-heading" role="presentation" class:drop-target={rootHot} ondragover={rootDragOver} ondragleave={() => (rootHot = false)} ondrop={rootDropped}>
       <span title={project}>{project ? projectName : 'WORKSPACE'}</span>
       <div class="tree-actions">
         <button aria-label="記事を作成" title="記事を作成" disabled={!project || busy} onclick={() => void startName('markdown')}
@@ -1173,7 +1211,7 @@
       </div>
     </div>
     {#if project}
-      <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} />
+      <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} onTrash={(entry) => void trash(entry)} />
     {/if}
     {#if view === 'tree'}
       <div class="folders-heading">フォルダ</div>
@@ -1194,6 +1232,7 @@
         current={current?.path}
         {selected}
         {busy}
+        dragEnabled={dragReady}
         bind:naming
         bind:nameInput={renameInput}
         onSelect={(entry) => void selectEntry(entry)}
@@ -1201,6 +1240,7 @@
         onContextMenu={(event, entry) => void contextMenu(event, entry)}
         onRename={(entry) => void startName('rename', entry)}
         onTrash={(entry) => void trash(entry)}
+        onMove={(entry, toDirectory) => void move(entry, toDirectory)}
         onCommitName={() => void commitName()}
       />
     {:else if view === 'trash'}
@@ -1217,6 +1257,7 @@
         notes={view === 'all' ? allList : view === 'starred' ? starredList : recentList}
         current={current?.path}
         {busy}
+        dragEnabled={dragReady}
         dated={view === 'recent'}
         empty={view === 'all' ? 'Markdownの記事はまだありません。' : view === 'starred' ? 'スターを付けた記事はここに並びます。' : '最近見た記事はここに並びます。'}
         onSelect={(entry) => void selectEntry(entry)}

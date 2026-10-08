@@ -719,6 +719,45 @@ pub fn rename(root: &Path, path: &str, new_name: &str) -> Result<Entry> {
     rename_exclusive(&from, &to)?;
     entry(root, &to)
 }
+// 項目を別のフォルダへ移す。移動先に同じ名前があれば上書きせず、一番上へ移す時はto_directoryを空にする
+pub fn move_entry(root: &Path, path: &str, to_directory: &str) -> Result<Entry> {
+    let from = resolve(root, path, false)?;
+    if from == root {
+        return Err(Error::new(
+            "INVALID",
+            "プロジェクトのルートは操作できません。",
+        ));
+    }
+    let directory = resolve(root, to_directory, false)?;
+    if !fs::symlink_metadata(&directory)?.is_dir() {
+        return Err(Error::new(
+            "INVALID",
+            "移動先はフォルダを指定してください。",
+        ));
+    }
+    // 自分自身と、その下のフォルダへは移さない
+    if directory.starts_with(&from) {
+        return Err(Error::new(
+            "INVALID",
+            "自分自身や配下のフォルダへは移動できません。",
+        ));
+    }
+    if from.parent() == Some(directory.as_path()) {
+        return Err(Error::new("INVALID", "すでにその場所にあります。"));
+    }
+    let to = directory.join(from.file_name().unwrap());
+    if excluded(to.strip_prefix(root).unwrap()) {
+        return Err(Error::new("EXCLUDED", "この場所は対象外です。"));
+    }
+    resolve(root, &relative(root, &to)?, true)?;
+    match fs::symlink_metadata(&to) {
+        Ok(_) => return Err(Error::new("EXISTS", "移動先に同じ名前があります。")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    rename_exclusive(&from, &to)?;
+    entry(root, &to)
+}
 pub fn read_image(path: &Path) -> Result<Image> {
     if !image_extension(path) {
         return Err(Error::new(
@@ -1815,5 +1854,121 @@ mod tests {
         );
         assert!(!root.join("bad.md").exists());
         assert!(no_staging_files(root));
+    }
+
+    #[test]
+    fn move_entry_moves_files_and_folders_without_overwriting() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        create(root, "Posts", "directory").unwrap();
+        create(root, "Posts/Sub", "directory").unwrap();
+        create(root, "Archive", "directory").unwrap();
+        fs::write(root.join("a.md"), b"# a\n").unwrap();
+        fs::write(root.join("Posts/b.md"), b"# b\n").unwrap();
+        fs::write(root.join("Posts/Sub/c.md"), b"# c\n").unwrap();
+
+        // ファイルをフォルダへ移す。移した後のパスを返す
+        let moved = move_entry(root, "a.md", "Archive").unwrap();
+        assert_eq!(moved.path, "Archive/a.md");
+        assert_eq!(moved.kind, "markdown");
+        assert!(!root.join("a.md").exists());
+        assert_eq!(fs::read(root.join("Archive/a.md")).unwrap(), b"# a\n");
+
+        // フォルダを一番上へ移すと、配下ごと移る
+        let moved = move_entry(root, "Posts/Sub", "").unwrap();
+        assert_eq!(moved.path, "Sub");
+        assert_eq!(moved.kind, "directory");
+        assert!(root.join("Sub/c.md").exists());
+        assert!(!root.join("Posts/Sub").exists());
+
+        // フォルダへ移したファイルは、そのフォルダの中へ入る
+        let moved = move_entry(root, "Posts/b.md", "Sub").unwrap();
+        assert_eq!(moved.path, "Sub/b.md");
+        assert!(root.join("Sub/b.md").exists());
+        assert!(!root.join("Posts/b.md").exists());
+    }
+
+    #[test]
+    fn move_entry_rejects_same_place_self_descendant_and_existing_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        create(root, "Posts", "directory").unwrap();
+        create(root, "Posts/Sub", "directory").unwrap();
+        create(root, "Other", "directory").unwrap();
+        fs::write(root.join("a.md"), b"root\n").unwrap();
+        fs::write(root.join("Posts/a.md"), b"posts\n").unwrap();
+
+        // 同じ場所へは移さない（一番上の項目を一番上へ移す場合も含む）
+        assert_eq!(move_entry(root, "Posts", "").unwrap_err().code, "INVALID");
+        assert_eq!(
+            move_entry(root, "Posts/a.md", "Posts").unwrap_err().code,
+            "INVALID"
+        );
+        // 自分自身と、その下のフォルダへは移さない
+        assert_eq!(
+            move_entry(root, "Posts", "Posts").unwrap_err().code,
+            "INVALID"
+        );
+        assert_eq!(
+            move_entry(root, "Posts", "Posts/Sub").unwrap_err().code,
+            "INVALID"
+        );
+        // 移動先に同じ名前があれば上書きせず、両方とも残す
+        assert_eq!(
+            move_entry(root, "a.md", "Posts").unwrap_err().code,
+            "EXISTS"
+        );
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"root\n");
+        assert_eq!(fs::read(root.join("Posts/a.md")).unwrap(), b"posts\n");
+        // 移動先がフォルダでなければ拒む
+        assert_eq!(
+            move_entry(root, "Other", "a.md").unwrap_err().code,
+            "INVALID"
+        );
+        // ルートは移さない
+        assert_eq!(move_entry(root, "", "Other").unwrap_err().code, "INVALID");
+        assert!(root.join("Posts/Sub").exists());
+        assert!(root.join("Other").exists());
+    }
+
+    #[test]
+    fn move_entry_stays_inside_the_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        fs::create_dir(&root).unwrap();
+        create(&root, "Posts", "directory").unwrap();
+        fs::write(root.join("a.md"), b"# a\n").unwrap();
+        fs::write(directory.path().join("outside.md"), b"# outside\n").unwrap();
+        fs::create_dir(directory.path().join("outside-dir")).unwrap();
+
+        // プロジェクトの外へ出るパスは、移動元・移動先のどちらでも拒む
+        for (from, to) in [
+            ("../outside.md", "Posts"),
+            ("a.md", "../outside-dir"),
+            ("a.md", "../"),
+            ("/tmp/outside.md", "Posts"),
+            ("a.md", "/tmp"),
+        ] {
+            assert!(move_entry(&root, from, to).is_err(), "{from} -> {to}");
+        }
+        assert!(root.join("a.md").exists());
+        assert!(directory.path().join("outside.md").exists());
+        assert!(!directory.path().join("outside-dir/a.md").exists());
+        assert!(!directory.path().join("a.md").exists());
+
+        // シンボリックリンクは辿らず、リンク自体も移さない
+        std::os::unix::fs::symlink(directory.path().join("outside-dir"), root.join("link"))
+            .unwrap();
+        assert_eq!(
+            move_entry(&root, "a.md", "link").unwrap_err().code,
+            "SYMLINK"
+        );
+        assert_eq!(
+            move_entry(&root, "link", "Posts").unwrap_err().code,
+            "SYMLINK"
+        );
+        assert!(root.join("a.md").exists());
+        assert!(directory.path().join("outside-dir").is_dir());
+        assert!(no_staging_files(&root));
     }
 }
