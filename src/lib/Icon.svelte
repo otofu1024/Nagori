@@ -23,7 +23,8 @@
     star: 'M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.6 1-5.8-4.2-4.1 5.8-.8z',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18 M12 7v5l3 2',
     trash: 'M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3',
-    restore: 'M9 14 4 9l5-5 M4 9h10a6 6 0 0 1 0 12h-3'
+    restore: 'M9 14 4 9l5-5 M4 9h10a6 6 0 0 1 0 12h-3',
+    back: 'M19 12H5 M11 6l-6 6 6 6'
   };
   let { name, size = 18 }: { name: keyof typeof paths; size?: number } = $props();
 </script>

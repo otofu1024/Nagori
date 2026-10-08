@@ -4,13 +4,12 @@
   import { formatNoteDate, type TrashItem } from './noteLists.ts';
   import { parentPath } from './navigation.ts';
 
-  // アプリ内のゴミ箱の一覧。項目は開かず、戻す・完全に削除するだけ
-  let { items, busy, onRestore, onDelete, onEmpty, onContextMenu }: {
+  // アプリ内のゴミ箱の一覧。項目は開かず、戻す・完全に削除するだけ。空にするボタンは見出しの行に置く
+  let { items, busy, onRestore, onDelete, onContextMenu }: {
     items: TrashItem[];
     busy: boolean;
     onRestore: (item: TrashItem) => void;
     onDelete: (item: TrashItem) => void;
-    onEmpty: () => void;
     onContextMenu: (event: MouseEvent, item: TrashItem) => void;
   } = $props();
 
@@ -22,9 +21,6 @@
   {#if !items.length}
     <p class="tree-empty">ゴミ箱は空です</p>
   {:else}
-    <div class="trash-actions">
-      <button disabled={busy} onclick={onEmpty}>ゴミ箱を空にする</button>
-    </div>
     <ul class="trash-items" use:activityScrollbar>
       {#each items as item (item.id)}
         <li class="trash-item" oncontextmenu={(event) => onContextMenu(event, item)}>

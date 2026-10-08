@@ -123,6 +123,8 @@
   const starredList = $derived(starredNotes(starredPaths, index));
   const recentList = $derived(recentlyEdited(index));
   const navCounts = $derived({ all: allList.length, starred: starredList.length, recent: recentList.length, trash: trashItems.length });
+  // ナビで選んだ一覧の見出し。フォルダの表示のときは使わない
+  const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近編集', trash: 'ゴミ箱' };
   const starred = $derived(!!current && starredPaths.includes(current.path));
   $effect(() => {
     document.documentElement.dataset.theme = settings.theme;
@@ -1121,7 +1123,17 @@
         onSelect={(entry) => void selectEntry(entry)}
       />
     {/if}
-    <button class="folders-heading" class:active={view === 'tree'} aria-current={view === 'tree' ? 'true' : undefined} onclick={() => (view = 'tree')}>フォルダ</button>
+    {#if view === 'tree'}
+      <div class="folders-heading">フォルダ</div>
+    {:else}
+      <div class="list-heading">
+        <button class="back-button" aria-label="フォルダに戻る" title="フォルダに戻る" onclick={() => (view = 'tree')}><Icon name="back" size={16} /></button>
+        <span class="list-title">{viewTitles[view]}</span>
+        {#if view === 'trash' && trashItems.length}
+          <button class="list-action" disabled={busy} onclick={() => void emptyTrash()}>ゴミ箱を空にする</button>
+        {/if}
+      </div>
+    {/if}
     {#if view === 'tree'}
       <FileTree
         {project}
@@ -1145,7 +1157,6 @@
         {busy}
         onRestore={(item) => void restoreTrash(item)}
         onDelete={(item) => void deleteTrash(item)}
-        onEmpty={() => void emptyTrash()}
         onContextMenu={(event, item) => void trashContextMenu(event, item)}
       />
     {:else}
