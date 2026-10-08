@@ -222,10 +222,6 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .trash-button { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; }
 .trash-button:hover:not(:disabled) { color: var(--accent); background: var(--surface); }
 .trash-button.danger:hover:not(:disabled) { color: var(--danger); }
-.recent-files { display: flex; flex-direction: column; min-height: 0; max-height: 40%; flex-shrink: 0; margin-bottom: 10px; }
-.recent-heading { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 100%; padding: 8px 12px; color: var(--muted); font-size: 12px; text-align: left; }
-.recent-list { min-height: 0; overflow: auto; }
-.recent-list[hidden] { display: none; }
 .recent-label { display: flex; flex-direction: column; min-width: 0; }
 .recent-label small { color: var(--muted); font-size: 11px; }
 .recent-label .file-name, .recent-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

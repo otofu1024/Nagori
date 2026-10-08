@@ -105,7 +105,7 @@ test('ゴミ箱の保存期限は7・14・30・60・90日か無期限だけを�
   for (const days of [0, 5, 45, 365, '30', undefined]) assert.equal(startupSettings({ ...defaults, trashRetentionDays: days as never }).trashRetentionDays, 30);
 });
 
-test('すべて初期値に戻すと表示の項目だけが戻り、最近見たページ・最近見たノートの記録・スター・ワークスペースは残る', () => {
+test('すべて初期値に戻しても、最近開いたファイル・最近見たノートの記録・スター・ワークスペースは残る', () => {
   const current: Settings = {
     ...defaults, theme: 'dark', fontSize: 25, editorWidth: 900, lineHeight: 2.3, fontFamily: 'serif', autosaveDelay: 2000,
     startInPreview: true, headingRule: false, recentEditedCount: 12, trashRetentionDays: 90,

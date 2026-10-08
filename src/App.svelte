@@ -586,7 +586,7 @@
       }
     });
   }
-  // 名前の変更と移動の後、開いている記事・最近開いた記事・スター・開いているフォルダを新しいパスへ移す
+  // 名前の変更と移動の後、開いている記事・最近開いたファイル・スター・開いているフォルダのパスを更新する
   async function followMove(old: string, entry: Entry) {
     if (current?.path === old && entry.kind !== current.kind) await loadEntry(entry);
     else if (current && containsPath(old, current.path)) {
