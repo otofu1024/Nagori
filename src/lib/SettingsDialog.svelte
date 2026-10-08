@@ -99,6 +99,8 @@
 
 <style>
   .settings-dialog { width: min(720px, calc(100% - 40px)); max-width: 720px; height: min(640px, calc(100vh - 80px)); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* 高さを決めた中で、上下の帯が縮んで中身が切れないようにする。アプリのfooter(状態表示の32px)の指定も打ち消す */
+  .settings-header, .settings-footer { flex: none; }
   .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
   .settings-header h2 { font-size: 18px; font-weight: 650; color: var(--heading); margin: 0; }
   .settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); }
@@ -117,7 +119,7 @@
   .select-row select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
   .settings-note { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
   .settings-panel input[type='radio'], .settings-panel input[type='checkbox'] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
-  .settings-footer { display: flex; justify-content: flex-start; padding: 14px 22px; border-top: 1px solid var(--border); }
+  .settings-footer { height: auto; font-size: inherit; color: inherit; display: flex; justify-content: flex-start; padding: 14px 22px; border-top: 1px solid var(--border); }
   .settings-footer button { font-size: 13px; padding: 8px 11px; border: 1px solid var(--border); }
   @media (max-width: 560px) {
     .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }

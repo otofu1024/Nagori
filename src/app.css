@@ -307,6 +307,8 @@ footer { height: 32px; flex-shrink: 0; border-top: 1px solid var(--border); disp
 .toast button { display: flex; padding: 3px; }
 dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 26px; max-width: 560px; width: calc(100% - 50px); }
 dialog::backdrop { background: #14233e38; }
+/* ダークでは背景を暗くし、後ろの本文が透けて読みにくくならないようにする */
+:root[data-theme='dark'] dialog::backdrop { background: #04081099; }
 dialog h2 { font-size: 18px; font-weight: 650; color: var(--heading); margin: 0 0 15px; }
 dialog p { font-size: 14px; line-height: 1.8; }
 dialog .muted { color: var(--muted); }
