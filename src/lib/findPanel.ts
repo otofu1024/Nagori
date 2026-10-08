@@ -1,7 +1,7 @@
-import { EditorState, StateEffect, StateField } from '@codemirror/state';
+import { EditorSelection, EditorState, StateEffect, StateField } from '@codemirror/state';
 import { EditorView, type Panel, type ViewUpdate } from '@codemirror/view';
 import { isolateHistory } from '@codemirror/commands';
-import { search, SearchQuery, setSearchQuery, getSearchQuery, findNext, findPrevious, replaceNext, replaceAll, closeSearchPanel } from '@codemirror/search';
+import { search, SearchCursor, SearchQuery, setSearchQuery, getSearchQuery, replaceNext, replaceAll, closeSearchPanel } from '@codemirror/search';
 
 export const findReplaceBlocked = StateEffect.define<boolean>();
 const replacementBlocked = StateField.define({
@@ -23,22 +23,36 @@ export function searchSummary(state: EditorState) {
   return { total, current, replaceable, invalid: !!query.search && query.regexp && !query.valid };
 }
 
-export function navigateMatch(editor: EditorView, backward = false) {
+export function navigateMatch(editor: EditorView, backward = false, incremental = false) {
   const query = getSearchQuery(editor.state), selection = editor.state.selection.main;
   if (!query.valid) return false;
+  const inRange = (from: number, to: number, last = false) => {
+    const cursor = query.getCursor(editor.state, from, to);
+    let found: { from: number; to: number } | undefined;
+    for (let match = cursor.next(); !match.done; match = cursor instanceof SearchCursor ? cursor.nextOverlapping() : cursor.next()) {
+      found = match.value;
+      if (!last) break;
+    }
+    return found;
+  };
+  let match: { from: number; to: number } | undefined;
   // 空の一致からは同じ位置を選び直さず、次の位置へ進む。
-  if (query.regexp && selection.empty) {
+  if (query.regexp && selection.empty && !incremental) {
     const matches: { from: number; to: number }[] = [], cursor = query.getCursor(editor.state);
     for (let match = cursor.next(); !match.done; match = cursor.next()) matches.push(match.value);
-    if (!matches.some(match => match.from === selection.from && match.to === selection.to)) return (backward ? findPrevious : findNext)(editor);
-    const match = backward
-      ? matches.reverse().find(match => match.from < selection.from) ?? matches[0]
-      : matches.find(match => match.from > selection.to) ?? matches[0];
-    if (!match) return false;
-    editor.dispatch({ selection: { anchor: match.from, head: match.to }, effects: EditorView.scrollIntoView(match.from), userEvent: 'select.search' });
-    return true;
+    if (matches.some(match => match.from === selection.from && match.to === selection.to)) {
+      match = backward
+        ? matches.reverse().find(match => match.from < selection.from) ?? matches[0]
+        : matches.find(match => match.from > selection.to) ?? matches[0];
+    }
   }
-  return (backward ? findPrevious : findNext)(editor);
+  const start = incremental ? selection.from : selection.to, end = editor.state.doc.length;
+  match ??= backward
+    ? inRange(0, selection.from, true) ?? inRange(query.regexp ? selection.from : 0, end, true)
+    : inRange(start, end) ?? inRange(0, query.regexp ? start : end);
+  if (!match) return false;
+  editor.dispatch({ selection: { anchor: match.from, head: match.to }, effects: EditorView.scrollIntoView(EditorSelection.range(match.from, match.to)), userEvent: 'select.search' });
+  return true;
 }
 
 export function replaceMatches(editor: EditorView, all = false, composing = false) {
@@ -114,7 +128,7 @@ function createFindPanel(editor: EditorView, isComposing: () => boolean): Panel 
     const query = new SearchQuery({ search: input.value, replace: replacement.value, literal: true, caseSensitive: caseSensitive ?? previous.caseSensitive, regexp: regexp ?? previous.regexp });
     if (query.eq(previous)) return;
     editor.dispatch({ effects: setSearchQuery.of(query) });
-    if (input.value && getSearchQuery(editor.state).valid) findNext(editor);
+    if (input.value && getSearchQuery(editor.state).valid) navigateMatch(editor, false, caseSensitive === undefined && regexp === undefined);
     update();
   }
   input.oninput = () => setQuery();
