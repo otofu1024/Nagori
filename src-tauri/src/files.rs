@@ -458,6 +458,10 @@ fn decode(bytes: &[u8]) -> Result<(String, Format)> {
     }
     Ok((text.replace("\r\n", "\n"), Format { bom, crlf }))
 }
+// 開く処理と同じ判定で、テキストとして読める本文だけを返す（検索の対象の判定に使う）
+pub fn text_of(bytes: &[u8]) -> Option<String> {
+    decode(bytes).ok().map(|(text, _)| text)
+}
 fn encode(text: &str, format: &Format) -> Result<Vec<u8>> {
     if text.contains('\r') {
         return Err(Error::new(

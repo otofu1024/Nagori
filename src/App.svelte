@@ -14,6 +14,8 @@
   import type { OutlineHeading } from './lib/outline.ts';
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
+  import WorkspaceSearch from './lib/WorkspaceSearch.svelte';
+  import type { SearchHit } from './lib/workspaceSearch.ts';
   import FileTree from './lib/FileTree.svelte';
   import SidebarNav, { type SidebarView } from './lib/SidebarNav.svelte';
   import NoteList from './lib/NoteList.svelte';
@@ -92,6 +94,8 @@
     imagesQueued = false;
   let quick = $state(false),
     quickPanel: QuickOpen;
+  let searchOpen = $state(false),
+    workspaceSearch: WorkspaceSearch;
   let errorDialog = $state<HTMLDialogElement>(),
     saveAsDialog = $state<HTMLDialogElement>(),
     saveAsInput = $state<HTMLInputElement>();
@@ -492,6 +496,23 @@
     } catch (error) {
       notify(failure(error).message);
     }
+  }
+  // ワークスペース全体の本文検索を開く。プロジェクトがない時や、ほかの操作の途中では開かない
+  async function workspaceSearchOpen() {
+    if (!project || busy || composing || searchOpen || quick || errorDialog?.open || saveAsDialog?.open) return;
+    await workspaceSearch.show(document.activeElement as HTMLElement | null);
+  }
+  // 検索結果の記事を開き、一致した所を選んで画面へ寄せる。開く処理と保存の待ち合わせは選択の処理に任せる
+  async function openSearchHit(hit: SearchHit) {
+    const entry = index.find((item) => item.path === hit.path);
+    if (!entry) {
+      notify('検索結果のファイルが見つかりません: ' + hit.path);
+      return;
+    }
+    await selectEntry(entry);
+    if (current?.path !== hit.path) return;
+    await tick();
+    editor?.revealRange(hit.line, hit.column, hit.length);
   }
   // nagoriコマンドの登録と解除。結果と失敗理由は通知で示す
   async function runCli(id: 'cli_install' | 'cli_uninstall') {
@@ -955,8 +976,13 @@
   }
   function keydown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
-    if (quick) return;
+    if (quick || searchOpen) return;
     if (errorDialog?.open || saveAsDialog?.open) return;
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      void workspaceSearchOpen();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === ',') {
       event.preventDefault();
       if (settingsOpen) closeSettings();
@@ -1022,7 +1048,7 @@
     void persist();
   }
   async function menuAction(action: string) {
-    if (errorDialog?.open || saveAsDialog?.open || quick) return;
+    if (errorDialog?.open || saveAsDialog?.open || quick || searchOpen) return;
     if (action === 'cli-install') await runCli('cli_install');
     else if (action === 'cli-uninstall') await runCli('cli_uninstall');
     else if (action === 'open-project') await chooseProject();
@@ -1032,6 +1058,7 @@
     else if (action === 'quick-open') await quickOpen();
     else if (action === 'save') await flush();
     else if (action === 'find') editor?.find();
+    else if (action === 'workspace-search') await workspaceSearchOpen();
     else if (action === 'preview-toggle') togglePreview();
     else if (action === 'outline-toggle') toggleOutline();
     else if (action === 'focus-toggle') toggleWritingMode('focusMode');
@@ -1373,6 +1400,7 @@
   recent={settings.recentFiles}
   onOpen={(entry) => void selectEntry(entry)}
 />
+<WorkspaceSearch bind:this={workspaceSearch} bind:open={searchOpen} onOpen={(hit) => void openSearchHit(hit)} />
 <ProblemDialog
   bind:dialog={errorDialog}
   {issue}
