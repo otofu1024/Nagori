@@ -245,11 +245,8 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .tree-empty { font-size: 13px; line-height: 1.9; color: var(--muted); padding: 16px 10px; }
 .sidebar-bottom { border-top: 1px solid var(--border); padding-top: 12px; }
 .open-folder { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; color: var(--muted); font-size: 13px; padding: 10px 8px; }
-.settings { font-size: 13px; margin: 4px 8px; }
-.settings summary { display: flex; align-items: center; justify-content: space-between; color: var(--muted); padding: 10px 0; }
-.settings label { display: block; margin: 10px 0 12px; }
-.settings output { float: right; color: var(--muted); }
-.settings input[type="range"] { width: 100%; accent-color: var(--accent); padding: 0; margin-top: 12px; }
+.settings-button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; color: var(--muted); font-size: 13px; padding: 10px 8px; border: none; background: none; }
+.settings-button:hover { color: var(--accent); background: var(--hover); }
 main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
 .editor-header { height: 60px; flex-shrink: 0; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .breadcrumb { font-size: 13px; display: flex; align-items: center; gap: 11px; min-width: 0; color: var(--muted); }
@@ -310,6 +307,8 @@ footer { height: 32px; flex-shrink: 0; border-top: 1px solid var(--border); disp
 .toast button { display: flex; padding: 3px; }
 dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 26px; max-width: 560px; width: calc(100% - 50px); }
 dialog::backdrop { background: #14233e38; }
+/* ダークでは背景を暗くし、後ろの本文が透けて読みにくくならないようにする */
+:root[data-theme='dark'] dialog::backdrop { background: #04081099; }
 dialog h2 { font-size: 18px; font-weight: 650; color: var(--heading); margin: 0 0 15px; }
 dialog p { font-size: 14px; line-height: 1.8; }
 dialog .muted { color: var(--muted); }

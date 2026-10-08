@@ -24,9 +24,9 @@
   import { pasteMarkdown } from './linkPaste.ts';
   import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number;
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -335,7 +335,7 @@
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) toolbar = null; });
 </script>
 
-<div class="editor-root" class:preview-only={previewOnly} class:plain onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px`} data-document={documentKey}>
+<div class="editor-root" class:preview-only={previewOnly} class:plain class:no-heading-rule={!headingRule} onfocusout={() => queueMicrotask(updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px;${editorStyle}`} data-document={documentKey}>
   <div class="editor-host" bind:this={host}></div>
   {#if toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${toolbar.top}px;left:${toolbar.left}px`} onmousedown={event => event.preventDefault()}>
@@ -360,9 +360,9 @@
   .editor-root { position: relative; height: 100%; min-height: 0; color: var(--text); }
   .editor-host { height: 100%; }
   .editor-host :global(.cm-editor) { height: 100%; background: transparent; font-size: var(--editor-font-size); }
-  .editor-host :global(.cm-scroller) { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.9; overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
+  .editor-host :global(.cm-scroller) { font-family: var(--editor-family, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif); line-height: var(--editor-line-height, 1.9); overflow: auto; overflow-y: scroll; scrollbar-gutter: stable; }
   /* WebKitで短い本文の予約幅が標準の幅へ戻らないよう、透明なスクロールバーの8pxを常に確保する。 */
-  .editor-host :global(.cm-content) { max-width: 900px; min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: transparent; }
+  .editor-host :global(.cm-content) { max-width: calc(var(--editor-width, 720px) + 128px); min-height: 100%; margin: 0 auto; padding: 32px 64px var(--editor-bottom-space, 50vh); color: var(--text); caret-color: transparent; }
   .editor-host :global(.cm-cursor) { border-left-color: var(--accent); }
   .editor-host :global(.cm-line) { padding: 0; }
   /* テキストファイルは等幅で、行間を詰めて表示する */
@@ -387,6 +387,7 @@
   .editor-host :global(.nagori-h3) { font-size: 1.25em; }
   .editor-host :global(.nagori-h4), .editor-host :global(.nagori-h5), .editor-host :global(.nagori-h6) { font-size: 1.1em; }
   .editor-host :global(.nagori-heading-rule) { padding-bottom: .8em; background: linear-gradient(var(--border), var(--border)) left calc(100% - .5em) / 100% 1px no-repeat; }
+  .no-heading-rule .editor-host :global(.nagori-heading-rule) { background: none; }
   .editor-host :global(.nagori-quote) { border-left: 4px solid var(--border); border-radius: 2px; padding-left: 15px; color: var(--muted); }
   .editor-host :global(.nagori-list-marker) { display: inline; }
   .editor-host :global(input[type='checkbox']) { accent-color: var(--accent-bright); vertical-align: middle; margin-right: 7px; width: 16px; height: 16px; cursor: pointer; }

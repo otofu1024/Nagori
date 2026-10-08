@@ -12,7 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const RECORD_LIMIT: usize = 64 * 1024;
 const RECORD: &str = "record.json";
 const ITEM: &str = "item";
@@ -413,17 +413,25 @@ pub fn empty(base: &Path, root: &Path) -> Result<()> {
     empty_with(base, root, os_trash)
 }
 
-// 30日より前の項目をmacOSのゴミ箱へ送る。失敗は無視し、ワークスペースを開く処理は止めない
-fn purge_expired_with(base: &Path, root: &Path, now: u64, send: impl Fn(&Path) -> Result<()>) {
-    let cutoff = now.saturating_sub(RETENTION_MS);
+// 保存期限より前の項目をmacOSのゴミ箱へ送る。失敗は無視し、ワークスペースを開く処理は止めない
+fn purge_expired_with(
+    base: &Path,
+    root: &Path,
+    now: u64,
+    retention_ms: u64,
+    send: impl Fn(&Path) -> Result<()>,
+) {
+    let cutoff = now.saturating_sub(retention_ms);
     let Ok(items) = list(base, root) else { return };
     for item in items.iter().filter(|item| item.deleted_at < cutoff) {
         let _ = delete_with(base, root, &item.id, &send);
     }
 }
 
-pub fn purge_expired(base: &Path, root: &Path) {
-    purge_expired_with(base, root, now_ms(), os_trash);
+// 保存期限は設定のtrashRetentionDays。Noneは無期限なので何もしない
+pub fn purge_expired(base: &Path, root: &Path, retention_days: Option<u16>) {
+    let Some(days) = retention_days else { return };
+    purge_expired_with(base, root, now_ms(), days as u64 * DAY_MS, os_trash);
 }
 
 #[cfg(test)]
@@ -676,14 +684,35 @@ mod tests {
         let old = move_to_trash(&base, &root, "old.md").unwrap();
         let new = move_to_trash(&base, &root, "new.md").unwrap();
         let now = now_ms();
-        set_deleted_at(&base, &root, &old.id, now - RETENTION_MS - 1000);
-        set_deleted_at(&base, &root, &new.id, now - RETENTION_MS + 60_000);
-        purge_expired_with(&base, &root, now, discard);
+        let retention = 30 * DAY_MS;
+        set_deleted_at(&base, &root, &old.id, now - retention - 1000);
+        set_deleted_at(&base, &root, &new.id, now - retention + 60_000);
+        purge_expired_with(&base, &root, now, retention, discard);
         let listed = list(&base, &root).unwrap();
         assert_eq!(
             listed.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
             [new.id.as_str()]
         );
+    }
+
+    #[test]
+    fn purge_follows_the_saved_retention_and_skips_unlimited() {
+        let (_temporary, base, root) = fixture();
+        fs::write(root.join("a.md"), "a").unwrap();
+        let item = move_to_trash(&base, &root, "a.md").unwrap();
+        let now = now_ms();
+        // 10日前に削除した項目は、7日の設定では整理し、30日の設定では残す
+        set_deleted_at(&base, &root, &item.id, now - 10 * DAY_MS);
+        purge_expired_with(&base, &root, now, 30 * DAY_MS, discard);
+        assert_eq!(list(&base, &root).unwrap().len(), 1);
+        purge_expired_with(&base, &root, now, 7 * DAY_MS, discard);
+        assert!(list(&base, &root).unwrap().is_empty());
+        // 無期限の設定では、公開のpurge_expiredは古い項目にも触らない
+        fs::write(root.join("b.md"), "b").unwrap();
+        let old = move_to_trash(&base, &root, "b.md").unwrap();
+        set_deleted_at(&base, &root, &old.id, 0);
+        purge_expired(&base, &root, None);
+        assert_eq!(list(&base, &root).unwrap().len(), 1);
     }
 
     #[test]

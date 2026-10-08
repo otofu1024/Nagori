@@ -15,11 +15,10 @@
   import Icon from './lib/Icon.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
   import FileTree from './lib/FileTree.svelte';
-  import RecentFiles from './lib/RecentFiles.svelte';
   import SidebarNav, { type SidebarView } from './lib/SidebarNav.svelte';
   import NoteList from './lib/NoteList.svelte';
   import TrashList from './lib/TrashList.svelte';
-  import { allNotes, recentlyEdited, starredNotes, setStarred, renameStarred, removeStarred, type NoteItem, type TrashItem } from './lib/noteLists.ts';
+  import { allNotes, recentlyEdited, starredNotes, setStarred, renameStarred, removeStarred, recordOpened, renameOpened, removeOpened, type NoteItem, type TrashItem } from './lib/noteLists.ts';
   import ProblemDialog from './lib/ProblemDialog.svelte';
   import SaveAsDialog from './lib/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
@@ -33,11 +32,18 @@
   import { imageMime } from './lib/image';
   import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/imageDrop';
 
-  import { defaults, startupSettings, nextTheme, type Settings } from './lib/settings';
+  import SettingsDialog from './lib/SettingsDialog.svelte';
+  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, type Settings } from './lib/settings';
   type OpenRequest = { workspace: string; path: string | null };
   type CliStatus = { message: string };
   let settings = $state<Settings>({ ...defaults, theme: 'light' });
   let settingsLoaded = $state(false);
+  // macOSの外観。theme が 'system' の時だけ使う
+  let systemDark = $state(false),
+    settingsOpen = $state(false),
+    settingsDialog = $state<HTMLDialogElement>();
+  let settingsReturn: HTMLElement | null = null;
+  const theme = $derived(resolvedTheme(settings.theme, systemDark));
   let project = $state(''),
     current = $state<Entry | null>(null),
     initialText = $state(''),
@@ -66,7 +72,7 @@
   let sidebarDraft = $state<number | null>(null),
     outlineDraft = $state<number | null>(null);
   const outlineWidth = $derived(outlineDraft ?? settings.outlineWidth);
-  const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible));
+  const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible, settings.editorWidth));
   const outlineLabel = $derived(settings.outlineVisible
     ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
     : '目次を表示');
@@ -121,13 +127,13 @@
   const starredPaths = $derived(settings.starred[project] ?? []);
   const allList = $derived(allNotes(index));
   const starredList = $derived(starredNotes(starredPaths, index));
-  const recentList = $derived(recentlyEdited(index));
+  const recentList = $derived(recentlyEdited(index, settings.recentOpenedAt, settings.recentEditedCount));
   const navCounts = $derived({ all: allList.length, starred: starredList.length, recent: recentList.length, trash: trashItems.length });
   // ナビで選んだ一覧の見出し。フォルダの表示のときは使わない
   const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近編集', trash: 'ゴミ箱' };
   const starred = $derived(!!current && starredPaths.includes(current.path));
   $effect(() => {
-    document.documentElement.dataset.theme = settings.theme;
+    document.documentElement.dataset.theme = theme;
   });
 
   function notify(message: string) {
@@ -154,7 +160,7 @@
         if (!ok && session?.issue) void showProblem();
         flow.resumeExternal();
       });
-    }, 500);
+    }, settings.autosaveDelay);
   }
   function changed(text: string) {
     session?.edit(text);
@@ -403,6 +409,8 @@
   async function loadEntry(entry: Entry) {
     clearDocument();
     current = entry;
+    // 記事を開いた時の表示は設定に従う
+    if (entry.kind === 'markdown') previewOnly = settings.startInPreview;
     selected = entry.path;
     try {
       if (entry.kind === 'markdown' || entry.kind === 'other') {
@@ -418,6 +426,7 @@
     }
     settings.lastFile = entry.path;
     settings.recentFiles = [entry.path, ...settings.recentFiles.filter((path) => path !== entry.path)].slice(0, 30);
+    if (entry.kind === 'markdown') settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, entry.path);
     void persist();
     await tick();
     editor?.focus();
@@ -451,6 +460,7 @@
     settings.lastProject = root;
     settings.lastFile = null;
     settings.recentFiles = [];
+    settings.recentOpenedAt = {};
     await refreshTree();
     const entries = await refreshIndex();
     void loadTrash();
@@ -545,6 +555,7 @@
             else if (current.kind === 'image') imageUrl = await blobImage(current.path);
           }
           settings.recentFiles = settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
+          settings.recentOpenedAt = renameOpened(settings.recentOpenedAt, old, entry.path);
           if (project) settings.starred = renameStarred(settings.starred, project, old, entry.path);
           expanded = expanded.map((path) => renamedPath(path, old, entry.path));
           selected = entry.path;
@@ -575,6 +586,7 @@
         settings.lastFile = null;
       }
       settings.recentFiles = settings.recentFiles.filter((path) => !containsPath(entry.path, path));
+      settings.recentOpenedAt = removeOpened(settings.recentOpenedAt, entry.path);
       if (project) settings.starred = removeStarred(settings.starred, project, entry.path);
       expanded = expanded.filter((path) => !containsPath(entry.path, path));
       selected = '';
@@ -900,6 +912,7 @@
       editor?.refreshImages();
       settings.lastFile = opened.path;
       settings.recentFiles = [opened.path, ...settings.recentFiles.filter((path) => path !== opened.path)].slice(0, 30);
+      settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, opened.path);
       syncSession();
       saveAsDialog?.close();
       errorDialog?.close();
@@ -944,6 +957,12 @@
     if (event.isComposing || event.keyCode === 229) return;
     if (quick) return;
     if (errorDialog?.open || saveAsDialog?.open) return;
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key === ',') {
+      event.preventDefault();
+      if (settingsOpen) closeSettings();
+      else void openSettings();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'p') {
       event.preventDefault();
       void quickOpen();
@@ -960,6 +979,41 @@
   function toggleWritingMode(key: 'focusMode' | 'typewriterMode') {
     if (starting || !settingsLoaded || composing || editor?.isComposing()) return;
     settings[key] = !settings[key];
+    void persist();
+  }
+  // 設定画面を開く。閉じた時に、開く前にフォーカスのあった要素へ戻す
+  async function openSettings() {
+    if (settingsOpen || !settingsLoaded || !settingsDialog) return;
+    settingsReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    settingsOpen = true;
+    settingsDialog.showModal();
+  }
+  function closeSettings() {
+    settingsDialog?.close();
+  }
+  function settingsClosed() {
+    settingsOpen = false;
+    const target = settingsReturn;
+    settingsReturn = null;
+    if (target?.isConnected) target.focus();
+    else editor?.focus();
+  }
+  function applySettings() {
+    if (starting || !settingsLoaded) return;
+    void persist();
+  }
+  async function resetSettings() {
+    if (!settingsLoaded) return;
+    const ok = await confirm('表示・エディタ・サイドバー・ゴミ箱の設定を初期値に戻します。最近編集の記録、スター、ワークスペースは消しません。', {
+      title: '設定を初期値に戻す',
+      kind: 'warning',
+      okLabel: '初期値に戻す',
+      cancelLabel: 'キャンセル',
+    });
+    if (!ok) return;
+    Object.assign(settings, resetPreferences(settings));
+    sidebarDraft = null;
+    outlineDraft = null;
     void persist();
   }
   function toggleOutline() {
@@ -982,6 +1036,7 @@
     else if (action === 'outline-toggle') toggleOutline();
     else if (action === 'focus-toggle') toggleWritingMode('focusMode');
     else if (action === 'typewriter-toggle') toggleWritingMode('typewriterMode');
+    else if (action === 'settings-open') await openSettings();
     else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
       editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
   }
@@ -1015,9 +1070,9 @@
         );
         unlisteners.push(await listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
         const saved = await invoke<Settings>('settings_get');
-        settings = startupSettings(saved, () => window.matchMedia('(prefers-color-scheme: dark)').matches);
+        settings = startupSettings(saved);
         settingsLoaded = true;
-        if (settings.theme !== saved.theme || settings.fontSize !== saved.fontSize) await persist();
+        if (JSON.stringify(settings) !== JSON.stringify(saved)) await persist();
         const requested = await invoke<OpenRequest | null>('open_request_take');
         if (requested) {
           await openProject(requested.workspace, requested.path);
@@ -1043,7 +1098,12 @@
         void drainOpenRequests();
       }
     })();
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const followSystem = () => (systemDark = media.matches);
+    followSystem();
+    media.addEventListener('change', followSystem);
     return () => {
+      media.removeEventListener('change', followSystem);
       quickPanel?.forgetFocus();
       unlisteners.forEach((unlisten) => unlisten());
       window.removeEventListener('focus', focused);
@@ -1083,12 +1143,13 @@
       <button
         class="icon-button"
         disabled={starting || !settingsLoaded}
-        aria-label={settings.theme === 'dark' ? 'ライトモードに切り替える' : 'ダークモードに切り替える'}
-        title={settings.theme === 'dark' ? 'ライトモードに切り替える' : 'ダークモードに切り替える'}
+        aria-label={theme === 'dark' ? 'ライトモードに切り替える' : 'ダークモードに切り替える'}
+        title={theme === 'dark' ? 'ライトモードに切り替える' : 'ダークモードに切り替える'}
         onclick={() => {
-          settings.theme = nextTheme(settings.theme);
+          // 押した時の表示の反対に固定する
+          settings.theme = nextTheme(theme);
           void persist();
-        }}><Icon name={settings.theme === 'dark' ? 'moon' : 'sun'} /></button
+        }}><Icon name={theme === 'dark' ? 'moon' : 'sun'} /></button
       >
       <button
         class="icon-button"
@@ -1113,15 +1174,6 @@
     </div>
     {#if project}
       <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} />
-    {/if}
-    {#if project && settings.recentFiles.length}
-      <RecentFiles
-        recent={settings.recentFiles}
-        entries={[...index, ...Object.values(tree).flat(), ...(current ? [current] : [])]}
-        current={current?.path}
-        {busy}
-        onSelect={(entry) => void selectEntry(entry)}
-      />
     {/if}
     {#if view === 'tree'}
       <div class="folders-heading">フォルダ</div>
@@ -1175,19 +1227,9 @@
       <button class="open-folder" onclick={() => void chooseProject()} disabled={busy || starting}
         ><Icon name="folder-open" size={17} />{project ? '別のフォルダを開く' : 'フォルダを開く'}</button
       >
-      <details class="settings">
-        <summary>本文の表示設定 <Icon name="settings" size={16} /></summary><label
-          >本文サイズ <output>{settings.fontSize}px</output><input
-            type="range"
-            min="12"
-            max="32"
-            step="1"
-            disabled={starting || !settingsLoaded}
-            bind:value={settings.fontSize}
-            onchange={() => void persist()}
-          /></label
-        >
-      </details>
+      <button class="settings-button" disabled={starting || !settingsLoaded} aria-haspopup="dialog" aria-expanded={settingsOpen} onclick={() => void openSettings()}
+        ><Icon name="settings" size={16} />設定</button
+      >
     </div>
   </aside>
   {#if sidebarVisible && settingsLoaded}
@@ -1262,6 +1304,8 @@
               focus={settings.focusMode}
               typewriter={settings.typewriterMode}
               fontSize={settings.fontSize}
+              editorStyle={editorStyle(settings)}
+              headingRule={settings.headingRule}
               onChange={changed}
               onComposition={composition}
               onSave={() => void flush()}
@@ -1348,6 +1392,13 @@
     editor?.focus();
     if (openRequestsQueued) void drainOpenRequests();
   }}
+/>
+<SettingsDialog
+  bind:dialog={settingsDialog}
+  settings={settings}
+  onChange={applySettings}
+  onReset={() => void resetSettings()}
+  onClose={settingsClosed}
 />
 <SaveAsDialog
   bind:dialog={saveAsDialog}

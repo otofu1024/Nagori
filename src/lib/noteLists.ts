@@ -33,13 +33,37 @@ export function allNotes(entries: Entry[]): NoteItem[] {
   return withParentLabels(notes);
 }
 
-// 最近編集: 更新日時の新しい順に、Markdownの記事を最大件数まで並べる。日時が取れない記事は外す
-export function recentlyEdited(entries: Entry[], limit = RECENT_NOTE_LIMIT): NoteItem[] {
+// 開いた時刻の記録は、この件数までを新しい順に残す
+export const OPENED_LIMIT = 200;
+
+// 最近編集: 更新日時と最後に開いた時刻のうち新しい方の順に、Markdownの記事を最大件数まで並べる。
+// 開いただけの記事も入る。どちらも取れない記事は外す。並べた日時は新しい方で置き換える
+export function recentlyEdited(entries: Entry[], opened: Record<string, number> = {}, limit = RECENT_NOTE_LIMIT): NoteItem[] {
   const notes = entries
-    .filter((entry): entry is Entry & { modified: number } => entry.kind === 'markdown' && typeof entry.modified === 'number')
+    .filter((entry) => entry.kind === 'markdown')
+    .flatMap((entry) => {
+      const at = Math.max(entry.modified ?? -Infinity, opened[entry.path] ?? -Infinity);
+      return Number.isFinite(at) ? [{ ...entry, modified: at }] : [];
+    })
     .sort((a, b) => b.modified - a.modified || a.path.localeCompare(b.path, 'ja'))
     .slice(0, limit);
   return withParentLabels(notes);
+}
+
+// 記事を開いた時刻を記録する。新しい順に OPENED_LIMIT 件までを残す
+export function recordOpened(opened: Record<string, number>, path: string, now: number = Date.now()): Record<string, number> {
+  const next = { ...opened, [path]: now };
+  return Object.fromEntries(Object.entries(next).sort(([, a], [, b]) => b - a).slice(0, OPENED_LIMIT));
+}
+
+// 名前変更・移動に合わせて、開いた時刻の記録のパスを更新する
+export function renameOpened(opened: Record<string, number>, old: string, next: string): Record<string, number> {
+  return Object.fromEntries(Object.entries(opened).map(([path, at]) => [renamedPath(path, old, next), at]));
+}
+
+// 削除（ゴミ箱へ移動）に合わせて、対象とその配下の記録を外す
+export function removeOpened(opened: Record<string, number>, path: string): Record<string, number> {
+  return Object.fromEntries(Object.entries(opened).filter(([item]) => !containsPath(path, item)));
 }
 
 // スター付き: 設定に保存した順（新しい順）を保ち、今の索引にないものや記事でないものは出さない

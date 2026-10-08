@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIDEBAR, OUTLINE, EDITOR_SPACE, storedPaneWidth, resizePane, paneLayout } from '../src/lib/paneWidths.ts';
+import { SIDEBAR, OUTLINE, EDITOR_SPACE, editorSpace, storedPaneWidth, resizePane, paneLayout } from '../src/lib/paneWidths.ts';
 import { defaults, startupSettings } from '../src/lib/settings.ts';
 
 test('保存した幅の範囲、初期値、古い設定を読み込む', () => {
@@ -71,4 +71,33 @@ test('目次を縮めてから隠し、本文の余白を含めた848pxを残す
   }
   assert.equal(paneLayout(720, 272, 220, true).sidebar, 200);
   assert.equal(paneLayout(720, 272, 220, true).showOutline, false);
+});
+
+test('本文の幅に余白128pxを足した分を、目次と並ぶ幅として確保する', () => {
+  assert.equal(EDITOR_SPACE, editorSpace(720));
+  assert.equal(editorSpace(560), 688);
+  assert.equal(editorSpace(1000), 1128);
+  // 本文を広げると、目次が出る最小のウィンドウ幅が広がる
+  const narrowest = (editorWidth: number) => {
+    for (let width = 800; width <= 2400; width++) if (paneLayout(width, 272, 220, true, editorWidth).showOutline) return width;
+    throw new Error('no width');
+  };
+  assert.equal(narrowest(560), 272 + 688 + 180);
+  assert.equal(narrowest(720), 272 + 848 + 180);
+  assert.equal(narrowest(1000), 272 + 1128 + 180);
+  // 本文の幅を省略した時は720pxとして扱う
+  assert.deepEqual(paneLayout(1470, 328, 360, true), paneLayout(1470, 328, 360, true, 720));
+});
+
+test('本文を広げた時はサイドバーの上限が狭くなり、目次の上限も本文の幅に合わせて変わる', () => {
+  // 1500pxで本文1000pxの時は、サイドバーの上限が372pxになり、目次の場所が残らない
+  const wide = paneLayout(1500, 420, 360, true, 1000);
+  assert.equal(wide.sidebarMax, 372);
+  assert.equal(wide.sidebar, 372);
+  assert.equal(wide.showOutline, false);
+  // 本文720pxなら、サイドバーは420pxのまま目次が232pxまで残る
+  const standard = paneLayout(1500, 420, 360, true, 720);
+  assert.equal(standard.sidebar, 420);
+  assert.equal(standard.outlineMax, 232);
+  assert.equal(standard.showOutline, true);
 });

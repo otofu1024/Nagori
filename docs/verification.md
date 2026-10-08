@@ -1,8 +1,48 @@
 # Nagori MVP 検証状況
 
+## 設定画面（2026-10-08、feature/settings-screen）
+
+アプリの中に重ねて開く設定画面を足した。メニューの「設定…」（Cmd+,）とサイドバー下部の「設定」ボタンで開き、EscかCmd+,で閉じる。閉じた後は開く前の場所へフォーカスを戻す。項目は表示・エディタ・サイドバー・ゴミ箱の4つに分け、変えるとすぐ反映して保存する。
+
+表示では、テーマに「macOSに合わせる」を加えた。既定は'system'のままで、表示する時にOSの外観を読み、切り替えに追従する。ヘッダーの太陽・月のボタンは、押した時の表示の反対へ固定する。本文の文字サイズ、本文の幅（560〜1000px）、行間（1.4〜2.4）、字体（ゴシック・明朝）を足した。本文の幅・行間・字体は、Live PreviewとPreviewの両方へCSS変数で渡す。本文の幅を変えた時は、目次の幅の計算（paneWidths.tsのpaneLayout）も本文の幅に合わせる。既定の本文の幅720pxの時、本文の表示領域は、以前の900pxの枠（余白込み）から720pxの本文と左右の余白128pxの848pxへ変わる。
+
+エディタでは、自動保存までの時間（0.3〜5秒）、記事を開いた時の表示（Live Preview・Preview）、集中モード、タイプライター表示、見出しの下線を設定できるようにした。記事を開くたびに、記事を開いた時の表示の設定に従う。サイドバーでは、最近編集の件数（10〜50件）と目次の表示を設定できるようにした。「最近見たページ」の欄は外し、その代わりに記事を開いた時刻を記録して、最近編集の並びに使う。最近編集は、更新日時と最後に開いた時刻のうち新しい方で並び、開いただけの記事も入る。開いた時刻の記録は200件までを新しい順に残す。ゴミ箱では保存期限（7・14・30・60・90日、無期限）を選べる。説明文のとおり、期限切れの処理はRust側がワークスペースを開いた時に行う。
+
+「すべて初期値に戻す」は確認の後に実行する。表示とエディタの項目と、サイドバーの幅を初期値へ戻す。最近編集の記録、スター、開いている記事とフォルダ、ワークスペースは残す。
+
+設定の読み込みは、範囲外の数値を範囲の端へ直し、型が違う値と未知の値を初期値にする。開いた時刻の記録は、数値だけを新しい順に200件まで残す。ゴミ箱の保存期限は、7・14・30・60・90と無期限（null）以外を30日にする。
+
+テストを追加した。tests/noteLists.test.tsで、最近編集が更新日時と開いた時刻の新しい方で並ぶこと、開いた時刻の記録の上限・名前変更・削除を確かめる。tests/settings.test.tsで、既定値・古い設定・範囲の端への補正・ゴミ箱の期限・初期値へ戻す時に残す項目・CSS変数を確かめ、tests/paneWidths.test.tsで、本文の幅と目次の表示・サイドバーの上限の関係を確かめる。テーマの2件は、起動時に'system'を解決して保存する仕様から、'system'を保存したままOSの外観を読む仕様へ変えたため書き換えた。
+
+npm run checkは0エラー・0警告、npm testは195件すべて成功、npm run buildは成功した。ビルドの動的importと500kB超チャンクの警告は既存のまま残る。cargo testは、このブランチでRustのファイルを変えていないため、既存の35件がすべて成功した。
+
+未確認の点。Web版の確認ページの画面撮影は、コーディネーターのモックの用意を待つ。Macアプリでのメニューの「設定…」、システム設定の外観の切り替えへの追従、Escとフォーカスの戻り、日本語IMEとの併用、明朝の表示は、[QA項目6m](mac-qa-checklist.md#項目6m-設定画面)の手順で確認する。Rust側（設定の検証、'system'の保存、ゴミ箱の期限の整理）は、ワーカーAの変更を統合した後に確かめる。
+
+変更ファイルはsrc/lib/settings.ts、src/lib/SettingsDialog.svelte（新規）、src/lib/Editor.svelte、src/lib/paneWidths.ts、src/lib/noteLists.ts、src/lib/RecentFiles.svelte（削除）、src/App.svelte、src/app.css、tests/settings.test.ts、tests/paneWidths.test.ts、tests/noteLists.test.ts、docs/mac-qa-checklist.md、docs/verification.md、README.md。
+
 更新：2026-10-08。仕様§16のmacOSでの合格判定は保留。コード・実Macの一時ファイル・ブラウザ検証で確認できた範囲と、ネイティブ画面で残る確認を分けて記録する。
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
+
+## 設定の項目とゴミ箱の保存期限（2026-10-08、feature/settings-backend）
+
+設定に、設定画面で使う項目を足した。Rustのsrc-tauri/src/files.rsのSettingsと、src/lib/settings.tsのSettingsに、本文の幅（editorWidth）、行間（lineHeight）、字体（fontFamily）、自動保存までの待ち時間（autosaveDelay）、Previewで始めるか（startInPreview）、見出しの下線（headingRule）、最近編集の件数（recentEditedCount）、ゴミ箱の保存期限（trashRetentionDays）を入れた。記事ごとに最後に開いた時刻を持つrecentOpenedAtも入れた。項目のない古い設定は既定値で読む。範囲外の数値は読み込み時に初期値へ戻す。recentOpenedAtは時刻が数でない項目を捨て、200件を超えた時は古いものから捨てる。字体はsansとserif以外をsansへ戻す。ゴミ箱の保存期限は7・14・30・60・90日とnull（無期限）だけを残し、それ以外は30日へ戻す。保存時には拒否しない。範囲は数値ごとに定め、TypeScriptではsrc/lib/settings.tsのRANGESにまとめた。
+
+アプリのメニューのNagoriの下に「設定…」（Cmd＋,、アクションのid settings-open）を足した。既存のメニューと同じく、フロントへ nagori:menu のイベントとして届く。画面はワーカーBの担当で、この変更では作っていない。
+
+ゴミ箱の自動の整理は、ワークスペースを開く時に保存されたtrashRetentionDaysで行う。nullの時は整理しない。設定が読めない時は30日とする。設定の読み込みはsettings_getと同じread_settingsにまとめた。
+
+テーマの 'system' は、Rustの検証が既に受け付けていたので変えていない。仕様のテーマの項目は、「macOSに合わせる」を選んだ時だけOSの外観に追従する形に直した。
+
+決めた挙動は次のとおり。範囲外の数値は、既存のsidebarWidthと同じく範囲の端ではなく初期値へ戻す。字体と保存期限は、選べない値を既定値へ戻す。型が違う値（文字列の真偽値、本文の幅がnullなど）は、既存の項目と同じく読み込みを失敗させる。
+
+テストを足した。Rustでは、既定値と古い設定、範囲内の値の保存と読み直し、範囲の両端、範囲外の数値と字体と保存期限の扱い、型の違いの拒否を確かめる settings_panel_fields_default_and_read_back_in_range（src-tauri/src/files.rs）を1件、最近開いた時刻の不正な項目の除外と200件の上限を確かめる recent_opened_times_drop_bad_entries_and_keep_the_newest_200（同）を1件、保存期限の日数の違いと無期限の扱いを確かめる purge_follows_the_saved_retention_and_skips_unlimited（src-tauri/src/trash.rs）を1件足した。TypeScriptでは、tests/settings.test.tsに3件を足し、既定値と古い設定、範囲内の往復と最近開いた時刻、範囲外の初期値への補正を確かめる。npm testは187件すべて成功し、npm run checkは0エラー・0警告、cargo testは38件成功し、npm run buildは成功した。ビルドの500kB超チャンクの警告は既存のまま残る。
+
+迷って判断した点。'system' を起動時に一度だけ解決する既存の処理（startupSettings）は変えていない。「macOSに合わせる」を選んだ後に、OSの切り替えへ追従するかは、画面の担当が起動時の解決をどう扱うかに依る。この変更では判断していない。
+
+確かめられなかったこと。Mac実機で「設定…」の表示とCmd＋,の動き、期限を過ぎた項目が実際にFinderのゴミ箱へ入ること（手順は[QA項目6m](mac-qa-checklist.md#項目6m-設定の項目とゴミ箱の保存期限)）。ワーカーBの画面と組み合わせた動き。「最近見たページ」を「最近編集」へ統合する作業は、画面の担当が行う。この変更では、§4.2と§13の「最近見たページ」の記述と、既存のQA項目6jと6l、verificationの既存の節には手を入れていない。
+
+変更ファイルはsrc-tauri/src/lib.rs、src-tauri/src/files.rs、src-tauri/src/trash.rs、src/lib/settings.ts、tests/settings.test.ts、docs/specification.md、docs/verification.md、docs/mac-qa-checklist.md。
 
 ## サイドバーのナビとノートの一覧（2026-10-08、feature/notes-nav）
 
