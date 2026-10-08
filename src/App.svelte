@@ -7,6 +7,8 @@
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/Editor.svelte';
   import Outline from './lib/Outline.svelte';
+  import OutlineNotice from './lib/OutlineNotice.svelte';
+  import { outlineNoticeVisible } from './lib/outlineNotice.ts';
   import PaneResizer from './lib/PaneResizer.svelte';
   import { SIDEBAR, OUTLINE, paneLayout } from './lib/paneWidths.ts';
   import type { OutlineHeading } from './lib/outline.ts';
@@ -107,6 +109,7 @@
   };
   // Markdown以外のファイルを、ただのテキストとして開いているか
   const plain = $derived(current?.kind === 'other');
+  const outlineNotice = $derived(outlineNoticeVisible({ plain, previewOnly, outlineVisible: settings.outlineVisible, headingCount: outline.length, showOutline: layout.showOutline }));
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
   $effect(() => {
     document.documentElement.dataset.theme = settings.theme;
@@ -1088,6 +1091,7 @@
         </div>
       {:else if (current?.kind === 'markdown' || plain) && session}<div class="document-body">
           <div class="editor-column">
+            <OutlineNotice visible={outlineNotice} />
             <Editor
               {initialText}
               {documentKey}
