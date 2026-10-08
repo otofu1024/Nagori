@@ -58,6 +58,9 @@
     outlineDraft = $state<number | null>(null);
   const outlineWidth = $derived(outlineDraft ?? settings.outlineWidth);
   const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible));
+  const outlineLabel = $derived(settings.outlineVisible
+    ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
+    : '目次を表示');
   let previewOnly = $state(false),
     imageUrl = $state(''),
     imageDimensions = $state('');
@@ -938,7 +941,7 @@
   class:working={busy}
   class:sidebar-hidden={!sidebarVisible}
   bind:clientWidth={shellWidth}
-  style={`--sidebar-width:${layout.sidebar}px;--outline-width:${outlineWidth}px`}
+  style={`--sidebar-width:${layout.sidebar}px;--outline-width:${layout.outline}px`}
 >
   <header class="global-bar" data-tauri-drag-region="deep">
     <div class="brand">
@@ -1064,8 +1067,8 @@
             <button
               class="mode-toggle outline-toggle"
               aria-pressed={settings.outlineVisible}
-              aria-label={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
-              title={settings.outlineVisible ? '目次を隠す' : '目次を表示'}
+              aria-label={outlineLabel}
+              title={outlineLabel}
               disabled={starting || !settingsLoaded}
               onclick={toggleOutline}><Icon name="outline" size={16} /></button
             >{/if}
@@ -1114,7 +1117,7 @@
             <div class="outline-boundary">
               <PaneResizer
                 label="目次の幅"
-                value={outlineWidth}
+                value={layout.outline}
                 min={OUTLINE.min}
                 max={layout.outlineMax}
                 initial={OUTLINE.initial}
