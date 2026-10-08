@@ -16,6 +16,10 @@
   import QuickOpen from './lib/QuickOpen.svelte';
   import FileTree from './lib/FileTree.svelte';
   import RecentFiles from './lib/RecentFiles.svelte';
+  import SidebarNav, { type SidebarView } from './lib/SidebarNav.svelte';
+  import NoteList from './lib/NoteList.svelte';
+  import TrashList from './lib/TrashList.svelte';
+  import { allNotes, recentlyEdited, starredNotes, setStarred, renameStarred, removeStarred, type NoteItem, type TrashItem } from './lib/noteLists.ts';
   import ProblemDialog from './lib/ProblemDialog.svelte';
   import SaveAsDialog from './lib/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
@@ -50,6 +54,9 @@
     expanded = $state<string[]>(['']),
     selected = $state('');
   let index = $state<Entry[]>([]),
+    // サイドバーの表示。フォルダ以外は一覧に切り替える。保存はしない
+    view = $state<SidebarView>('tree'),
+    trashItems = $state<TrashItem[]>([]),
     busy = $state(false),
     starting = $state(true),
     notice = $state(''),
@@ -111,6 +118,12 @@
   const plain = $derived(current?.kind === 'other');
   const outlineNotice = $derived(outlineNoticeVisible({ plain, previewOnly, outlineVisible: settings.outlineVisible, headingCount: outline.length, showOutline: layout.showOutline }));
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
+  const starredPaths = $derived(settings.starred[project] ?? []);
+  const allList = $derived(allNotes(index));
+  const starredList = $derived(starredNotes(starredPaths, index));
+  const recentList = $derived(recentlyEdited(index));
+  const navCounts = $derived({ all: allList.length, starred: starredList.length, recent: recentList.length, trash: trashItems.length });
+  const starred = $derived(!!current && starredPaths.includes(current.path));
   $effect(() => {
     document.documentElement.dataset.theme = settings.theme;
   });
@@ -212,6 +225,7 @@
     imagesQueued = false;
     try {
       await refreshTree();
+      await refreshIndex();
       if (root !== project || busy || composing) {
         treeQueued = true;
         imagesQueued ||= refreshImages;
@@ -303,6 +317,16 @@
     if (root === project) index = entries;
     return entries;
   }
+  // ゴミ箱の一覧を読み直す。失敗は通知だけにし、ゴミ箱以外の操作は止めない
+  async function loadTrash() {
+    const root = project;
+    try {
+      const items = await invoke<TrashItem[]>('trash_list');
+      if (root === project) trashItems = items;
+    } catch (error) {
+      notify(failure(error).message);
+    }
+  }
   async function toggle(entry: Entry) {
     if (expanded.includes(entry.path)) expanded = expanded.filter((path) => path !== entry.path);
     else {
@@ -368,6 +392,12 @@
       throw error;
     }
   }
+  // 保存した記事の更新日時を今にして、最近編集の一覧へ反映する
+  async function saveDocument(path: string, text: string, baseline: string) {
+    const result = await invoke<{ baseline: string }>('document_save', { path, text, baseline });
+    index = index.map((entry) => (entry.path === path ? { ...entry, modified: Date.now() } : entry));
+    return result;
+  }
   async function loadEntry(entry: Entry) {
     clearDocument();
     current = entry;
@@ -377,7 +407,7 @@
         // Markdown以外も、Rust側でテキストと判断できれば同じ流れで編集する
         const opened = await invoke<OpenedDocument>('document_open', { path: entry.path });
         initialText = opened.text;
-        session = new EditSession(opened, (path, text, baseline) => invoke('document_save', { path, text, baseline }), syncSession);
+        session = new EditSession(opened, saveDocument, syncSession);
         syncSession();
       } else if (entry.kind === 'image') imageUrl = await blobImage(entry.path);
       else contentError = 'シンボリックリンクは表示のみです。';
@@ -414,13 +444,17 @@
     expanded = [''];
     selected = '';
     index = [];
+    view = 'tree';
+    trashItems = [];
     settings.lastProject = root;
     settings.lastFile = null;
     settings.recentFiles = [];
     await refreshTree();
+    const entries = await refreshIndex();
+    void loadTrash();
     void persist();
     if (restoreFile) {
-      const entry = (await refreshIndex()).find((item) => item.path === restoreFile);
+      const entry = entries.find((item) => item.path === restoreFile);
       if (entry) {
         const parent = parentPath(entry.path);
         const folders = parent.split('/').filter(Boolean);
@@ -465,6 +499,8 @@
   }
   async function startName(kind: 'markdown' | 'directory' | 'rename', entry?: Entry) {
     if (busy) return;
+    // 作成と名前変更は File Tree で行うので、フォルダの表示に戻す
+    view = 'tree';
     const parent = kind === 'rename' ? parentPath(entry!.path) : selectedFolder();
     if (parent && !expanded.includes(parent)) {
       await list(parent);
@@ -507,6 +543,7 @@
             else if (current.kind === 'image') imageUrl = await blobImage(current.path);
           }
           settings.recentFiles = settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
+          if (project) settings.starred = renameStarred(settings.starred, project, old, entry.path);
           expanded = expanded.map((path) => renamedPath(path, old, entry.path));
           selected = entry.path;
           notify('名前を変更しました。リンク・画像の参照は自動更新されません。');
@@ -520,12 +557,14 @@
         }
         naming = null;
         await refreshTree();
+        await refreshIndex();
         void persist();
       } catch (error) {
         naming = { ...request, error: failure(error).message };
       }
     });
   }
+  // アプリ内のゴミ箱へ移す。復元はゴミ箱の一覧から行える
   async function trash(entry: Entry) {
     await operation(async () => {
       await invoke('file_trash', { path: entry.path });
@@ -534,12 +573,69 @@
         settings.lastFile = null;
       }
       settings.recentFiles = settings.recentFiles.filter((path) => !containsPath(entry.path, path));
+      if (project) settings.starred = removeStarred(settings.starred, project, entry.path);
       expanded = expanded.filter((path) => !containsPath(entry.path, path));
       selected = '';
       await refreshTree();
+      await refreshIndex();
+      void loadTrash();
       void persist();
-      notify(`「${entry.name}」をゴミ箱へ移動しました。復元はFinderのゴミ箱から行えます。`);
+      notify(`「${entry.name}」をゴミ箱に移動しました。ゴミ箱から元に戻せます`);
     });
+  }
+  // ゴミ箱の項目を元の場所へ戻す。戻せない時はoperationが理由を通知する
+  async function restoreTrash(item: TrashItem) {
+    await operation(async () => {
+      const entry = await invoke<Entry>('trash_restore', { id: item.id });
+      await refreshTree();
+      await refreshIndex();
+      await loadTrash();
+      notify(`「${entry.name}」を元の場所に戻しました。`);
+    });
+  }
+  // ゴミ箱の項目をmacOSのゴミ箱へ送る。アプリのゴミ箱からは外れる
+  async function deleteTrash(item: TrashItem) {
+    if (busy) return;
+    if (
+      !(await confirm(`「${item.name}」をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
+        title: '完全に削除',
+        kind: 'warning',
+        okLabel: '完全に削除',
+        cancelLabel: 'キャンセル',
+      }))
+    )
+      return;
+    await operation(async () => {
+      await invoke('trash_delete', { id: item.id });
+      await loadTrash();
+      notify(`「${item.name}」をmacOSのゴミ箱へ移しました。`);
+    });
+  }
+  // 今のワークスペースのゴミ箱の項目をすべて、macOSのゴミ箱へ送る
+  async function emptyTrash() {
+    if (busy || !trashItems.length) return;
+    const count = trashItems.length;
+    if (
+      !(await confirm(`ゴミ箱の${count}件をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
+        title: 'ゴミ箱を空にする',
+        kind: 'warning',
+        okLabel: 'ゴミ箱を空にする',
+        cancelLabel: 'キャンセル',
+      }))
+    )
+      return;
+    await operation(async () => {
+      await invoke('trash_empty');
+      await loadTrash();
+      notify(`ゴミ箱の${count}件をmacOSのゴミ箱へ移しました。`);
+    });
+  }
+  // スターの付け外し。ワークスペースのルートごとに、記事の相対パスを保存する
+  function toggleStar(path: string) {
+    if (!project) return;
+    const on = !(settings.starred[project] ?? []).includes(path);
+    settings.starred = setStarred(settings.starred, project, path, on);
+    void persist();
   }
   async function reveal(entry?: Entry) {
     try {
@@ -554,6 +650,9 @@
     const menu = await Menu.new({
       items: [
         { id: 'reveal', text: 'Finderで表示', action: () => void reveal(entry) },
+        ...(entry.kind === 'markdown'
+          ? [{ id: 'star', text: starredPaths.includes(entry.path) ? 'スターを外す' : 'スターを付ける', action: () => toggleStar(entry.path) }]
+          : []),
         {
           id: 'rename',
           text: '名前を変更（参照は更新しません）',
@@ -562,10 +661,24 @@
         },
         {
           id: 'trash',
-          text: entry.kind === 'directory' ? 'フォルダと配下をゴミ箱へ移動' : 'ゴミ箱へ移動',
+          text: entry.kind === 'directory' ? 'フォルダと配下をゴミ箱に移動' : 'ゴミ箱に移動',
           enabled: entry.kind !== 'symlink',
           action: () => void trash(entry),
         },
+      ],
+    });
+    try {
+      await menu.popup();
+    } finally {
+      await menu.close();
+    }
+  }
+  async function trashContextMenu(event: MouseEvent, item: TrashItem) {
+    event.preventDefault();
+    const menu = await Menu.new({
+      items: [
+        { id: 'restore', text: '元に戻す', action: () => void restoreTrash(item) },
+        { id: 'delete', text: '完全に削除', action: () => void deleteTrash(item) },
       ],
     });
     try {
@@ -789,6 +902,7 @@
       saveAsDialog?.close();
       errorDialog?.close();
       await refreshTree();
+      await refreshIndex();
       void persist();
       if (session.dirty) scheduleSave();
       notify('別名で保存しました。');
@@ -995,6 +1109,9 @@
         >
       </div>
     </div>
+    {#if project}
+      <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} />
+    {/if}
     {#if project && settings.recentFiles.length}
       <RecentFiles
         recent={settings.recentFiles}
@@ -1004,22 +1121,45 @@
         onSelect={(entry) => void selectEntry(entry)}
       />
     {/if}
-    <FileTree
-      {project}
-      {rows}
-      {expanded}
-      current={current?.path}
-      {selected}
-      {busy}
-      bind:naming
-      bind:nameInput={renameInput}
-      onSelect={(entry) => void selectEntry(entry)}
-      onToggle={(entry) => void toggle(entry)}
-      onContextMenu={(event, entry) => void contextMenu(event, entry)}
-      onRename={(entry) => void startName('rename', entry)}
-      onTrash={(entry) => void trash(entry)}
-      onCommitName={() => void commitName()}
-    />
+    <button class="folders-heading" class:active={view === 'tree'} aria-current={view === 'tree' ? 'true' : undefined} onclick={() => (view = 'tree')}>フォルダ</button>
+    {#if view === 'tree'}
+      <FileTree
+        {project}
+        {rows}
+        {expanded}
+        current={current?.path}
+        {selected}
+        {busy}
+        bind:naming
+        bind:nameInput={renameInput}
+        onSelect={(entry) => void selectEntry(entry)}
+        onToggle={(entry) => void toggle(entry)}
+        onContextMenu={(event, entry) => void contextMenu(event, entry)}
+        onRename={(entry) => void startName('rename', entry)}
+        onTrash={(entry) => void trash(entry)}
+        onCommitName={() => void commitName()}
+      />
+    {:else if view === 'trash'}
+      <TrashList
+        items={trashItems}
+        {busy}
+        onRestore={(item) => void restoreTrash(item)}
+        onDelete={(item) => void deleteTrash(item)}
+        onEmpty={() => void emptyTrash()}
+        onContextMenu={(event, item) => void trashContextMenu(event, item)}
+      />
+    {:else}
+      <NoteList
+        label={view === 'all' ? 'すべてのノート' : view === 'starred' ? 'スター付きのノート' : '最近編集したノート'}
+        notes={view === 'all' ? allList : view === 'starred' ? starredList : recentList}
+        current={current?.path}
+        {busy}
+        dated={view === 'recent'}
+        empty={view === 'all' ? 'Markdownの記事はまだありません。' : view === 'starred' ? 'スターを付けた記事はここに並びます。' : '最近編集した記事はここに並びます。'}
+        onSelect={(entry) => void selectEntry(entry)}
+        onContextMenu={(event, entry) => void contextMenu(event, entry)}
+      />
+    {/if}
     <div class="sidebar-bottom">
       <button class="open-folder" onclick={() => void chooseProject()} disabled={busy || starting}
         ><Icon name="folder-open" size={17} />{project ? '別のフォルダを開く' : 'フォルダを開く'}</button
@@ -1066,6 +1206,14 @@
               title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
               disabled={busy || composing}
               onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+            >
+            <button
+              class="mode-toggle star-toggle"
+              aria-pressed={starred}
+              aria-label="スター"
+              title={starred ? 'スターを外す' : 'スターを付ける'}
+              disabled={busy || composing || current?.kind !== 'markdown'}
+              onclick={() => current && toggleStar(current.path)}><Icon name="star" size={16} /></button
             >
             <button
               class="mode-toggle outline-toggle"

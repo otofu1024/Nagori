@@ -197,6 +197,29 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
 .tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
+/* すべてのノート・スター付き・最近編集・ゴミ箱。フォルダと同じ領域を切り替えて使う */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
+.nav-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 38px; padding: 8px 12px; text-align: left; font-size: 14px; color: var(--text); border-radius: 12px; }
+.nav-row .file-icon { color: var(--muted); }
+.nav-row.active { background: var(--accent-soft); color: var(--accent); }
+.nav-row.active .file-icon { color: var(--accent); }
+.nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-count { flex-shrink: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nav-row.active .nav-count { color: var(--accent); }
+.folders-heading { display: block; flex-shrink: 0; width: 100%; padding: 8px 12px; margin-top: 4px; text-align: left; font-size: 12px; color: var(--muted); border-radius: 9px; }
+.folders-heading.active { color: var(--heading); font-weight: 600; }
+.note-list, .trash-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
+.note-list .tree-row { margin: 2px 0; }
+.trash-actions { padding: 2px 12px 8px; }
+.trash-actions button { font-size: 12px; padding: 5px 10px; border: 1px solid var(--border); }
+.trash-items { list-style: none; margin: 0; padding: 0; }
+.trash-item { display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 2px 0; padding: 6px 4px 6px 12px; border-radius: 12px; }
+.trash-item:hover { background: var(--hover); }
+.trash-item .file-icon { color: var(--muted); }
+.trash-item .recent-label { flex: 1; min-width: 0; }
+.trash-button { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 8px; }
+.trash-button:hover:not(:disabled) { color: var(--accent); background: var(--surface); }
+.trash-button.danger:hover:not(:disabled) { color: var(--danger); }
 .recent-files { display: flex; flex-direction: column; min-height: 0; max-height: 40%; flex-shrink: 0; margin-bottom: 10px; }
 .recent-heading { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 100%; padding: 8px 12px; color: var(--muted); font-size: 12px; text-align: left; }
 .recent-list { min-height: 0; overflow: auto; }
@@ -234,6 +257,9 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .mode-toggle { border: 1px solid var(--border); font-size: 12px; padding: 6px 10px; color: var(--muted); }
 .mode-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+/* 押されたスターは塗りつぶして示す */
+.star-toggle { display: grid; place-items: center; padding: 6px 8px; }
+.star-toggle[aria-pressed="true"] svg { fill: currentColor; }
 .outline-toggle { display: grid; place-items: center; padding: 6px; }
 .content { flex: 1; min-height: 0; overflow: hidden; position: relative; }
 .document-body { display: flex; height: 100%; min-height: 0; }

@@ -4,6 +4,20 @@
 
 Mac実機で未確認の項目を順に確認する手順と記入欄は[Mac実機QA手順書](mac-qa-checklist.md)にある。
 
+## サイドバーのナビとノートの一覧（2026-10-08、feature/notes-nav）
+
+サイドバーの上に「すべてのノート」「スター付き」「最近編集」「ゴミ箱」のナビを追加した。項目を押すと、File Treeの場所にその一覧を出す。「フォルダ」の見出しか、選んでいる項目をもう一度押すとFile Treeに戻る。どの一覧を選んでいるかは保存しない。
+
+一覧の並び・件数・日時の表示・スターの付け外しと追従は、純粋な処理として新しいsrc/lib/noteLists.tsに分けた。画面はsrc/lib/SidebarNav.svelte、src/lib/NoteList.svelte、src/lib/TrashList.svelteに分けた。App.svelteは状態の保持と既存の処理への配線だけにした。Icon.svelteに星・時計・ゴミ箱・元に戻すのアイコンを足した。スターは設定のstarredに、ワークスペースのルートの絶対パスごとに付けた順の新しい順で保存する。古い設定に項目がない時は空として読む。
+
+決めた挙動は次のとおり。保存した記事は、保存した時刻で最近編集の並びを更新する。名前変更と移動はスターの相対パスに追従する。ゴミ箱へ移した記事のスターは外し、元に戻しても付け直さない。ゴミ箱へ移す操作には確認ダイアログを出さない（既存の仕様のまま）。「完全に削除」と「ゴミ箱を空にする」は確認の後、項目をmacOSのゴミ箱へ送る。作成や名前変更を始めた時はFile Treeへ戻す。
+
+テストを8件追加した。tests/noteLists.test.tsの7件で並び・件数の上限・同名の親フォルダ表示・スターの順と追従・削除時の配下の除外・日時の表示を確かめ、tests/settings.test.tsの1件でstarredの既定値と古い設定を確かめる。npm testは183件すべて成功し、npm run checkは0エラー・0警告、npm run buildは成功した。cargo testは18件成功した。ビルドの動的importと500kB超チャンクの警告は既存のまま残る。
+
+未確認の点。Rust側のtrash_list、trash_restore、trash_delete、trash_empty、modifiedと、starredを読み書きする設定は、このブランチではまだ入っていない。そのため、ゴミ箱・最近編集・スターの実際の動きは、ワーカーAの変更を統合した後に確かめる。Web版の確認ページの画面撮影は、コーディネーターのモックの用意を待つ。Mac実機のWKWebView、VoiceOver、日本語IMEとの併用、Finderのゴミ箱の中身は、[QA項目6l](mac-qa-checklist.md#項目6l-サイドバーのナビとノートの一覧)の手順で確認する。
+
+変更ファイルはsrc/lib/navigation.ts、src/lib/settings.ts、src/lib/noteLists.ts（新規）、src/lib/SidebarNav.svelte（新規）、src/lib/NoteList.svelte（新規）、src/lib/TrashList.svelte（新規）、src/lib/Icon.svelte、src/App.svelte、src/app.css、tests/noteLists.test.ts（新規）、tests/settings.test.ts、docs/specification.md、docs/mac-qa-checklist.md、docs/verification.md、README.md。
+
 ## 目次が幅不足で隠れている時の案内（2026-10-08、feature/outline-notice）
 
 目次ボタンがオンで見出しがあるのに、幅が足りず目次を隠している時だけ、本文の右上に「画面の幅が足りないため、目次を表示できません」と「ウィンドウを広げるか、サイドバーを狭くしてください」の案内を出すようにした。判断は新しいsrc/lib/outlineNotice.tsに切り出し、案内の表示はsrc/lib/OutlineNotice.svelteに分けた。案内は本文の列の上の流れに場所を取るので、本文の文字と重ならず、クリックや入力を妨げない。案内の領域はaria-live="polite"で常に置き、中身が出た時だけ読まれる。Preview・plainモード（テキストファイル）・見出しのない記事・目次オフ・幅が足りる時は出さない。目次ボタンのtitleは変えていない。
