@@ -1,7 +1,7 @@
 import { mount, unmount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
-import Editor from '../src/lib/Editor.svelte';
-import '../src/app.css';
+import Editor from '../../src/lib/Editor.svelte';
+import '../../src/app.css';
 
 const pause = () => new Promise(resolve => setTimeout(resolve, 100));
 const checks = [], errors = [];
