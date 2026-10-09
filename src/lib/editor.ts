@@ -1,4 +1,4 @@
-import type { BlockKind } from './blockEdit.ts';
+import type { BlockKind, ListKind } from './blockEdit.ts';
 
 export type FormatKind = 'bold' | 'italic' | 'strike' | 'code' | 'link';
 export type EditorContextState = { plain: boolean; editable: boolean; block: boolean; heading: boolean; revision: number };
@@ -11,6 +11,8 @@ export interface EditorApi {
   // 変換の状態が残っていた時に、変換が終わったものとして装飾と保存を戻す
   endComposition(): void;
   format(kind: FormatKind): void;
+  // 選択が触れる行を箇条書きか番号付きリストにする。すでに同じ種類なら記号を外す
+  listify(kind: ListKind): void;
   block(kind: BlockKind, revision: number, position: number): void;
   // 位置を省くと現在の選択の先頭で判定する
   contextState(position?: number): EditorContextState;
