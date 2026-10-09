@@ -14,6 +14,7 @@
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
+  import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
@@ -159,6 +160,8 @@
   function dismissLink() { linkDialog = false; pendingLink = undefined; view?.focus(); updateToolbar(); }
   function setComposition(active: boolean) {
     composition = active; toolbar = null;
+    // 変換中は選択の矩形を隠す(composition は非リアクティブのため、クラスはDOMで切り替える)
+    root?.classList.toggle('composing', active);
     if (active) onComposition(true);
     const editor = view;
     if (active) return;
@@ -201,7 +204,9 @@
       history(), highlightActiveLine(), EditorView.lineWrapping,
       imageDrop({ state: () => ({ plain, readonly, busy, saving, previewOnly, composing: composition, saved: !!onDropImages }), importImages: images => onDropImages?.(images) ?? Promise.resolve(null), notify: reason => onImageError?.(reason) }),
       focusConfig.of(focusMode(focus, typewriter, plain)),
-      // 選択表示は標準のまま保ち、折り返しの上下はカーソルのassocで決める。
+      // 選択の塗りは文字の高さに収めて本文の下へ描く(selectionLayer.ts)。
+      selectionTextLayer(),
+      // 折り返しの上下はカーソルのassocで決める。
       layer({
         above: true, class: 'cm-cursorLayer',
         markers: editor => {
@@ -378,8 +383,12 @@
   .plain .editor-host :global(.cm-content) { max-width: 1100px; tab-size: 4; }
   .editor-host :global(.cm-focused) { outline: none; }
   .editor-host :global(.cm-activeLine) { background: transparent; }
-  /* 標準の選択表示を使い、複数行を選んだ時も本文の左右の余白を塗らない。 */
+  /* 編集中の標準の選択は透明にし、文字の高さに収めた矩形(selectionLayer.ts)で塗る。プレビューは標準の選択のまま。 */
   .editor-host :global(.cm-content::selection), .editor-host :global(.cm-content ::selection) { background: var(--selection); }
+  .editor-root:not(.preview-only) .editor-host :global(.cm-content ::selection) { background: transparent; }
+  .editor-host :global(.nagori-selection) { background: var(--selection); }
+  /* IME変換中は選択色を塗らず、未確定文字の下線だけで見せる */
+  :global(.editor-root.composing) .editor-host :global(.nagori-selection-layer) { display: none; }
   .preview-only .editor-host :global(.cm-content) { caret-color: transparent; }
   .editor-host :global(.nagori-bold) { font-weight: 700; color: var(--heading); }
   .editor-host :global(.nagori-italic) { font-style: italic; }
