@@ -412,6 +412,9 @@
   .no-heading-rule .editor-host :global(.nagori-heading-rule) { background: none; }
   .editor-host :global(.nagori-quote) { border-left: 4px solid var(--border); border-radius: 2px; padding-left: 15px; color: var(--muted); }
   .editor-host :global(.nagori-list-marker) { display: inline; }
+  /* 隠す記号は本文に残し、文字サイズを0にして幅を消す。行ごと隠す記号は行の高さも0にする(livePreview.ts) */
+  .editor-host :global(.nagori-hidden) { font-size: 0; }
+  .editor-host :global(.nagori-hidden-line) { font-size: 0; line-height: 0; }
   .editor-host :global(input[type='checkbox']) { accent-color: var(--accent-bright); vertical-align: middle; margin-right: 7px; width: 16px; height: 16px; cursor: pointer; }
   .editor-host :global(input[type='checkbox']:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
   .editor-host :global(.nagori-rule) { border: none; border-top: 1px solid var(--border); margin: 20px 0; cursor: text; }
