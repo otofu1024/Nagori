@@ -9,7 +9,8 @@ export function selectionTextLayer() {
     above: false,
     class: 'nagori-selection-layer',
     markers: view => selectionMarkers(view),
-    update: update => update.selectionSet || update.docChanged || update.viewportChanged,
+    // ウィンドウ幅や文字サイズ・行間の変更で折り返しが変わった時も矩形を描き直す
+    update: update => update.selectionSet || update.docChanged || update.viewportChanged || update.geometryChanged,
   });
 }
 
