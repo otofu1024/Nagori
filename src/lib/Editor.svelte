@@ -365,6 +365,11 @@
       editor.requestMeasure({ read: () => 0, write: restore });
     }
   });
+  // 本文の幅や行間が変わったら、折り返しを測り直す。サイドバーや目次の開閉で幅が変わった時も同じ
+  $effect(() => {
+    void editorStyle;
+    view?.requestMeasure();
+  });
   $effect(() => {
     const blocked = readonly || busy || saving || previewOnly;
     if (!view) return;

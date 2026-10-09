@@ -54,9 +54,10 @@
           <input type="range" min={RANGES.fontSize.min} max={RANGES.fontSize.max} step="1" style:--fill={rangeFill(settings.fontSize, RANGES.fontSize)} bind:value={settings.fontSize} onchange={onChange} />
         </label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.zoomFontSize} onchange={onChange} /> 拡大縮小で文字サイズを変える</label>
-        <label class="range-row">本文の幅 <output>{settings.editorWidth}px</output>
-          <input type="range" min={RANGES.editorWidth.min} max={RANGES.editorWidth.max} step="10" style:--fill={rangeFill(settings.editorWidth, RANGES.editorWidth)} bind:value={settings.editorWidth} onchange={onChange} />
+        <label class="range-row">本文の幅 <output>{settings.autoEditorWidth ? '自動' : `${settings.editorWidth}px`}</output>
+          <input type="range" min={RANGES.editorWidth.min} max={RANGES.editorWidth.max} step="10" style:--fill={rangeFill(settings.editorWidth, RANGES.editorWidth)} bind:value={settings.editorWidth} onchange={onChange} disabled={settings.autoEditorWidth} />
         </label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.autoEditorWidth} onchange={onChange} /> 本文の幅を自動で調整する</label>
         <label class="range-row">行間 <output>{settings.lineHeight.toFixed(1)}</output>
           <input type="range" min={RANGES.lineHeight.min} max={RANGES.lineHeight.max} step="0.1" style:--fill={rangeFill(settings.lineHeight, RANGES.lineHeight)} bind:value={settings.lineHeight} onchange={onChange} />
         </label>
@@ -124,6 +125,7 @@
   .range-row input[type='range']::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill), var(--border) var(--fill)); }
   .range-row input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 3px #0000001f; }
   .range-row input[type='range']:focus-visible { outline: none; }
+  .range-row input[type='range']:disabled { opacity: 0.45; cursor: default; }
   .range-row input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
   .select-row { justify-content: space-between; }
   .select-row select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
