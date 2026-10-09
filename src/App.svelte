@@ -191,7 +191,8 @@
   async function settleComposition() {
     if (!composing) return;
     // compositionend が来ない時も保存や終了が止まらないよう、上限を過ぎたら変換が終わったものとして先へ進める
-    const limit = setTimeout(() => composition(false), COMPOSITION_SETTLE_LIMIT_MS);
+    // Editor 側の変換の状態も戻し、装飾の更新が止まらないようにする
+    const limit = setTimeout(() => { editor?.endComposition(); composition(false); }, COMPOSITION_SETTLE_LIMIT_MS);
     await new Promise<void>((resolve) => compositionWaiters.push(() => {
       clearTimeout(limit);
       resolve();

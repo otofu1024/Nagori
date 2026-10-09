@@ -8,6 +8,8 @@ export interface EditorApi {
   insertText(text: string): void;
   focus(): void;
   isComposing(): boolean;
+  // 変換の状態が残っていた時に、変換が終わったものとして装飾と保存を戻す
+  endComposition(): void;
   format(kind: FormatKind): void;
   block(kind: BlockKind, revision: number): void;
   contextState(): EditorContextState;

@@ -317,6 +317,7 @@
         view.dispatch(view.state.replaceSelection(text), { userEvent: 'input' }); view.focus();
       },
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
+      endComposition: () => { if (composition) setComposition(false); },
       block: applyBlock, contextState,
       format: apply, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
