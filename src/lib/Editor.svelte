@@ -21,7 +21,7 @@
   import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
   import { imageDrop } from './imageDrop.ts';
   import { codeLanguage, codeHighlighting } from './codeLanguages.ts';
-  import { moveList } from './listEdit.ts';
+  import { moveList, continueList } from './listEdit.ts';
   import { moveTable } from './tableEdit.ts';
   import { pasteMarkdown } from './linkPaste.ts';
   import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
@@ -257,7 +257,7 @@
       Prec.highest(keymap.of([
         { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
         { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
-        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && moveTable(editor, 'down') },
+        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'down') || continueList(editor)) },
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
         { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
@@ -412,6 +412,14 @@
   .no-heading-rule .editor-host :global(.nagori-heading-rule) { background: none; }
   .editor-host :global(.nagori-quote) { border-left: 4px solid var(--border); border-radius: 2px; padding-left: 15px; color: var(--muted); }
   .editor-host :global(.nagori-list-marker) { display: inline; }
+  /* 字下げの幅は本文の文字サイズから求め、隠した記号の文字サイズに左右されないようにする。番号付きのタスクは、チェックボックスの幅(16px+余白7px)を足す。 */
+  .editor-host { --nagori-list-indent: calc(var(--editor-font-size, 19px) * 1.6); }
+  .editor-host :global(.nagori-list-line) { padding-left: calc(var(--nagori-list-depth, 1) * var(--nagori-list-indent) + var(--nagori-list-extra, 0px)); }
+  .editor-host :global(.nagori-list-first) { text-indent: calc(-1 * var(--nagori-list-indent) - var(--nagori-list-extra, 0px)); }
+  .editor-host :global(.nagori-list-slot) { display: inline-block; width: var(--nagori-list-indent); }
+  .editor-host :global(.nagori-bullet::before) { content: attr(data-bullet); font-size: var(--editor-font-size, 19px); }
+  /* 箇条書きのタスクは、記号の位置にチェックボックスを置き、本文までの幅を字下げと同じにする */
+  .editor-host :global(.nagori-list-task input[type='checkbox']) { margin-right: calc(var(--nagori-list-indent) - 16px); }
   /* 隠す記号は本文に残し、文字サイズを0にして幅を消す。行ごと隠す記号は行の高さも0にする(livePreview.ts) */
   .editor-host :global(.nagori-hidden) { font-size: 0; }
   .editor-host :global(.nagori-hidden-line) { font-size: 0; line-height: 0; }

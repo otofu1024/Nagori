@@ -139,7 +139,7 @@ test('Inline Codeの置き換えWidgetにコードのクラスを付け、ほか
       const span = widget.toDOM(null as unknown as EditorView);
       assert.equal(span.className, 'nagori-list-marker');
       return span.textContent;
-    }), ['•', ' ', '&', '*']);
+    }), [' ', '&', '*']);
     assert.equal(sameText[0].eq(sameText[1]), false);
     assert.equal(sameText[0].eq(anotherCode), true);
     assert.equal(sameText[0].eq(widgets[0].widget), false);
