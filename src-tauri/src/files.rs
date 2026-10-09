@@ -116,6 +116,8 @@ pub struct Settings {
     pub trash_retention_days: Option<u16>,
     // 拡大縮小のショートカットとピンチで文字サイズを変える。古い設定はオフで読む
     pub zoom_font_size: bool,
+    // オンの時、本文の幅はウィンドウの空きに合わせて決める。editor_widthは手動の値として残す。古い設定はオフで読む
+    pub auto_editor_width: bool,
     // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
@@ -143,6 +145,7 @@ impl Default for Settings {
             recent_edited_count: 30,
             trash_retention_days: Some(30),
             zoom_font_size: false,
+            auto_editor_width: false,
             recent_opened_at: BTreeMap::new(),
         }
     }
@@ -1237,12 +1240,14 @@ mod tests {
         assert_eq!(defaults.recent_edited_count, 30);
         assert_eq!(defaults.trash_retention_days, Some(30));
         assert!(!defaults.zoom_font_size);
+        assert!(!defaults.auto_editor_width);
         assert!(defaults.recent_opened_at.is_empty());
         // 項目のない古い設定は初期値で読む
         let old: Settings = serde_json::from_str(r#"{"theme":"dark","fontSize":17}"#).unwrap();
         assert_eq!(old.editor_width, 720);
         assert_eq!(old.trash_retention_days, Some(30));
         assert!(!old.zoom_font_size);
+        assert!(!old.auto_editor_width);
         assert!(old.heading_rule && !old.start_in_preview);
         assert!(old.recent_opened_at.is_empty());
         // 範囲内の値は保存して読み直しても同じ
@@ -1268,6 +1273,10 @@ mod tests {
         assert!(zoom.zoom_font_size);
         let saved = serde_json::to_value(&zoom).unwrap();
         assert_eq!(saved["zoomFontSize"], true);
+        let auto: Settings = serde_json::from_str(r#"{"autoEditorWidth":true,"editorWidth":900}"#).unwrap();
+        assert!(auto.auto_editor_width);
+        assert_eq!(auto.editor_width, 900);
+        assert_eq!(serde_json::to_value(&auto).unwrap()["autoEditorWidth"], true);
         // 範囲の両端は受け付ける
         for (width, height, delay, edited) in [(560, 1.4, 300, 10), (1000, 2.4, 5000, 50)] {
             let settings: Settings = serde_json::from_str(&format!(

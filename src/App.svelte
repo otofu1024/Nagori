@@ -77,7 +77,11 @@
   let sidebarDraft = $state<number | null>(null),
     outlineDraft = $state<number | null>(null);
   const outlineWidth = $derived(outlineDraft ?? settings.outlineWidth);
-  const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible, settings.editorWidth));
+  // Markdown以外のファイルを、ただのテキストとして開いているか
+  const plain = $derived(current?.kind === 'other');
+  // 目次を実際に表示しているか。本文の幅を自動で決める時に、目次の分の空きを引くかどうかに使う
+  const outlineOpen = $derived(!plain && settings.outlineVisible && outline.length > 0);
+  const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible, settings.editorWidth, { auto: settings.autoEditorWidth, outlineOpen }));
   const outlineLabel = $derived(settings.outlineVisible
     ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
     : '目次を表示');
@@ -128,8 +132,6 @@
     conflict: '競合',
     missing: 'ファイルが見つかりません',
   };
-  // Markdown以外のファイルを、ただのテキストとして開いているか
-  const plain = $derived(current?.kind === 'other');
   const outlineNotice = $derived(outlineNoticeVisible({ plain, previewOnly, outlineVisible: settings.outlineVisible, headingCount: outline.length, showOutline: layout.showOutline }));
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
   const starredPaths = $derived(settings.starred[project] ?? []);
@@ -1471,7 +1473,7 @@
               focus={settings.focusMode}
               typewriter={settings.typewriterMode}
               fontSize={settings.fontSize}
-              editorStyle={editorStyle(settings)}
+              editorStyle={editorStyle({ ...settings, editorWidth: layout.editorWidth })}
               headingRule={settings.headingRule}
               onChange={changed}
               onComposition={composition}

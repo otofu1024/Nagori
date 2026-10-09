@@ -254,3 +254,13 @@ test('ctrl付きのホイールは動きを溜めてから1pxずつ変え、指�
   assert.equal(wheelFontSize(32, 0, -100).size, 32);
   assert.equal(wheelFontSize(12, 0, 100).size, 12);
 });
+
+test('本文の幅の自動調整は既定でオフで、古い設定ではオフとして読み、手動の幅を残したまま保存する', () => {
+  assert.equal(defaults.autoEditorWidth, false);
+  const { autoEditorWidth: _, ...legacy } = defaults;
+  assert.equal(startupSettings(legacy).autoEditorWidth, false);
+  assert.equal(startupSettings({ ...defaults, autoEditorWidth: 'yes' as never }).autoEditorWidth, false);
+  const saved = { ...defaults, theme: 'light' as const, editorWidth: 900, autoEditorWidth: true };
+  assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
+  assert.equal(startupSettings(JSON.parse(JSON.stringify(saved))).editorWidth, 900);
+});

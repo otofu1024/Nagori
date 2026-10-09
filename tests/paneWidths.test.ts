@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIDEBAR, OUTLINE, EDITOR_SPACE, editorSpace, storedPaneWidth, resizePane, paneLayout } from '../src/lib/paneWidths.ts';
+import { SIDEBAR, OUTLINE, EDITOR_SPACE, EDITOR_WIDTH, editorSpace, storedPaneWidth, resizePane, paneLayout } from '../src/lib/paneWidths.ts';
 import { defaults, startupSettings } from '../src/lib/settings.ts';
 
 test('保存した幅の範囲、初期値、古い設定を読み込む', () => {
@@ -100,4 +100,64 @@ test('本文を広げた時はサイドバーの上限が狭くなり、目次�
   assert.equal(standard.sidebar, 420);
   assert.equal(standard.outlineMax, 232);
   assert.equal(standard.showOutline, true);
+});
+
+const auto = { auto: true, outlineOpen: true };
+
+test('自動の時は目次の有無で本文の幅が変わり、手動の時は本文の幅をそのまま返す', () => {
+  // サイドバーと目次の分を引いた残りに本文を合わせる
+  assert.equal(paneLayout(1300, 272, 220, true, 720, auto).editorWidth, 680);
+  // 目次を閉じると、目次の分が本文に戻る
+  assert.equal(paneLayout(1300, 272, 220, true, 720, { auto: true, outlineOpen: false }).editorWidth, 900);
+  // サイドバーを隠すと、サイドバーの分も本文に戻る
+  assert.equal(paneLayout(1300, 272, 220, false, 720, auto).editorWidth, 952);
+  // 手動の時は、自動の計算をせず本文の幅をそのまま返す
+  assert.equal(paneLayout(1300, 272, 220, true, 720).editorWidth, 720);
+  assert.equal(paneLayout(1300, 272, 220, true, 720, { auto: false, outlineOpen: true }).editorWidth, 720);
+});
+
+test('自動の時、狭いウィンドウでは本文を560pxに止める', () => {
+  const narrow = paneLayout(800, 272, 220, true, 720, auto);
+  assert.equal(narrow.sidebar, 200);
+  assert.equal(narrow.showOutline, false);
+  assert.equal(narrow.editorWidth, EDITOR_WIDTH.min);
+  // 目次を閉じていても、空きが560pxに届かなければ止める
+  assert.equal(paneLayout(800, 272, 220, true, 720, { auto: true, outlineOpen: false }).editorWidth, EDITOR_WIDTH.min);
+});
+
+test('自動の時、広いウィンドウでは本文を1000pxに止める', () => {
+  assert.equal(paneLayout(2000, 272, 220, true, 720, auto).editorWidth, EDITOR_WIDTH.max);
+  assert.equal(paneLayout(2000, 272, 220, false, 720, { auto: true, outlineOpen: false }).editorWidth, EDITOR_WIDTH.max);
+});
+
+test('自動の時も、目次を出せるかは本文の最小幅560pxで判断する', () => {
+  // 272pxのサイドバーと本文560px、余白128px、目次の最小180pxを足した1140pxから目次を出す
+  const showOutlineAt = (width: number) => paneLayout(width, 272, 220, true, 1000, auto).showOutline;
+  assert.equal(showOutlineAt(1139), false);
+  assert.equal(showOutlineAt(1140), true);
+  const minimum = paneLayout(1140, 272, 220, true, 720, auto);
+  assert.equal(minimum.outline, OUTLINE.min);
+  assert.equal(minimum.editorWidth, EDITOR_WIDTH.min);
+  // 手動の本文の幅が広くても、判断には使わない
+  assert.equal(paneLayout(1139, 272, 220, true, 1000).showOutline, false);
+  // 目次を閉じている時は、表示に関係なく残りの空きに本文を合わせる
+  assert.equal(paneLayout(1139, 272, 220, true, 720, { auto: true, outlineOpen: false }).editorWidth, 739);
+});
+
+test('自動の時も、本文の幅は範囲に収まり、目次を出している時は目次の幅を空きから引く', () => {
+  for (const width of [1000, 1050, 1140, 1300, 1600, 2000]) {
+    for (const sidebarVisible of [false, true]) {
+      for (const outline of [180, 220, 360]) {
+        for (const outlineOpen of [false, true]) {
+          const layout = paneLayout(width, 420, outline, sidebarVisible, 720, { auto: true, outlineOpen });
+          const sidebar = sidebarVisible ? layout.sidebar : 0;
+          const editor = layout.editorWidth;
+          assert.ok(editor >= EDITOR_WIDTH.min && editor <= EDITOR_WIDTH.max);
+          if (outlineOpen && layout.showOutline && editor > EDITOR_WIDTH.min && editor < EDITOR_WIDTH.max) {
+            assert.equal(editor, width - sidebar - layout.outline - 128);
+          }
+        }
+      }
+    }
+  }
 });
