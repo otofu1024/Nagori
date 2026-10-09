@@ -9,6 +9,8 @@ export type Settings = {
   recentOpenedAt: Record<string, number>;
   // 設定画面の項目。範囲外の値は読み込み時に範囲の端へ直す
   editorWidth: number; lineHeight: number; fontFamily: FontFamily; autosaveDelay: number; startInPreview: boolean; headingRule: boolean; recentEditedCount: number; trashRetentionDays: TrashRetentionDays;
+  // オンの時、拡大縮小のショートカットとピンチで本文の文字サイズを変える
+  zoomFontSize: boolean;
 };
 export type FontFamily = 'sans' | 'serif';
 export type TrashRetentionDays = 7 | 14 | 30 | 60 | 90 | null;
@@ -22,7 +24,7 @@ export const RANGES = {
 } as const;
 export const defaults: Settings = {
   lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
-  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30,
+  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false,
 };
 
 function clamp(value: unknown, fallback: number, { min, max }: { min: number; max: number }): number {
@@ -59,7 +61,32 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.recentEditedCount = Math.round(inRange(settings.recentEditedCount, defaults.recentEditedCount, RANGES.recentEditedCount));
   settings.recentOpenedAt = readOpened(settings.recentOpenedAt);
   settings.trashRetentionDays = (TRASH_RETENTION_OPTIONS as unknown[]).includes(settings.trashRetentionDays) ? settings.trashRetentionDays : defaults.trashRetentionDays;
+  settings.zoomFontSize = flag(settings.zoomFontSize, defaults.zoomFontSize);
   return settings;
+}
+
+// 文字サイズを1pxずつ増減する。範囲の端では止める
+export function stepFontSize(size: number, delta: number): number {
+  return Math.min(RANGES.fontSize.max, Math.max(RANGES.fontSize.min, size + delta));
+}
+
+// ピンチは、開始時の文字サイズに拡大率を掛けた目標へ1pxずつ寄せる。
+// 目標との差が1px未満の間は動かさず、指の細かな揺れで文字サイズが震えないようにする
+export function pinchFontSize(current: number, start: number, scale: number): number {
+  const target = Math.min(RANGES.fontSize.max, Math.max(RANGES.fontSize.min, start * scale));
+  if (target - current >= 1) return stepFontSize(current, 1);
+  if (current - target >= 1) return stepFontSize(current, -1);
+  return current;
+}
+
+// ctrl付きのホイールは、動きをpendingへ溜め、WHEEL_STEP分たまったら1px変える。
+// 指を広げる(deltaYが負)と大きくする。1px変えたら溜めを捨て、大きな動きでも1回で1pxだけ変える
+export const WHEEL_STEP = 12;
+export function wheelFontSize(current: number, pending: number, deltaY: number): { size: number; pending: number } {
+  const total = pending - deltaY;
+  if (total >= WHEEL_STEP) return { size: stepFontSize(current, 1), pending: 0 };
+  if (total <= -WHEEL_STEP) return { size: stepFontSize(current, -1), pending: 0 };
+  return { size: current, pending: total };
 }
 
 // 表示に使う配色。'system'はmacOSの外観に合わせ、ライトかダークに決める

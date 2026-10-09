@@ -654,11 +654,23 @@ fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>
         "タイプライター表示を切り替え",
         Some("CmdOrCtrl+Shift+T"),
     )?;
+    let font_larger = action("font-larger", "文字を大きく", Some("CmdOrCtrl+="))?;
+    let font_smaller = action("font-smaller", "文字を小さく", Some("CmdOrCtrl+-"))?;
+    let font_reset = action("font-reset", "文字を標準サイズに", Some("CmdOrCtrl+0"))?;
     let view = Submenu::with_items(
         app,
         "表示",
         true,
-        &[&preview, &outline, &focus, &typewriter],
+        &[
+            &preview,
+            &outline,
+            &focus,
+            &typewriter,
+            &separator,
+            &font_larger,
+            &font_smaller,
+            &font_reset,
+        ],
     )?;
     Menu::with_items(app, &[&application, &file, &edit, &format, &view])
 }
