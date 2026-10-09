@@ -727,9 +727,28 @@
       notify(failure(error).message);
     }
   }
-  // 開いているコンテキストメニュー。popupは項目を選ぶまで戻らず、項目のactionはその後に届く。
-  // popupの直後にcloseすると項目のactionが届かなくなるため、閉じるのは次のメニューを出す時と終了時に限る
+  // 開いているコンテキストメニュー。項目を選んだ知らせはpopupが戻った後に届くため、
+  // 閉じるのは次のメニューを出す時と終了時に限る
   let openedMenu: Menu | undefined;
+  // 右クリックメニューの項目の処理。Tauri 2.12のmacOSでは、項目ごとのaction(Channel)が呼ばれないことを確かめたため、
+  // 項目のidをアプリ全体のメニューの知らせ(nagori:menu)で受け、ここから処理を呼ぶ。新しいメニューを出すたびに入れ替える
+  let contextActions = new Map<string, () => void>();
+  type ContextItems = NonNullable<MenuOptions['items']>;
+  function contextItems(items: ContextItems): ContextItems {
+    contextActions = new Map();
+    const strip = (list: ContextItems): ContextItems =>
+      list.map((entry) => {
+        if (!entry || typeof entry !== 'object' || 'rid' in entry) return entry;
+        const item = entry as { id?: string; action?: () => void; items?: ContextItems };
+        if (item.items) return { ...item, items: strip(item.items) } as (typeof list)[number];
+        if (!item.action) return entry;
+        const id = `context:${contextActions.size}:${item.id ?? ''}`;
+        contextActions.set(id, item.action);
+        const { action: _action, ...rest } = item;
+        return { ...rest, id } as (typeof list)[number];
+      });
+    return strip(items);
+  }
   async function popupMenu(menu: Menu, at?: LogicalPosition) {
     const previous = openedMenu;
     openedMenu = menu;
@@ -740,7 +759,7 @@
     event.preventDefault();
     selected = entry.path;
     const menu = await Menu.new({
-      items: [
+      items: contextItems([
         { id: 'reveal', text: 'Finderで表示', action: () => void reveal(entry) },
         ...(entry.kind === 'markdown'
           ? [{ id: 'star', text: starredPaths.includes(entry.path) ? 'スターを外す' : 'スターを付ける', action: () => toggleStar(entry.path) }]
@@ -757,17 +776,17 @@
           enabled: entry.kind !== 'symlink',
           action: () => void trash(entry),
         },
-      ],
+      ]),
     });
     await popupMenu(menu);
   }
   async function trashContextMenu(event: MouseEvent, item: TrashItem) {
     event.preventDefault();
     const menu = await Menu.new({
-      items: [
+      items: contextItems([
         { id: 'restore', text: '元に戻す', action: () => void restoreTrash(item) },
         { id: 'delete', text: '完全に削除', action: () => void deleteTrash(item) },
-      ],
+      ]),
     });
     await popupMenu(menu);
   }
@@ -816,7 +835,7 @@
         },
       );
     try {
-      const menu = await Menu.new({ items });
+      const menu = await Menu.new({ items: contextItems(items) });
       if (active()) await popupMenu(menu, new LogicalPosition(context.x, context.y));
     } catch (error) {
       notify(failure(error).message);
@@ -1116,6 +1135,11 @@
     void persist();
   }
   async function menuAction(action: string) {
+    const contextAction = contextActions.get(action);
+    if (contextAction) {
+      contextAction();
+      return;
+    }
     if (errorDialog?.open || saveAsDialog?.open || quick || searchOpen) return;
     if (action === 'cli-install') await runCli('cli_install');
     else if (action === 'cli-uninstall') await runCli('cli_uninstall');
