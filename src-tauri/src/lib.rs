@@ -35,6 +35,7 @@ struct Backend {
     workspace: Arc<Mutex<Workspace>>,
     allow_exit: Arc<AtomicBool>,
     open_requests: Arc<Mutex<VecDeque<Result<OpenRequest>>>>,
+    previews: Arc<Mutex<files::PreviewCache>>,
 }
 #[derive(Debug, serde::Serialize)]
 struct OpenRequest {
@@ -358,17 +359,21 @@ async fn image_read(
     state: State<'_, Backend>,
     path: String,
     document_path: Option<String>,
+    preview: Option<bool>,
 ) -> Result<tauri::ipc::Response> {
+    let previews = state.previews.clone();
     // JSONの数値配列にせず、バイナリのままWebViewへ渡す
     work(&state, move |w| {
-        files::read_image(&files::image_path(
-            w.root()?,
-            &path,
-            document_path.as_deref(),
-        )?)
+        let path = files::image_path(w.root()?, &path, document_path.as_deref())?;
+        // 記事中の表示は縮小版を使い、画像そのものを開く時は元のバイト列を使う
+        if preview.unwrap_or(false) {
+            files::read_preview(&path, &previews)
+        } else {
+            files::read_image(&path).map(|image| image.data)
+        }
     })
     .await
-    .map(|image| tauri::ipc::Response::new(image.data))
+    .map(tauri::ipc::Response::new)
 }
 #[tauri::command]
 async fn image_insert(
