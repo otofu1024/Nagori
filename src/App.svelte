@@ -9,6 +9,7 @@
   import Outline from './lib/Outline.svelte';
   import OutlineNotice from './lib/OutlineNotice.svelte';
   import { outlineNoticeVisible } from './lib/outlineNotice.ts';
+  import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/composition.ts';
   import PaneResizer from './lib/PaneResizer.svelte';
   import { SIDEBAR, OUTLINE, paneLayout } from './lib/paneWidths.ts';
   import type { OutlineHeading } from './lib/outline.ts';
@@ -188,7 +189,14 @@
     }
   }
   async function settleComposition() {
-    if (composing) await new Promise<void>((resolve) => compositionWaiters.push(resolve));
+    if (!composing) return;
+    // compositionend が来ない時も保存や終了が止まらないよう、上限を過ぎたら変換が終わったものとして先へ進める
+    // Editor 側の変換の状態も戻し、装飾の更新が止まらないようにする
+    const limit = setTimeout(() => { editor?.endComposition(); composition(false); }, COMPOSITION_SETTLE_LIMIT_MS);
+    await new Promise<void>((resolve) => compositionWaiters.push(() => {
+      clearTimeout(limit);
+      resolve();
+    }));
   }
   function flush() {
     return flow.flush();
