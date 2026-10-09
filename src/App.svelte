@@ -727,6 +727,15 @@
       notify(failure(error).message);
     }
   }
+  // 開いているコンテキストメニュー。popupは項目を選ぶまで戻らず、項目のactionはその後に届く。
+  // popupの直後にcloseすると項目のactionが届かなくなるため、閉じるのは次のメニューを出す時と終了時に限る
+  let openedMenu: Menu | undefined;
+  async function popupMenu(menu: Menu, at?: LogicalPosition) {
+    const previous = openedMenu;
+    openedMenu = menu;
+    await previous?.close().catch(() => undefined);
+    await menu.popup(at);
+  }
   async function contextMenu(event: MouseEvent, entry: Entry) {
     event.preventDefault();
     selected = entry.path;
@@ -750,11 +759,7 @@
         },
       ],
     });
-    try {
-      await menu.popup();
-    } finally {
-      await menu.close();
-    }
+    await popupMenu(menu);
   }
   async function trashContextMenu(event: MouseEvent, item: TrashItem) {
     event.preventDefault();
@@ -764,11 +769,7 @@
         { id: 'delete', text: '完全に削除', action: () => void deleteTrash(item) },
       ],
     });
-    try {
-      await menu.popup();
-    } finally {
-      await menu.close();
-    }
+    await popupMenu(menu);
   }
   async function editorContextMenu(context: EditorContextMenu) {
     if (!isTauri() || !editor) return;
@@ -814,14 +815,11 @@
           },
         },
       );
-    let menu: Menu | undefined;
     try {
-      menu = await Menu.new({ items });
-      if (active()) await menu.popup(new LogicalPosition(context.x, context.y));
+      const menu = await Menu.new({ items });
+      if (active()) await popupMenu(menu, new LogicalPosition(context.x, context.y));
     } catch (error) {
       notify(failure(error).message);
-    } finally {
-      await menu?.close();
     }
   }
   async function insertImage() {
@@ -1229,6 +1227,7 @@
     media.addEventListener('change', followSystem);
     return () => {
       media.removeEventListener('change', followSystem);
+      void openedMenu?.close().catch(() => undefined);
       quickPanel?.forgetFocus();
       unlisteners.forEach((unlisten) => unlisten());
       window.removeEventListener('focus', focused);
