@@ -21,6 +21,15 @@ export const previewOnlyField = StateField.define({
 const compositionField = StateField.define({ create: () => false, update: (value, tr) => tr.effects.reduce((v, e) => e.is(compositionMode) ? e.value : v, value) });
 type Options = { resolveImage(reference: string): Promise<string>; onLink(href: string): void };
 const inlineClasses: Record<string, string> = { StrongEmphasis: 'nagori-bold', Emphasis: 'nagori-italic', Strikethrough: 'nagori-strike', InlineCode: 'nagori-code', Link: 'nagori-link', Autolink: 'nagori-link' };
+// 箇条書きの記号は入れ子の深さで変える。4段目以降は1段目から繰り返す。
+const bulletGlyphs = ['•', '◦', '▪'];
+export function bulletGlyph(depth: number): string { return bulletGlyphs[(depth - 1) % bulletGlyphs.length]; }
+// 項目を囲むリストの数。1段目が1になる。
+export function listDepth(node: SyntaxNode): number {
+  let depth = 0;
+  for (let parent: SyntaxNode | null = node; parent; parent = parent.parent) if (parent.name === 'BulletList' || parent.name === 'OrderedList') depth++;
+  return depth;
+}
 function selectSource(view: EditorView, position: number) {
   if (view.state.field(previewOnlyField)) return;
   view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'nearest' }) });
@@ -199,6 +208,8 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   // 隠した記号は支援技術に読ませない(replaceで消していた時と同じ扱い)。
   const hide = (from: number, to: number) => mark(from, to, 'nagori-hidden', { 'aria-hidden': 'true' });
   const line = (position: number, className: string) => ranges.push(Decoration.line({ class: className }).range(state.doc.lineAt(position).from));
+  // 項目の行は深さに応じた字下げと、折り返しの本文の位置を CSS 変数で渡す。番号付きのタスクだけ、チェックボックスの幅を足す。
+  const listLine = (number: number, className: string, style: string) => ranges.push(Decoration.line({ class: className, attributes: { style } }).range(state.doc.line(number).from));
   const hideMarker = (node: SyntaxNode) => {
     const current = state.doc.lineAt(node.from);
     if (!active(current)) { let end = node.to; if (text[end] === ' ') end++; hide(node.from, end); }
@@ -259,14 +270,38 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
     if (node.name === 'HorizontalRule') { if (!active(node)) ranges.push(Decoration.replace({ widget: new RuleWidget(node.from, previewOnly), block: true }).range(node.from, node.to)); return false; }
     if (node.name === 'Blockquote') { for (let n = state.doc.lineAt(node.from).number; n <= state.doc.lineAt(node.to).number; n++) line(state.doc.line(n).from, 'nagori-quote'); }
     if (node.name === 'QuoteMark') hideMarker(node);
+    if (node.name === 'ListItem') {
+      // 項目の最初の行と、その直下の段落の行に字下げを付ける。入れ子の項目の行は、その項目が付ける。
+      const marker = node.getChild('ListMark'), markerLine = marker ? state.doc.lineAt(marker.from).number : 0, ordered = !!marker && /^\d/.test(text.slice(marker.from, marker.to));
+      const task = marker?.nextSibling?.name === 'Task';
+      const lines = new Set<number>(markerLine ? [markerLine] : []);
+      for (const paragraph of children(node)) if (paragraph.name === 'Paragraph') for (let n = state.doc.lineAt(paragraph.from).number; n <= state.doc.lineAt(paragraph.to).number; n++) lines.add(n);
+      const depth = listDepth(node), extra = ordered && task ? ' --nagori-list-extra: 23px;' : '';
+      for (const n of lines) {
+        const current = state.doc.line(n), leading = /^[ \t]+/.exec(current.text);
+        // 字下げは深さで決めるので、本文の空白は見せない。
+        if (leading) hide(current.from, current.from + leading[0].length);
+        const className = 'nagori-list-line' + (n === markerLine ? ' nagori-list-first' : '') + (n === markerLine && task && !ordered ? ' nagori-list-task' : '');
+        listLine(n, className, `--nagori-list-depth: ${depth};${extra}`);
+      }
+    }
     if (node.name === 'ListMark') {
-      const current = state.doc.lineAt(node.from), mark = text.slice(node.from, node.to);
-      // タスクの行では、チェックボックスの前に箇条書きの点を重ねて出さない
-      if (node.nextSibling?.name === 'Task' && !/^\d/.test(mark)) hideMarker(node);
-      else if (!active(current)) ranges.push(Decoration.replace({ widget: new TextWidget(/^\d/.test(mark) ? mark : '•') }).range(node.from, node.to));
+      const current = state.doc.lineAt(node.from), symbol = text.slice(node.from, node.to), isActive = active(current);
+      // 記号の後ろの1文字は、記号と本文の間隔として字下げの幅に含める
+      const end = text[node.to] === ' ' ? node.to + 1 : node.to;
+      if (/^\d/.test(symbol)) mark(node.from, end, 'nagori-list-slot');
+      // タスクの行は、チェックボックスが記号の位置に出るので、箇条書きの点は隠す
+      else if (node.nextSibling?.name === 'Task') { if (!isActive) hide(node.from, end); }
+      else if (isActive) mark(node.from, end, 'nagori-list-slot');
+      else mark(node.from, end, 'nagori-list-slot nagori-hidden nagori-bullet', { 'data-bullet': bulletGlyph(listDepth(node)), 'aria-hidden': 'true' });
     }
     if (node.name === 'TaskMarker') {
-      if (!active(state.doc.lineAt(node.from))) ranges.push(Decoration.replace({ widget: new TaskWidget(node.from, /x/i.test(text.slice(node.from, node.to)), state.readOnly) }).range(node.from, node.to));
+      const current = state.doc.lineAt(node.from);
+      if (!active(current)) {
+        ranges.push(Decoration.replace({ widget: new TaskWidget(node.from, /x/i.test(text.slice(node.from, node.to)), state.readOnly) }).range(node.from, node.to));
+        // チェックボックスの後ろの空白は、字下げの幅に含めるため隠す
+        if (text[node.to] === ' ') hide(node.to, node.to + 1);
+      }
     }
     if (node.name === 'Paragraph' && !active(node)) {
       const blocked: Span[] = [];

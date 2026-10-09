@@ -1,5 +1,6 @@
 import { countColumn, type StateCommand } from '@codemirror/state';
 import { isolateHistory } from '@codemirror/commands';
+import { insertNewlineContinueMarkupCommand } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import { children, markdownParser } from './markdown.ts';
@@ -67,4 +68,11 @@ export function moveList({ state, dispatch }: Parameters<StateCommand>[0], outde
   }
   if (changes.length) dispatch(state.update({ changes: changes.sort((a, b) => a.from - b.from), userEvent: 'input.indent', annotations: isolateHistory.of('full'), scrollIntoView: true }));
   return true;
+}
+
+// Enterで次の行へ記号を引き継ぐ。空の項目は1回のEnterで抜け、字下げされていれば1段戻す。
+// nonTightLists: false は、2つ目以降の空の項目で空行を入れて緩いリストにする動きを止める。番号の振り直しとタスクの「[ ] 」は lang-markdown に任せる。
+const continueMarkup = insertNewlineContinueMarkupCommand({ nonTightLists: false });
+export function continueList({ state, dispatch }: Parameters<StateCommand>[0]): boolean {
+  return !state.readOnly && continueMarkup({ state, dispatch });
 }
