@@ -1,19 +1,22 @@
-import { parser, Table, TaskList, Strikethrough } from '@lezer/markdown';
+import { parser, Table, TaskList, Strikethrough, type MarkdownConfig } from '@lezer/markdown';
 import { TreeFragment, type SyntaxNode, Tree, type Input, type ChangedRange } from '@lezer/common';
 import type { ChangeDesc } from '@codemirror/state';
 import { mathExtension } from './markdownMath.ts';
 import type { FormatKind } from './editor.ts';
 
-const baseParser = parser.configure([Table, TaskList, Strikethrough, mathExtension]);
-export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension, { wrap: (_inner: unknown, input: Input) => {
-  const start = input.read(0, Math.min(input.length, 6));
-  const front = /^(?:\uFEFF)?---\r?\n/.test(start) ? frontMatter(input.read(0, input.length)) : null;
-  if (!front) return _inner as ReturnType<typeof baseParser.startParse>;
-  // Front Matter stays source, and its closing --- must not turn metadata into a Setext heading.
-  // ponytail: front matter reparses this document; add a fragment-aware block parser if measured input latency exceeds the target.
-  const read = (from: number, to: number) => input.read(from, Math.min(to, Math.max(from, front.to))).replace(/[^\r\n]/g, ' ') + input.read(Math.min(to, Math.max(from, front.to)), to);
-  return baseParser.startParse({ length: input.length, lineChunks: false, read, chunk: from => read(from, Math.min(input.length, from + 4096)) });
-} }];
+// Front Matter\u306F\u3001\u5148\u982D\u306E --- \u304B\u3089\u9589\u3058\u306E --- \u307E\u3067\u30921\u3064\u306E\u8449\u306E\u30D6\u30ED\u30C3\u30AF\u3068\u3057\u3066\u6271\u3046\u3002
+// \u5165\u529B\u3092\u7A7A\u767D\u306B\u7F6E\u304D\u63DB\u3048\u3066\u5225\u306E\u30D1\u30FC\u30B5\u30FC\u3067\u8AAD\u3080\u3068\u3001\u8A00\u8A9E\u306E\u6728\u306E\u578B\u304C\u5909\u308F\u308A\u3001CodeMirror\u306E\u8A00\u8A9E\u5224\u5B9A(isActiveAt)\u304C\u52B9\u304B\u306A\u304F\u306A\u308B\u305F\u3081\u3001\u3053\u306E\u65B9\u6CD5\u306F\u53D6\u3089\u306A\u3044\u3002
+const frontMatterBlock: MarkdownConfig = { defineNodes: [{ name: 'FrontMatter', block: true }], parseBlock: [{ name: 'FrontMatter', before: 'HorizontalRule', parse(cx, line) {
+  if (cx.lineStart !== 0 || !/^(?:\uFEFF)?---\r?$/.test(line.text)) return false;
+  // \u9589\u3058\u306E\u4F4D\u7F6E\u3092\u5148\u306B\u78BA\u304B\u3081\u308B\u305F\u3081\u3001\u89E3\u6790\u4E2D\u306E\u5165\u529B\u3092\u8AAD\u3080(\u516C\u958B\u578B\u306B\u306F\u7121\u3044)\u3002\u9589\u3058\u304C\u306A\u3051\u308C\u3070\u901A\u5E38\u306E\u672C\u6587\u3068\u3057\u3066\u6271\u3046
+  const input = (cx as unknown as { input: Input }).input;
+  const front = frontMatter(input.read(0, input.length));
+  if (!front) return false;
+  while (cx.nextLine() && cx.lineStart < front.to);
+  cx.addElement(cx.elt('FrontMatter', 0, cx.prevLineEnd()));
+  return true;
+} }] };
+export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension, frontMatterBlock];
 export const markdownParser = parser.configure(markdownExtensions);
 // markdownParserで作った木だけを差分解析の材料にする。CodeMirror側の木はノード型の集合が異なる
 const ownTree = (tree: Tree) => markdownParser.nodeSet.types[tree.type.id] === tree.type;

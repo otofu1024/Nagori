@@ -183,7 +183,8 @@
     return { plain, editable, ...availability, revision: menuRevision };
   }
   function applyBlock(kind: BlockKind, expectedRevision: number, position: number) {
-    if (!view || plain || !contextState(position).editable || expectedRevision !== menuRevision) return;
+    // 本文の変更で位置が範囲外になった時は、挿入せずに止める
+    if (!view || plain || position < 0 || position > view.state.doc.length || !contextState(position).editable || expectedRevision !== menuRevision) return;
     const plan = blockEdit(view.state.doc.toString(), position, kind);
     if (!plan) return;
     view.dispatch({ changes: plan.changes, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format', annotations: isolateHistory.of('full') });
@@ -268,7 +269,8 @@
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
       EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { blurFailsafe.cancel(); setComposition(true); return false; }, compositionend: () => { blurFailsafe.cancel(); setComposition(false); return false; }, keydown: event => { if (composition && keyEndsComposition(event)) setComposition(false); return false; }, blur: () => { blurFailsafe.blur(composition); queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
-        if (update.docChanged || update.selectionSet) menuRevision++;
+        // 選択の変更では進めない。macOSのメニューの開閉でWebKitが選択を戻すと、挿入が取り消されるため。
+        if (update.docChanged) menuRevision++;
         if (update.docChanged) {
           headings = headings.map(heading => ({ ...heading, from: update.changes.mapPos(heading.from, 1), lineEnd: update.changes.mapPos(heading.lineEnd, 1) }));
           scheduleOutline();
@@ -417,7 +419,8 @@
   .editor-host { --nagori-list-indent: calc(var(--editor-font-size, 19px) * 1.6); }
   .editor-host :global(.nagori-list-line) { padding-left: calc(var(--nagori-list-depth, 1) * var(--nagori-list-indent) + var(--nagori-list-extra, 0px)); }
   .editor-host :global(.nagori-list-first) { text-indent: calc(-1 * var(--nagori-list-indent) - var(--nagori-list-extra, 0px)); }
-  .editor-host :global(.nagori-list-slot) { display: inline-block; width: var(--nagori-list-indent); }
+  /* 子要素の text-indent は継承されるため、記号の枠の中で字下げをもう一度ずらさないよう0にする */
+  .editor-host :global(.nagori-list-slot) { display: inline-block; width: var(--nagori-list-indent); text-indent: 0; }
   .editor-host :global(.nagori-bullet::before) { content: attr(data-bullet); font-size: var(--editor-font-size, 19px); }
   /* 箇条書きのタスクは、記号の位置にチェックボックスを置き、本文までの幅を字下げと同じにする */
   .editor-host :global(.nagori-list-task input[type='checkbox']) { margin-right: calc(var(--nagori-list-indent) - 16px); }

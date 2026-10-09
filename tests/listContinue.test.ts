@@ -50,3 +50,26 @@ test('リスト以外の行は既存の動きに任せ、項目の途中で押�
   assert.equal(enter('普通の文').handled, false);
   assert.equal(enter('- 前後', '- 前'.length).text, '- 前\n- 後');
 });
+
+test('Front Matterがあっても、リストの次の行へ記号を引き継ぐ', () => {
+  const front = '---\ntitle: "t"\ndraft: false\n---\n\n## 見出し\n　段落です。\n\n';
+  for (const [text, expected] of [
+    ['- a\n- a', '- a\n- a\n- '],
+    ['1. a\n2. a', '1. a\n2. a\n3. '],
+    ['- [ ] a\n- [ ] a', '- [ ] a\n- [ ] a\n- [ ] '],
+    ['> - a\n> - a', '> - a\n> - a\n> - '],
+  ]) {
+    const plain = enter(text), withFront = enter(front + text);
+    assert.equal(plain.handled, true, text);
+    assert.equal(plain.text, expected, text);
+    assert.equal(withFront.handled, true, front + text);
+    assert.equal(withFront.text, front + expected, front + text);
+  }
+});
+
+test('閉じのないFront Matterは本文として扱い、空の項目も抜けられる', () => {
+  const unclosed = '---\n\n- a\n- ';
+  assert.equal(enter(unclosed).handled, true);
+  assert.equal(enter(unclosed).text, '---\n\n- a\n');
+  assert.equal(enter('---\n\n- a\n- a').text, '---\n\n- a\n- a\n- ');
+});
