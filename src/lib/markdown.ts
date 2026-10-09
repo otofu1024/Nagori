@@ -1,19 +1,22 @@
-import { parser, Table, TaskList, Strikethrough } from '@lezer/markdown';
+import { parser, Table, TaskList, Strikethrough, type MarkdownConfig } from '@lezer/markdown';
 import { TreeFragment, type SyntaxNode, Tree, type Input, type ChangedRange } from '@lezer/common';
 import type { ChangeDesc } from '@codemirror/state';
 import { mathExtension } from './markdownMath.ts';
 import type { FormatKind } from './editor.ts';
 
-const baseParser = parser.configure([Table, TaskList, Strikethrough, mathExtension]);
-export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension, { wrap: (_inner: unknown, input: Input) => {
-  const start = input.read(0, Math.min(input.length, 6));
-  const front = /^(?:\uFEFF)?---\r?\n/.test(start) ? frontMatter(input.read(0, input.length)) : null;
-  if (!front) return _inner as ReturnType<typeof baseParser.startParse>;
-  // Front Matter stays source, and its closing --- must not turn metadata into a Setext heading.
-  // ponytail: front matter reparses this document; add a fragment-aware block parser if measured input latency exceeds the target.
-  const read = (from: number, to: number) => input.read(from, Math.min(to, Math.max(from, front.to))).replace(/[^\r\n]/g, ' ') + input.read(Math.min(to, Math.max(from, front.to)), to);
-  return baseParser.startParse({ length: input.length, lineChunks: false, read, chunk: from => read(from, Math.min(input.length, from + 4096)) });
-} }];
+// Front Matterは、先頭の --- から閉じの --- までを1つの葉のブロックとして扱う。
+// 入力を空白に置き換えて別のパーサーで読むと、言語の木の型が変わり、CodeMirrorの言語判定(isActiveAt)が効かなくなるため、この方法は取らない。
+const frontMatterBlock: MarkdownConfig = { defineNodes: [{ name: 'FrontMatter', block: true }], parseBlock: [{ name: 'FrontMatter', before: 'HorizontalRule', parse(cx, line) {
+  if (cx.lineStart !== 0 || !/^(?:\uFEFF)?---\r?$/.test(line.text)) return false;
+  // 閉じの位置を先に確かめるため、解析中の入力を読む(公開型には無い)。閉じがなければ通常の本文として扱う
+  const input = (cx as unknown as { input: Input }).input;
+  const front = frontMatter(input.read(0, input.length));
+  if (!front) return false;
+  while (cx.nextLine() && cx.lineStart < front.to);
+  cx.addElement(cx.elt('FrontMatter', 0, cx.prevLineEnd()));
+  return true;
+} }] };
+export const markdownExtensions = [Table, TaskList, Strikethrough, mathExtension, frontMatterBlock];
 export const markdownParser = parser.configure(markdownExtensions);
 // markdownParserで作った木だけを差分解析の材料にする。CodeMirror側の木はノード型の集合が異なる
 const ownTree = (tree: Tree) => markdownParser.nodeSet.types[tree.type.id] === tree.type;
