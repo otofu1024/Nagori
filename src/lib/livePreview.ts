@@ -289,10 +289,12 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       const current = state.doc.lineAt(node.from), symbol = text.slice(node.from, node.to), isActive = active(current);
       // 記号の後ろの1文字は、記号と本文の間隔として字下げの幅に含める
       const end = text[node.to] === ' ' ? node.to + 1 : node.to;
+      // カーソルのある行は、記号を幅の決まった枠に入れずにそのまま見せる。
+      // 枠に入れると、記号の直後で変換した未確定文字をWebKitが枠の中へ入れ、枠の幅で1文字ずつ折り返すため。
+      if (isActive) return;
       if (/^\d/.test(symbol)) mark(node.from, end, 'nagori-list-slot');
       // タスクの行は、チェックボックスが記号の位置に出るので、箇条書きの点は隠す
-      else if (node.nextSibling?.name === 'Task') { if (!isActive) hide(node.from, end); }
-      else if (isActive) mark(node.from, end, 'nagori-list-slot');
+      else if (node.nextSibling?.name === 'Task') hide(node.from, end);
       else mark(node.from, end, 'nagori-list-slot nagori-hidden nagori-bullet', { 'data-bullet': bulletGlyph(listDepth(node)), 'aria-hidden': 'true' });
     }
     if (node.name === 'TaskMarker') {
