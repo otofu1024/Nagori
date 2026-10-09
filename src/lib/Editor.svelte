@@ -14,6 +14,7 @@
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
+  import { inputEndsComposition, keyEndsComposition } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
@@ -232,6 +233,8 @@
       // 変換開始だけのdispatchで未確定文字のDOMを作り直さない。
       EditorState.transactionExtender.of(() => composition ? { effects: compositionMode.of(true) } : null),
       EditorView.domEventObservers({ beforeinput(event, editor) {
+        // compositionend が届かないまま変換が終わった時の安全策。変換を使わない入力が来たら、変換は終わっている
+        if (composition && inputEndsComposition(event.inputType, event.isComposing)) setComposition(false);
         compositionDeletion = undefined;
         const range = event.inputType === 'deleteCompositionText' ? event.getTargetRanges()[0] : undefined;
         if (range && editor.contentDOM.contains(range.startContainer) && editor.contentDOM.contains(range.endContainer)) {
@@ -260,7 +263,7 @@
         { key: 'Mod-f', run: editor => !composition && !editor.composing && openSearchPanel(editor) },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
+      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, keydown: event => { if (composition && keyEndsComposition(event)) setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {
