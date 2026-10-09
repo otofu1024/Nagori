@@ -14,7 +14,7 @@
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
-  import { inputEndsComposition, keyEndsComposition } from './composition.ts';
+  import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
@@ -43,6 +43,8 @@
   let pendingLink: FormatPlan | undefined;
   let menuRevision = 0;
   let composition = false, revision = 0, pendingRevision = -1;
+  // blur のあとに compositionend が届かなかった時の安全策（setComposition(false) を呼ぶ）
+  const blurFailsafe = createBlurFailsafe(() => { if (composition) setComposition(false); });
   let pendingFindBlocked: boolean | undefined;
   // 装飾の判定に使う構文木。本文の変更はためておき、判定が必要になった時に差分だけ解析する
   let parsed: { tree: Tree; pending: ChangeSet | null } | null = null;
@@ -263,7 +265,7 @@
         { key: 'Mod-f', run: editor => !composition && !editor.composing && openSearchPanel(editor) },
         { key: 'Escape', run: editor => { if (closeSearchPanel(editor)) { editor.focus(); return true; } return false; } },
       ])), keymap.of([...historyKeymap, ...defaultKeymap]),
-      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { setComposition(true); return false; }, compositionend: () => { setComposition(false); return false; }, keydown: event => { if (composition && keyEndsComposition(event)) setComposition(false); return false; }, blur: () => { queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
+      EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || linkDialog), compositionstart: () => { blurFailsafe.cancel(); setComposition(true); return false; }, compositionend: () => { blurFailsafe.cancel(); setComposition(false); return false; }, keydown: event => { if (composition && keyEndsComposition(event)) setComposition(false); return false; }, blur: () => { blurFailsafe.blur(composition); queueMicrotask(updateToolbar); return false; }, scroll: () => { queueMicrotask(updateToolbar); updateOutlinePosition(); return false; } }),
       EditorView.updateListener.of(update => {
         if (update.docChanged || update.selectionSet) menuRevision++;
         if (update.docChanged) {

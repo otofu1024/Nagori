@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compositionGate, inputEndsComposition, keyEndsComposition } from '../src/lib/composition.ts';
+import { compositionGate, createBlurFailsafe, inputEndsComposition, keyEndsComposition } from '../src/lib/composition.ts';
 
 test('変換中のinputでは処理せず、確定のcompositionendで処理する', () => {
   let calls = 0;
@@ -98,4 +98,40 @@ test('正常な変換の流れでは、途中の入力で変換の終わりと�
     () => inputEndsComposition('insertText', true),
   ];
   for (const ends of events) assert.equal(ends(), false);
+});
+
+test('blur のあと compositionend が来れば、変換の終わりを待たず何もしない', async () => {
+  let ended = 0;
+  const failsafe = createBlurFailsafe(() => ended++, 20);
+  // 変換中に blur し、WebKitが確定して compositionend を送る
+  failsafe.blur(true);
+  failsafe.cancel();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(ended, 0);
+});
+
+test('blur のあと compositionend が来なければ、待ったあとに変換の終わりとみなす', async () => {
+  let ended = 0;
+  const failsafe = createBlurFailsafe(() => ended++, 20);
+  failsafe.blur(true);
+  assert.equal(ended, 0);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(ended, 1);
+});
+
+test('変換が終わったあとの blur では待たない', async () => {
+  let ended = 0;
+  const failsafe = createBlurFailsafe(() => ended++, 20);
+  failsafe.blur(false);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(ended, 0);
+});
+
+test('blur の待ちの途中で新しく blur した時は、古い待ちを捨てて1回だけ終わりとみなす', async () => {
+  let ended = 0;
+  const failsafe = createBlurFailsafe(() => ended++, 20);
+  failsafe.blur(true);
+  failsafe.blur(true);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(ended, 1);
 });

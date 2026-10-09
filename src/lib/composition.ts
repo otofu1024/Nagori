@@ -38,3 +38,32 @@ export function compositionGate(commit: () => void) {
     },
   };
 }
+
+// エディターの blur のあと、compositionend を待つ時間。WebKitは blur の時に未確定文字を確定し、compositionend を先に送るため、
+// この時間の中で届く。届かなければ変換は終わっていたとみなす
+export const COMPOSITION_BLUR_WAIT_MS = 50;
+
+// 変換の終わりを待つ上限。compositionend が来ない時に、保存・記事の切り替え・終了が止まり続けないようにするため
+export const COMPOSITION_SETTLE_LIMIT_MS = 1500;
+
+// blur のあとに変換が残っていたら、少し待って終わりとみなす。compositionend（cancel）が先に届けば何もしない
+export function createBlurFailsafe(end: () => void, delay = COMPOSITION_BLUR_WAIT_MS, timers = { setTimeout, clearTimeout }) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  function cancel() {
+    if (timer !== undefined) timers.clearTimeout(timer);
+    timer = undefined;
+  }
+  return {
+    // 変換中に blur した時だけ待つ。変換が終わっていれば待たない
+    blur(composing: boolean) {
+      cancel();
+      if (!composing) return;
+      timer = timers.setTimeout(() => {
+        timer = undefined;
+        end();
+      }, delay);
+    },
+    // compositionstart / compositionend が届いた時に呼び、待ちを取り消す
+    cancel,
+  };
+}
