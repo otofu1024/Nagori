@@ -361,19 +361,33 @@ async fn image_read(
     document_path: Option<String>,
     preview: Option<bool>,
 ) -> Result<tauri::ipc::Response> {
-    let previews = state.previews.clone();
     // JSONの数値配列にせず、バイナリのままWebViewへ渡す
-    work(&state, move |w| {
-        let path = files::image_path(w.root()?, &path, document_path.as_deref())?;
-        // 記事中の表示は縮小版を使い、画像そのものを開く時は元のバイト列を使う
-        if preview.unwrap_or(false) {
-            files::read_preview(&path, &previews)
-        } else {
-            files::read_image(&path).map(|image| image.data)
-        }
+    if !preview.unwrap_or(false) {
+        return work(&state, move |w| {
+            files::read_image(&files::image_path(
+                w.root()?,
+                &path,
+                document_path.as_deref(),
+            )?)
+        })
+        .await
+        .map(|image| tauri::ipc::Response::new(image.data));
+    }
+    // 記事中の表示は縮小版を使う。ワークスペースのロックの中では読み込みだけをし、
+    // 縮小とキャッシュはロックの外で行う
+    let source = work(&state, move |w| {
+        files::PreviewSource::read(&files::image_path(
+            w.root()?,
+            &path,
+            document_path.as_deref(),
+        )?)
     })
-    .await
-    .map(tauri::ipc::Response::new)
+    .await?;
+    let previews = state.previews.clone();
+    tauri::async_runtime::spawn_blocking(move || source.preview(&previews))
+        .await
+        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+        .map(tauri::ipc::Response::new)
 }
 #[tauri::command]
 async fn image_insert(

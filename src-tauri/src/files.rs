@@ -853,30 +853,43 @@ impl PreviewCache {
         }
     }
 }
-// 記事中の画像の表示用のバイト列を返す。元の画像ファイルは変更しない
-pub fn read_preview(path: &Path, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
-    require_file(path)?;
-    let metadata = fs::metadata(path)?;
-    let key = PreviewKey {
-        path: path.to_path_buf(),
-        modified: metadata.modified()?,
-        len: metadata.len(),
-    };
-    let lock = || {
-        cache
-            .lock()
-            .map_err(|_| Error::new("INTERNAL", "画像のキャッシュのロックに失敗しました。"))
-    };
-    if let Some(data) = lock()?.get(&key) {
-        return Ok(data);
+// 表示用の画像の元になるファイル。鍵は読む前に取り、読んだ内容と鍵がずれないようにする
+pub struct PreviewSource {
+    key: PreviewKey,
+    image: Image,
+}
+impl PreviewSource {
+    // ワークスペースのロックの中で行う。パス検証と読み込みだけをし、重い処理はしない
+    pub fn read(path: &Path) -> Result<Self> {
+        require_file(path)?;
+        let metadata = fs::metadata(path)?;
+        let key = PreviewKey {
+            path: path.to_path_buf(),
+            modified: metadata.modified()?,
+            len: metadata.len(),
+        };
+        Ok(Self {
+            key,
+            image: read_image(path)?,
+        })
     }
-    let data = make_preview(path)?;
-    lock()?.insert(key, data.clone());
-    Ok(data)
+    // ワークスペースのロックの外で行う。キャッシュにあればそれを返し、なければ縮小して登録する
+    pub fn preview(self, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
+        let lock = || {
+            cache
+                .lock()
+                .map_err(|_| Error::new("INTERNAL", "画像のキャッシュのロックに失敗しました。"))
+        };
+        if let Some(data) = lock()?.get(&self.key) {
+            return Ok(data);
+        }
+        let data = make_preview(self.image)?;
+        lock()?.insert(self.key, data.clone());
+        Ok(data)
+    }
 }
 // 長い辺が上限以下の画像と、アニメーションGIFは元のバイト列のまま返す
-fn make_preview(path: &Path) -> Result<Vec<u8>> {
-    let Image { data, format } = read_image(path)?;
+fn make_preview(Image { data, format }: Image) -> Result<Vec<u8>> {
     if format == image::ImageFormat::Gif && animated_gif(&data)? {
         return Ok(data);
     }
@@ -1758,6 +1771,10 @@ mod tests {
         );
         assert_eq!(list(root, "posts/assets").unwrap().len(), 3);
     }
+    // 読み込みと縮小をまとめて行う(実際にはワークスペースのロックの中と外に分かれる)
+    fn preview_of(path: &Path, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
+        PreviewSource::read(path)?.preview(cache)
+    }
     // 表示用の画像の寸法と形式を、ヘッダーだけ読んで確かめる
     fn preview_shape(bytes: &[u8]) -> (u32, u32, image::ImageFormat) {
         let format = image::guess_format(bytes).unwrap();
@@ -1776,7 +1793,7 @@ mod tests {
             .save(&small)
             .unwrap();
         assert_eq!(
-            read_preview(&small, &cache).unwrap(),
+            preview_of(&small, &cache).unwrap(),
             fs::read(&small).unwrap()
         );
     }
@@ -1790,7 +1807,7 @@ mod tests {
             .save(&wide)
             .unwrap();
         assert_eq!(
-            preview_shape(&read_preview(&wide, &cache).unwrap()),
+            preview_shape(&preview_of(&wide, &cache).unwrap()),
             (1600, 800, image::ImageFormat::Jpeg)
         );
         let tall = root.join("tall.png");
@@ -1798,7 +1815,7 @@ mod tests {
             .save(&tall)
             .unwrap();
         assert_eq!(
-            preview_shape(&read_preview(&tall, &cache).unwrap()),
+            preview_shape(&preview_of(&tall, &cache).unwrap()),
             (533, 1600, image::ImageFormat::Jpeg)
         );
     }
@@ -1814,7 +1831,7 @@ mod tests {
         .save(&path)
         .unwrap();
         assert_eq!(
-            preview_shape(&read_preview(&path, &cache).unwrap()),
+            preview_shape(&preview_of(&path, &cache).unwrap()),
             (1600, 800, image::ImageFormat::Png)
         );
     }
@@ -1832,7 +1849,7 @@ mod tests {
             .unwrap();
         let animated_path = root.join("animated.gif");
         fs::write(&animated_path, &animated).unwrap();
-        assert_eq!(read_preview(&animated_path, &cache).unwrap(), animated);
+        assert_eq!(preview_of(&animated_path, &cache).unwrap(), animated);
 
         let still = root.join("still.gif");
         let mut out = Vec::new();
@@ -1845,7 +1862,7 @@ mod tests {
             .unwrap();
         fs::write(&still, &out).unwrap();
         assert_eq!(
-            preview_shape(&read_preview(&still, &cache).unwrap()),
+            preview_shape(&preview_of(&still, &cache).unwrap()),
             (1600, 1600, image::ImageFormat::Jpeg)
         );
     }
@@ -1857,11 +1874,11 @@ mod tests {
             .save(&path)
             .unwrap();
         let cache = Mutex::new(PreviewCache::default());
-        let first = read_preview(&path, &cache).unwrap();
+        let first = preview_of(&path, &cache).unwrap();
         assert_eq!(cache.lock().unwrap().entries.len(), 1);
         // 同じ鍵なら作り直さず、キャッシュの中身をそのまま返す
         cache.lock().unwrap().entries[0].1 = b"cached".to_vec();
-        assert_eq!(read_preview(&path, &cache).unwrap(), b"cached");
+        assert_eq!(preview_of(&path, &cache).unwrap(), b"cached");
         cache.lock().unwrap().entries[0].1 = first;
         // 外部で画像が差し替えられ更新日時が変わったら、作り直す
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1869,7 +1886,7 @@ mod tests {
             .save(&path)
             .unwrap();
         assert_eq!(
-            preview_shape(&read_preview(&path, &cache).unwrap()),
+            preview_shape(&preview_of(&path, &cache).unwrap()),
             (800, 1600, image::ImageFormat::Jpeg)
         );
     }
