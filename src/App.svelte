@@ -80,6 +80,7 @@
   const outlineLabel = $derived(settings.outlineVisible
     ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
     : '目次を表示');
+  const focusLabel = $derived(settings.focusMode ? '集中モードをオフにする' : '集中モードをオンにする');
   let previewOnly = $state(false),
     imageUrl = $state(''),
     imageDimensions = $state('');
@@ -1336,6 +1337,14 @@
               title={starred ? 'スターを外す' : 'スターを付ける'}
               disabled={busy || composing || current?.kind !== 'markdown'}
               onclick={() => current && toggleStar(current.path)}><Icon name="star" size={16} /></button
+            >
+            <button
+              class="mode-toggle focus-toggle"
+              aria-pressed={settings.focusMode}
+              aria-label={focusLabel}
+              title={focusLabel}
+              disabled={starting || !settingsLoaded || composing}
+              onclick={() => toggleWritingMode('focusMode')}><Icon name="focus" size={16} /></button
             >
             <button
               class="mode-toggle outline-toggle"
