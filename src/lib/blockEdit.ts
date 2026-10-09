@@ -1,7 +1,7 @@
 import { frontMatter, markdownParser, walk, type Span } from './markdown.ts';
 
-export type BlockKind = 'heading1' | 'heading2' | 'heading3' | 'paragraph' | 'bullet' | 'ordered' | 'task' | 'quote' | 'table' | 'rule';
-export type BlockPlan = { changes: { from: number; to: number; insert: string }[]; selection?: Span };
+export type BlockKind = 'heading1' | 'heading2' | 'heading3' | 'bullet' | 'ordered' | 'task' | 'quote' | 'table' | 'rule';
+export type BlockPlan = { changes: { from: number; to: number; insert: string }[]; selection: Span };
 type Line = Span & { text: string; end: number };
 
 function lines(text: string): Line[] {
@@ -15,9 +15,9 @@ function selectedLines(all: Line[], selection: Span) {
 }
 function overlaps(span: Span, line: Line) { return span.from <= line.to && span.to > line.from; }
 
-// 選択が触れる行全体で判定する。記号の直前や行末でも保護する
-export function blockAvailability(text: string, selection: Span): { block: boolean; heading: boolean } {
-  const selected = selectedLines(lines(text), selection), front = frontMatter(text);
+// 右クリックした位置の行で判定する。記号を入れる行がコード・数式・Front Matterの中なら使えない
+export function blockAvailability(text: string, position: number): { block: boolean; heading: boolean } {
+  const selected = selectedLines(lines(text), { from: position, to: position }), front = frontMatter(text);
   let block = !front || !selected.some(line => overlaps(front, line)), heading = true;
   walk(markdownParser.parse(text).topNode, node => {
     if (!selected.some(line => overlaps(node, line))) return false;
@@ -27,42 +27,30 @@ export function blockAvailability(text: string, selection: Span): { block: boole
   return { block, heading: block && heading };
 }
 
-const listMarker = /^(?:[-+*][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/;
-const marker = { bullet: /^[-+*][ \t]+(?![ \t]|\[[ xX]\][ \t]+)/, ordered: /^\d+[.)][ \t]+/, task: /^[-+*][ \t]+\[[ xX]\][ \t]+/, quote: /^>[ \t]?/ };
+const markers = { heading1: '# ', heading2: '## ', heading3: '### ', bullet: '- ', ordered: '1. ', task: '- [ ] ', quote: '> ' } as const;
 
-export function blockEdit(text: string, selection: Span & { head?: number }, kind: BlockKind): BlockPlan | null {
-  const availability = blockAvailability(text, selection);
-  const heading = kind.startsWith('heading') || kind === 'paragraph';
-  if (!availability.block || heading && !availability.heading) return null;
-  const all = lines(text), selected = selectedLines(all, selection);
+// 右クリックした位置に記号を入れる。選択範囲の文字は書き換えず、挿入位置は position とする
+export function blockEdit(text: string, position: number, kind: BlockKind): BlockPlan | null {
+  const availability = blockAvailability(text, position);
+  if (!availability.block || kind.startsWith('heading') && !availability.heading) return null;
+  const all = lines(text), line = selectedLines(all, { from: position, to: position })[0];
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  const head = line.text.slice(0, position - line.from), tail = line.text.slice(position - line.from);
   if (kind === 'table' || kind === 'rule') {
-    const line = selectedLines(all, { from: selection.head ?? selection.to, to: selection.head ?? selection.to })[0];
-    const next = all[all.indexOf(line) + 1], newline = text.includes('\r\n') ? '\r\n' : '\n';
-    const before = newline + (line.text.trim() ? newline : '');
+    const index = all.indexOf(line), prev = all[index - 1], next = all[index + 1];
     const content = kind === 'rule' ? '---' : ['| 列1 | 列2 | 列3 |', '| --- | --- | --- |', '|  |  |  |', '|  |  |  |'].join(newline);
-    const after = next ? (next.text.trim() ? newline : '') : newline + newline;
-    const insert = before + content + after, from = line.to;
-    const cursor = from + before.length + (kind === 'table' ? 2 : content.length);
-    return { changes: [{ from, to: from, insert }], selection: { from: cursor, to: cursor + (kind === 'table' ? 2 : 0) } };
+    // 行の途中なら前後の文字と分けるために空行を入れ、行頭・行末なら前後の段落との間に空行を入れる
+    const lead = head.trim() ? head + newline.repeat(2) : head;
+    const trail = tail.trim() ? newline.repeat(2) + tail : tail;
+    const before = !head.trim() && prev?.text.trim() ? newline : '';
+    const after = !tail.trim() && next?.text.trim() ? newline : '';
+    const start = line.from + before.length + lead.length;
+    const cursor = start + (kind === 'table' ? 2 : content.length);
+    return { changes: [{ from: line.from, to: line.to, insert: before + lead + content + trail + after }], selection: { from: cursor, to: kind === 'table' ? cursor + 2 : cursor } };
   }
-  const nonempty = selected.filter(line => line.text.trim());
-  const toggle = !heading && nonempty.length > 0 && nonempty.every(line => marker[kind as keyof typeof marker].test(line.text.trimStart()));
-  let number = 0;
-  const changes: BlockPlan['changes'] = [];
-  for (const line of selected) {
-    const indent = /^[ \t]*/.exec(line.text)![0], body = line.text.slice(indent.length);
-    let insert: string;
-    if (heading) {
-      let content = body.replace(/^#{1,6}(?:[ \t]+|$)/, '');
-      if (kind === 'paragraph' && content !== body) content = content.replace(/[ \t]+#+[ \t]*$/, '');
-      insert = indent + (kind === 'paragraph' ? '' : '#'.repeat(Number(kind.at(-1))) + ' ') + content;
-    } else {
-      if (!body.trim()) continue;
-      const content = body.replace(kind === 'quote' ? marker.quote : listMarker, '');
-      const prefix = toggle ? '' : kind === 'bullet' ? '- ' : kind === 'task' ? '- [ ] ' : kind === 'quote' ? '> ' : `${++number}. `;
-      insert = indent + prefix + content;
-    }
-    if (insert !== line.text) changes.push({ from: line.from, to: line.to, insert });
-  }
-  return { changes };
+  const marker = markers[kind];
+  // 行頭・空行ならその位置に記号を置く。行の途中なら改行してから記号を置く
+  const insert = head.trim() ? newline + marker : marker;
+  const cursor = position + insert.length;
+  return { changes: [{ from: position, to: position, insert }], selection: { from: cursor, to: cursor } };
 }

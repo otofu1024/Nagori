@@ -780,7 +780,7 @@
       text,
       enabled,
       action: () => {
-        if (active()) source.block(kind, context.revision);
+        if (active()) source.block(kind, context.revision, context.position);
       },
     });
     const items: NonNullable<MenuOptions['items']> = [
@@ -798,7 +798,6 @@
             item('heading1', '見出し1', context.heading),
             item('heading2', '見出し2', context.heading),
             item('heading3', '見出し3', context.heading),
-            item('paragraph', '本文', context.heading),
           ],
         },
         { text: 'リスト', items: [item('bullet', '箇条書き'), item('ordered', '番号付きリスト'), item('task', 'タスクリスト')] },
