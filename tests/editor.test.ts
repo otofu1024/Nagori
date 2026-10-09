@@ -191,6 +191,35 @@ test('tables/images replace only inactive blocks and raw HTML is never decorated
   const htmlStart = text.indexOf('<script>'), htmlEnd = text.indexOf('</script>') + 9;
   assert.ok(!inactive.some(r => r.from >= htmlStart && r.to <= htmlEnd));
 });
+test('隠す記号はreplaceを使わず本文に残すmarkで表し、変換中は位置だけを写す', () => {
+  const text = '前 **太字** 後\n\n末尾';
+  const hidden = (state: EditorState) => decorationRanges(state, true).filter(r => r.spec.class === 'nagori-hidden').map(r => [r.from, r.to]);
+  const replaced = (state: EditorState) => decorationRanges(state, true).filter(r => r.spec.widget || (!r.spec.class && r.from !== r.to));
+  let state = editor(text, 0);
+  assert.deepEqual(hidden(state), [[2, 4], [6, 8]]);
+  assert.deepEqual(replaced(state), []);
+  assert.equal(state.doc.toString(), text);
+  // 変換中は装飾を作り直さず、未確定文字の分だけ位置を送る
+  state = state.update({ effects: compositionMode.of(true) }).state;
+  state = state.update({ changes: { from: 0, insert: 'か' }, userEvent: 'input.type.compose' }).state;
+  assert.deepEqual(hidden(state), [[3, 5], [7, 9]]);
+  state = state.update({ effects: compositionMode.of(false) }).state;
+  assert.deepEqual(hidden(state), [[3, 5], [7, 9]]);
+  // カーソルや選択が触れた時は記号を見せる
+  for (const selection of [EditorSelection.cursor(4), EditorSelection.range(2, 8)]) {
+    assert.deepEqual(hidden(state.update({ selection }).state), []);
+  }
+});
+test('見出しの記号と引用の記号も同じmarkで隠し、フェンスと下線は行の高さを0にする', () => {
+  const text = '# 見出し\n\n> 引用\n\n前\n===\n\n```ts\ncode\n```\n\n末尾';
+  const state = editor(text, text.length);
+  const hidden = decorationRanges(state, true).filter(r => r.spec.class === 'nagori-hidden').map(r => [r.from, r.to]);
+  assert.ok(hidden.some(([from, to]) => from === 0 && to === 2));
+  assert.ok(hidden.some(([from, to]) => from === text.indexOf('>') && to === text.indexOf('>') + 2));
+  const lines = decorationRanges(state, true).filter(r => r.spec.class === 'nagori-hidden-line').map(r => r.from);
+  assert.deepEqual(lines, [text.indexOf('==='), text.indexOf('```ts'), text.lastIndexOf('```')]);
+  assert.equal(state.doc.toString(), text);
+});
 test('safe link generation handles spaces/brackets and rejects dangerous schemes', () => {
   const value = linkMarkdown('a [label]', 'assets/a (1).md'); assert.match(markdownParser.parse(value).toString(), /Link/);
   assert.throws(() => linkMarkdown('x', 'javascript:alert(1)'));

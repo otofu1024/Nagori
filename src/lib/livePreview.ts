@@ -194,8 +194,10 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   const previewOnly = state.field(previewOnlyField, false) ?? false;
   const { tree, text, front, refs, math } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
   const active = (span: Span) => !previewOnly && state.selection.ranges.some(r => touches(span, r));
-  const hide = (from: number, to: number) => { if (from < to) ranges.push(Decoration.replace({}).range(from, to)); };
   const mark = (from: number, to: number, className: string, attributes?: Record<string, string>) => { if (from < to) ranges.push(Decoration.mark({ class: className, attributes }).range(from, to)); };
+  // 記号は本文のDOMに残し、CSSで幅0にして隠す。replaceで消すと、変換中に未確定文字より後ろの隠し部品が作り直され、WebKitが変換中の文字を見失うため。
+  // 隠した記号は支援技術に読ませない(replaceで消していた時と同じ扱い)。
+  const hide = (from: number, to: number) => mark(from, to, 'nagori-hidden', { 'aria-hidden': 'true' });
   const line = (position: number, className: string) => ranges.push(Decoration.line({ class: className }).range(state.doc.lineAt(position).from));
   const hideMarker = (node: SyntaxNode) => {
     const current = state.doc.lineAt(node.from);
@@ -240,9 +242,9 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
         line(rule.from, 'nagori-heading-rule');
       }
       if (!active(node)) for (const part of children(node).filter(n => n.name === 'HeaderMark')) {
-        if (node.name.startsWith('Setext')) {
-          const underline = state.doc.lineAt(part.from); hide(Math.max(node.from, underline.from - 1), underline.to);
-        } else { let end = part.to; if (part.from === node.from && text[end] === ' ') end++; hide(part.from, end); }
+        // 下線の行は改行を残したまま行の高さを0にする。改行まで消すと前の行と同じDOMに統合され、変換中の行が作り直される。
+        if (node.name.startsWith('Setext')) line(part.from, 'nagori-hidden-line');
+        else { let end = part.to; if (part.from === node.from && text[end] === ' ') end++; hide(part.from, end); }
       }
     }
     if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
@@ -250,7 +252,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       for (let n = first.number; n <= last.number; n++) line(state.doc.line(n).from, 'nagori-code-line');
       if (node.name === 'FencedCode' && !active(node)) {
         const marks = children(node).filter(n => n.name === 'CodeMark');
-        for (const part of marks) { const fence = state.doc.lineAt(part.from); hide(fence.from, fence.to < state.doc.length ? fence.to + 1 : fence.to); }
+        for (const part of marks) line(part.from, 'nagori-hidden-line');
       }
       return false;
     }
