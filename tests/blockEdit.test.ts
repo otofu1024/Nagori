@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { history, undo, isolateHistory } from '@codemirror/commands';
-import { blockEdit, blockAvailability, type BlockKind } from '../src/lib/blockEdit.ts';
+import { blockEdit, blockAvailability, listPlan, type BlockKind, type ListKind } from '../src/lib/blockEdit.ts';
 import { markdownParser, walk } from '../src/lib/markdown.ts';
 
 // 右クリック位置に記号を入れた結果と、入れた後のカーソルが指す文字を返す
@@ -109,4 +109,102 @@ test('各記号は直前の入力と分離し、1回のUndoで戻る', () => {
     assert.ok(undo({ state, dispatch: transaction => { state = transaction.state; } }));
     assert.equal(state.doc.toString(), '# 元\n二行');
   }
+});
+
+// 選択範囲を指定してリスト化し、変換後の本文と、選び直された範囲の文字を返す
+function listify(text: string, from: number, to: number, kind: ListKind) {
+  // 文字数を超える指定は本文の末尾までとして扱う
+  const plan = listPlan(text, { from, to: Math.min(to, text.length) }, kind);
+  assert.ok(plan);
+  let result = text;
+  for (const change of [...plan.changes].reverse()) result = result.slice(0, change.from) + change.insert + result.slice(change.to);
+  return { text: result, selected: result.slice(plan.selection.from, plan.selection.to) };
+}
+
+test('選択が触れる行すべてに記号を付け、変換後は行全体を選ぶ', () => {
+  assert.deepEqual(listify('一\n二\n三', 0, 5, 'bullet'), { text: '- 一\n- 二\n- 三', selected: '- 一\n- 二\n- 三' });
+  assert.deepEqual(listify('一\n二\n三', 1, 1, 'bullet'), { text: '- 一\n二\n三', selected: '- 一' });
+  assert.deepEqual(listify('一\n二\n三', 2, 4, 'ordered'), { text: '一\n1. 二\n三', selected: '1. 二' });
+  assert.deepEqual(listify('一\n二\n三', 0, 4, 'ordered'), { text: '1. 一\n2. 二\n三', selected: '1. 一\n2. 二' });
+});
+
+test('空行と空白だけの行は飛ばし、番号も数えない', () => {
+  assert.equal(listify('一\n\n二\n   \n三', 0, 12, 'ordered').text, '1. 一\n\n2. 二\n   \n3. 三');
+  assert.equal(listify('一\n\n二', 0, 4, 'bullet').text, '- 一\n\n- 二');
+  assert.equal(listPlan('\n\n', { from: 0, to: 2 }, 'bullet'), null);
+  assert.equal(listPlan('  \n', { from: 0, to: 3 }, 'ordered'), null);
+});
+
+test('字下げは行頭の空白の後ろに記号を付ける', () => {
+  assert.equal(listify('  一\n\t二', 0, 6, 'bullet').text, '  - 一\n\t- 二');
+  assert.equal(listify('   一\n   二', 0, 9, 'ordered').text, '   1. 一\n   2. 二');
+  // 4つの空白は字下げではなくコードブロックになるため変えない
+  assert.equal(listPlan('    一\n    二', { from: 0, to: 11 }, 'ordered'), null);
+});
+
+test('すでに全部同じ種類のリストなら記号を外して元に戻す', () => {
+  assert.equal(listify('- 一\n- 二', 0, 9, 'bullet').text, '一\n二');
+  assert.equal(listify('1. 一\n2. 二', 0, 11, 'ordered').text, '一\n二');
+  assert.equal(listify('  - 一\n  - 二', 0, 13, 'bullet').text, '  一\n  二');
+  assert.equal(listify('- [ ] 一\n- [x] 二', 0, 17, 'bullet').text, '一\n二');
+  assert.equal(listify('- 一\n\n- 二', 0, 10, 'bullet').text, '一\n\n二');
+  assert.equal(listify('- 一\n- 二', 0, 9, 'bullet').selected, '一\n二');
+});
+
+test('箇条書きと番号付きが混ざる時や別の種類の時は、押した方の種類にそろえる', () => {
+  assert.equal(listify('- 一\n1. 二\n三', 0, 12, 'bullet').text, '- 一\n- 二\n- 三');
+  assert.equal(listify('- 一\n1. 二\n三', 0, 12, 'ordered').text, '1. 一\n2. 二\n3. 三');
+  assert.equal(listify('- 一\n- 二', 0, 9, 'ordered').text, '1. 一\n2. 二');
+  assert.equal(listify('1. 一\n2. 二', 0, 11, 'bullet').text, '- 一\n- 二');
+  assert.equal(listify('- 一\n- 二\n三', 0, 11, 'bullet').text, '- 一\n- 二\n- 三');
+});
+
+test('タスクリストは記号として扱い、箇条書きにする時はチェックの状態を残す', () => {
+  assert.equal(listify('- [ ] 一\n- [x] 二', 0, 17, 'ordered').text, '1. 一\n2. 二');
+  assert.equal(listify('- [x] 一\n二', 0, 10, 'bullet').text, '- [x] 一\n- 二');
+  assert.equal(listify('- [ ] 一\n二', 0, 10, 'bullet').text, '- [ ] 一\n- 二');
+  assert.equal(listify('- [ ] 一', 0, 8, 'bullet').text, '一');
+});
+
+test('見出しと引用は記号を外してからリストにする', () => {
+  assert.equal(listify('# 見出し\n本文', 0, 11, 'bullet').text, '- 見出し\n- 本文');
+  assert.equal(listify('## 見出し ##\n本文', 0, 15, 'ordered').text, '1. 見出し\n2. 本文');
+  assert.equal(listify('> 引用\n> 二行目', 0, 14, 'bullet').text, '- 引用\n- 二行目');
+  assert.equal(listify('> > 入れ子', 0, 7, 'ordered').text, '1. 入れ子');
+  assert.equal(listify('> - 項目', 0, 6, 'bullet').text, '- 項目');
+  assert.equal(listify('#見出しではない', 0, 8, 'bullet').text, '- #見出しではない');
+});
+
+test('表・コードブロック・数式・Front Matterを含む時は変換しない', () => {
+  const table = '| 列1 | 列2 |\n| --- | --- |\n| a | b |';
+  const cases = [
+    [table, 0, table.length],
+    ['本文\n| 列1 | 列2 |\n| --- | --- |', 0, 30],
+    ['前\n```\n本文\n```', 0, 15],
+    ['前\n\n$$\nx^2\n$$', 3, 13],
+    ['---\ntitle: 題\n---\n本文', 0, 20],
+  ] as const;
+  for (const [text, from, to] of cases) {
+    assert.equal(listPlan(text, { from, to }, 'bullet'), null, text);
+    assert.equal(listPlan(text, { from, to }, 'ordered'), null, text);
+  }
+  assert.equal(listify('前\n```\n本文\n```\n後', 0, 1, 'bullet').text, '- 前\n```\n本文\n```\n後');
+  assert.equal(listify('---\ntitle: 題\n---\n本文', 20, 22, 'bullet').text, '---\ntitle: 題\n---\n- 本文');
+});
+
+test('CRLFの改行を保ち、変換後の範囲を正しく選ぶ', () => {
+  const result = listify('一\r\n二\r\n\r\n三', 0, 11, 'ordered');
+  assert.equal(result.text, '1. 一\r\n2. 二\r\n\r\n3. 三');
+  assert.equal(result.selected, '1. 一\r\n2. 二\r\n\r\n3. 三');
+  assert.equal(listify('- 一\r\n- 二', 0, 9, 'bullet').text, '一\r\n二');
+});
+
+test('リスト化は1回のUndoで戻せる変更の集まりになる', () => {
+  const text = '一\n二\n三';
+  const plan = listPlan(text, { from: 0, to: 5 }, 'ordered')!;
+  let state = EditorState.create({ doc: text, extensions: history() });
+  state = state.update({ changes: plan.changes, selection: { anchor: plan.selection.from, head: plan.selection.to }, userEvent: 'input.format', annotations: isolateHistory.of('full') }).state;
+  assert.equal(state.doc.toString(), '1. 一\n2. 二\n3. 三');
+  assert.ok(undo({ state, dispatch: transaction => { state = transaction.state; } }));
+  assert.equal(state.doc.toString(), text);
 });

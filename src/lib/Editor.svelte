@@ -18,7 +18,7 @@
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
-  import { blockAvailability, blockEdit, type BlockKind } from './blockEdit.ts';
+  import { blockAvailability, blockEdit, listPlan, type BlockKind, type ListKind } from './blockEdit.ts';
   import { imageDrop } from './imageDrop.ts';
   import { codeLanguage, codeHighlighting } from './codeLanguages.ts';
   import { moveList, continueList } from './listEdit.ts';
@@ -38,7 +38,7 @@
   let host: HTMLDivElement;
   let root: HTMLDivElement;
   let view: EditorView | undefined;
-  let toolbar = $state<{ top: number; left: number; plans: Record<FormatKind, FormatPlan> } | null>(null);
+  let toolbar = $state<{ top: number; left: number; plans: Record<FormatKind, FormatPlan>; lists: Record<ListKind, boolean> } | null>(null);
   let linkDialog = $state(false), linkText = $state(''), linkUrl = $state(''), linkError = $state('');
   let pendingLink: FormatPlan | undefined;
   let menuRevision = 0;
@@ -52,6 +52,8 @@
   const focusConfig = new Compartment();
   const kinds: FormatKind[] = ['bold', 'italic', 'strike', 'link', 'code'];
   const labels = { bold: '太字', italic: '斜体', strike: '取り消し線', link: 'リンク', code: 'Inline Code' };
+  const listKinds: ListKind[] = ['bullet', 'ordered'];
+  const listLabels = { bullet: '箇条書きにする', ordered: '番号付きリストにする' };
 
   let headings: OutlineHeading[] = [], outlineTimer: ReturnType<typeof setTimeout> | undefined;
   let outlinePosition = -1;
@@ -100,13 +102,21 @@
     });
   }
 
-  function plans() {
-    if (!view) return null;
-    const range = view.state.selection.main, text = view.state.doc.toString();
+  // 差分解析の木を最新の本文へ合わせて返す
+  function currentTree(text: string) {
     if (!parsed) parsed = { tree: markdownParser.parse(text), pending: null };
     else if (parsed.pending) parsed = { tree: reparse(parsed.tree, text, parsed.pending), pending: null };
-    const tree = parsed.tree;
+    return parsed.tree;
+  }
+  function plans() {
+    if (!view) return null;
+    const range = view.state.selection.main, text = view.state.doc.toString(), tree = currentTree(text);
     return Object.fromEntries(kinds.map(kind => [kind, formatPlan(text, range, kind, tree)])) as Record<FormatKind, FormatPlan>;
+  }
+  function listStates(): Record<ListKind, boolean> | null {
+    if (!view) return null;
+    const range = view.state.selection.main, text = view.state.doc.toString(), tree = currentTree(text);
+    return Object.fromEntries(listKinds.map(kind => [kind, !!listPlan(text, range, kind, tree)])) as Record<ListKind, boolean>;
   }
   function updateToolbar() {
     // テキストファイルではMarkdownの装飾ツールバーを出さない
@@ -118,7 +128,7 @@
     const viewport = view.scrollDOM.getBoundingClientRect();
     if (coords.bottom <= viewport.top || coords.top >= viewport.bottom || coords.right <= viewport.left || coords.left >= viewport.right) { toolbar = null; return; }
     const bounds = root.getBoundingClientRect();
-    toolbar = { top: Math.max(4, coords.top - bounds.top - 44), left: Math.max(8, Math.min(coords.left - bounds.left, bounds.width - 245)), plans: plans()! };
+    toolbar = { top: Math.max(4, coords.top - bounds.top - 44), left: Math.max(8, Math.min(coords.left - bounds.left, bounds.width - 270)), plans: plans()!, lists: listStates()! };
   }
   function apply(kind: FormatKind) {
     if (plain) return;
@@ -138,6 +148,16 @@
     if (!plan || plan.reason) return;
     if (kind === 'link') { pendingLink = plan; pendingRevision = revision; linkText = plan.linkText ?? ''; linkUrl = plan.existingLink ?? ''; linkError = ''; linkDialog = true; toolbar = null; return; }
     view.dispatch({ changes: plan.changes ?? { from: plan.from, to: plan.to, insert: plan.text }, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format' });
+    view.focus(); updateToolbar();
+  }
+  function applyList(kind: ListKind) {
+    if (plain) return;
+    if (!view || view.state.readOnly || readonly || busy || previewOnly || composition || view.composing || view.compositionStarted || linkDialog) return;
+    // 本文を変える前に全文で判定し直す
+    const plan = listPlan(view.state.doc.toString(), view.state.selection.main, kind);
+    if (!plan) return;
+    // 変換した行全体を選び直し、1回の取り消しで戻せるように履歴を区切る
+    view.dispatch({ changes: plan.changes, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format', annotations: isolateHistory.of('full') });
     view.focus(); updateToolbar();
   }
   function finishLink(event: SubmitEvent) {
@@ -322,7 +342,7 @@
       focus: () => view?.focus(), isComposing: () => composition || !!view?.composing,
       endComposition: () => { if (composition) setComposition(false); },
       block: applyBlock, contextState,
-      format: apply, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
+      format: apply, listify: applyList, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
       goToHeading,
       revealRange: (line, column, length) => {
@@ -362,6 +382,10 @@
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${toolbar.top}px;left:${toolbar.left}px`} onmousedown={event => event.preventDefault()}>
       {#each kinds as kind}
         <button type="button" disabled={!!toolbar.plans[kind].reason} title={toolbar.plans[kind].reason ?? labels[kind]} aria-label={labels[kind]} onclick={() => apply(kind)} class:strong={kind === 'bold'} class:italic={kind === 'italic'} class:strike={kind === 'strike'}>{#if kind === 'link' || kind === 'code'}<Icon name={kind} size={17}/>{:else}{kind === 'bold' ? 'B' : kind === 'italic' ? 'I' : 'S'}{/if}</button>
+      {/each}
+      <span class="floating-toolbar-divider" aria-hidden="true"></span>
+      {#each listKinds as kind}
+        <button type="button" disabled={!toolbar.lists[kind]} title={listLabels[kind]} aria-label={listLabels[kind]} onclick={() => applyList(kind)}><Icon name={kind} size={17}/></button>
       {/each}
     </div>
   {/if}
@@ -453,6 +477,7 @@
   .floating-toolbar { position: absolute; z-index: 10; display: flex; align-items: center; gap: 2px; padding: 5px 7px; border-radius: 13px; background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
   .floating-toolbar button { min-width: 33px; height: 32px; padding: 5px 8px; display: grid; place-items: center; border: none; border-radius: 7px; font-size: 16px; color: var(--text); }
   .floating-toolbar button:hover { color: var(--accent); background: var(--accent-soft); }
+  .floating-toolbar-divider { width: 1px; height: 18px; margin: 0 4px; background: var(--border); }
   button:disabled { opacity: .35; cursor: default; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .strong { font-weight: 750; } .italic { font-style: italic; font-family: Georgia, serif; } .strike { text-decoration: line-through; }
