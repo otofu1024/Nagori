@@ -177,16 +177,16 @@
       if (!active) { onComposition(false); updateToolbar(); }
     });
   }
-  function contextState(): EditorContextState {
+  function contextState(position = view?.state.selection.main.head ?? 0): EditorContextState {
     const editable = !!view && !readonly && !busy && !previewOnly && !composition && !view.composing && !linkDialog;
-    const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), view.state.selection.main) : { block: false, heading: false };
+    const availability = view && !plain && editable ? blockAvailability(view.state.doc.toString(), position) : { block: false, heading: false };
     return { plain, editable, ...availability, revision: menuRevision };
   }
-  function applyBlock(kind: BlockKind, expectedRevision: number) {
-    if (!view || plain || !contextState().editable || expectedRevision !== menuRevision) return;
-    const plan = blockEdit(view.state.doc.toString(), view.state.selection.main, kind);
-    if (!plan || !plan.changes.length) return;
-    view.dispatch({ changes: plan.changes, ...(plan.selection ? { selection: EditorSelection.range(plan.selection.from, plan.selection.to) } : {}), userEvent: 'input.format', annotations: isolateHistory.of('full') });
+  function applyBlock(kind: BlockKind, expectedRevision: number, position: number) {
+    if (!view || plain || !contextState(position).editable || expectedRevision !== menuRevision) return;
+    const plan = blockEdit(view.state.doc.toString(), position, kind);
+    if (!plan) return;
+    view.dispatch({ changes: plan.changes, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format', annotations: isolateHistory.of('full') });
     view.focus(); updateToolbar();
   }
   function showContextMenu(event: MouseEvent | KeyboardEvent, editor: EditorView) {
@@ -198,7 +198,8 @@
     if (!composing && position !== null && (range.empty || position < range.from || position > range.to)) editor.dispatch({ selection: { anchor: position } });
     if (!composing) editor.focus();
     const coords = editor.coordsAtPos(editor.state.selection.main.head), bounds = editor.dom.getBoundingClientRect();
-    onContextMenu?.({ ...contextState(), position: position ?? range.head, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
+    const at = position ?? range.head;
+    onContextMenu?.({ ...contextState(at), position: at, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
     return true;
   }
   function createState(text: string) {

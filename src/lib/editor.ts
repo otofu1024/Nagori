@@ -11,8 +11,9 @@ export interface EditorApi {
   // 変換の状態が残っていた時に、変換が終わったものとして装飾と保存を戻す
   endComposition(): void;
   format(kind: FormatKind): void;
-  block(kind: BlockKind, revision: number): void;
-  contextState(): EditorContextState;
+  block(kind: BlockKind, revision: number, position: number): void;
+  // 位置を省くと現在の選択の先頭で判定する
+  contextState(position?: number): EditorContextState;
   find(): void;
   refreshImages(): void;
   goToHeading(index: number): void;
