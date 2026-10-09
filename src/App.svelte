@@ -37,7 +37,7 @@
   import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/imageDrop';
 
   import SettingsDialog from './lib/SettingsDialog.svelte';
-  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, type Settings } from './lib/settings';
+  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, type Settings } from './lib/settings';
   type OpenRequest = { workspace: string; path: string | null };
   type CliStatus = { message: string };
   let settings = $state<Settings>({ ...defaults, theme: 'light' });
@@ -1040,6 +1040,12 @@
       event.preventDefault();
       void quickOpen();
     }
+    // 拡大縮小の設定がオフの時は、ショートカットとして扱わず、何もしない
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && settings.zoomFontSize && ['=', '+', '-', '0'].includes(event.key)) {
+      event.preventDefault();
+      zoomFont(event.key === '0' ? 'reset' : event.key === '-' ? 'out' : 'in');
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
       event.preventDefault();
       void flush();
@@ -1048,6 +1054,23 @@
   }
   function togglePreview() {
     if (!busy && !composing && current?.kind === 'markdown' && session) previewOnly = !previewOnly;
+  }
+  // 文字サイズを変えられるのは、設定が有効で、IME変換中でもなく、入力を妨げる画面を開いていない時だけ
+  function zoomAvailable() {
+    return settings.zoomFontSize && settingsLoaded && !starting && !composing && !editor?.isComposing() && !quick && !searchOpen && !errorDialog?.open && !saveAsDialog?.open;
+  }
+  let fontSizeSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  // ピンチとホイールは連続して届くので、止まってから保存する
+  function changeFontSize(size: number, deferSave = false) {
+    if (size === settings.fontSize) return;
+    settings.fontSize = size;
+    clearTimeout(fontSizeSaveTimer);
+    if (deferSave) fontSizeSaveTimer = setTimeout(() => void persist(), 300);
+    else void persist();
+  }
+  function zoomFont(kind: 'in' | 'out' | 'reset') {
+    if (!zoomAvailable()) return;
+    changeFontSize(kind === 'reset' ? defaults.fontSize : stepFontSize(settings.fontSize, kind === 'in' ? 1 : -1));
   }
   function toggleWritingMode(key: 'focusMode' | 'typewriterMode') {
     if (starting || !settingsLoaded || composing || editor?.isComposing()) return;
@@ -1111,6 +1134,9 @@
     else if (action === 'focus-toggle') toggleWritingMode('focusMode');
     else if (action === 'typewriter-toggle') toggleWritingMode('typewriterMode');
     else if (action === 'settings-open') await openSettings();
+    else if (action === 'font-larger') zoomFont('in');
+    else if (action === 'font-smaller') zoomFont('out');
+    else if (action === 'font-reset') zoomFont('reset');
     else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
       editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
   }
@@ -1118,6 +1144,31 @@
     const unlisteners: Array<() => void> = [];
     const focused = () => void checkExternal();
     window.addEventListener('focus', focused);
+    // ピンチはWebKitのgesture*で届き、ctrl付きのwheelとしても届く。設定がオフの時は何もせず、標準の動きに任せる
+    let pinchBase = settings.fontSize;
+    let wheelPending = 0;
+    const gestureStart = (event: Event) => {
+      if (!settings.zoomFontSize) return;
+      event.preventDefault();
+      pinchBase = settings.fontSize;
+    };
+    const gestureChange = (event: Event) => {
+      if (!settings.zoomFontSize) return;
+      event.preventDefault();
+      if (!zoomAvailable()) return;
+      changeFontSize(pinchFontSize(settings.fontSize, pinchBase, (event as Event & { scale: number }).scale), true);
+    };
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !settings.zoomFontSize) return;
+      event.preventDefault();
+      if (!zoomAvailable()) return;
+      const next = wheelFontSize(settings.fontSize, wheelPending, event.deltaY);
+      wheelPending = next.pending;
+      changeFontSize(next.size, true);
+    };
+    window.addEventListener('gesturestart', gestureStart);
+    window.addEventListener('gesturechange', gestureChange);
+    window.addEventListener('wheel', wheel, { passive: false });
     void (async () => {
       if (!isTauri()) {
         starting = false;
@@ -1181,6 +1232,13 @@
       quickPanel?.forgetFocus();
       unlisteners.forEach((unlisten) => unlisten());
       window.removeEventListener('focus', focused);
+      window.removeEventListener('gesturestart', gestureStart);
+      window.removeEventListener('gesturechange', gestureChange);
+      window.removeEventListener('wheel', wheel);
+      if (fontSizeSaveTimer !== undefined) {
+        clearTimeout(fontSizeSaveTimer);
+        void persist();
+      }
       cancelSave();
       clearTimeout(fsTimer);
       releaseImages();

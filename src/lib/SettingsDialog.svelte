@@ -53,6 +53,7 @@
         <label class="range-row">本文の文字サイズ <output>{settings.fontSize}px</output>
           <input type="range" min={RANGES.fontSize.min} max={RANGES.fontSize.max} step="1" style:--fill={rangeFill(settings.fontSize, RANGES.fontSize)} bind:value={settings.fontSize} onchange={onChange} />
         </label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.zoomFontSize} onchange={onChange} /> 拡大縮小で文字サイズを変える</label>
         <label class="range-row">本文の幅 <output>{settings.editorWidth}px</output>
           <input type="range" min={RANGES.editorWidth.min} max={RANGES.editorWidth.max} step="10" style:--fill={rangeFill(settings.editorWidth, RANGES.editorWidth)} bind:value={settings.editorWidth} onchange={onChange} />
         </label>

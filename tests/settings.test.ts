@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, type Settings } from '../src/lib/settings.ts';
+import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, WHEEL_STEP, type Settings } from '../src/lib/settings.ts';
 
 test('集中モードとタイプライター表示は旧設定でオフになり、独立して保存・復元できる', () => {
   const { focusMode: _, typewriterMode: __, ...legacy } = defaults;
@@ -192,4 +192,65 @@ test('設定画面の範囲外の値は読み込み時に初期値へ戻す', ()
   assert.equal(restored.trashRetentionDays, 30);
   assert.equal(startupSettings({ ...defaults, editorWidth: 1001 }, () => false).editorWidth, 720);
   assert.equal(startupSettings({ ...defaults, lineHeight: 1.4 }, () => false).lineHeight, 1.4);
+});
+
+test('拡大縮小の設定は既定でオフで、古い設定ではオフとして読み、保存した値を復元する', () => {
+  assert.equal(defaults.zoomFontSize, false);
+  const { zoomFontSize: _, ...legacy } = defaults;
+  assert.equal(startupSettings(legacy).zoomFontSize, false);
+  assert.equal(startupSettings({ ...defaults, zoomFontSize: 'yes' as never }).zoomFontSize, false);
+  const saved = { ...defaults, theme: 'light' as const, fontSize: 22, zoomFontSize: true };
+  assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
+});
+
+test('文字サイズの増減は1pxずつ行い、12px〜32pxの範囲の端で止める', () => {
+  assert.equal(stepFontSize(19, 1), 20);
+  assert.equal(stepFontSize(19, -1), 18);
+  assert.equal(stepFontSize(32, 1), 32);
+  assert.equal(stepFontSize(12, -1), 12);
+  assert.equal(stepFontSize(31, 5), 32);
+  assert.equal(stepFontSize(13, -5), 12);
+  // 初期値へ戻す操作は既定値を返す
+  assert.equal(defaults.fontSize, 19);
+});
+
+test('ピンチは開始時の文字サイズに拡大率を掛けた目標へ1pxずつ寄せ、1px未満の揺れでは変えない', () => {
+  // 拡大すると1pxずつ大きくなる
+  assert.equal(pinchFontSize(19, 19, 1.1), 20);
+  assert.equal(pinchFontSize(20, 19, 1.1), 20);
+  // 縮めると1pxずつ小さくなる
+  assert.equal(pinchFontSize(19, 19, 0.8), 18);
+  // 目標との差が1px未満なら動かさない。揺れで震えない
+  assert.equal(pinchFontSize(19, 19, 1.03), 19);
+  assert.equal(pinchFontSize(19, 19, 0.97), 19);
+  assert.equal(pinchFontSize(20, 19, 1.02), 20);
+  // 範囲外へは広がらない
+  assert.equal(pinchFontSize(32, 19, 3), 32);
+  assert.equal(pinchFontSize(12, 19, 0.2), 12);
+  // 小さな揺れを挟んでも、1px動いた後は同じ目標へ戻るまで変えない
+  let size = 19;
+  for (const scale of [1.06, 1.04, 1.06, 1.05, 1.02]) size = pinchFontSize(size, 19, scale);
+  assert.equal(size, 20);
+});
+
+test('ctrl付きのホイールは動きを溜めてから1pxずつ変え、指を広げると大きくなる', () => {
+  let size = 19;
+  let pending = 0;
+  // 小さな動きは溜めるだけで変えない
+  for (const deltaY of [-4, -4]) {
+    ({ size, pending } = wheelFontSize(size, pending, deltaY));
+  }
+  assert.equal(size, 19);
+  assert.equal(pending, 8);
+  // 溜めが閾値を超えたら1px変え、溜めを捨てる
+  ({ size, pending } = wheelFontSize(size, pending, -WHEEL_STEP));
+  assert.equal(size, 20);
+  assert.equal(pending, 0);
+  // 大きな動きでも1回で変えるのは1pxだけ
+  ({ size, pending } = wheelFontSize(size, pending, 100));
+  assert.equal(size, 19);
+  assert.equal(pending, 0);
+  // 範囲の端では変えない
+  assert.equal(wheelFontSize(32, 0, -100).size, 32);
+  assert.equal(wheelFontSize(12, 0, 100).size, 12);
 });

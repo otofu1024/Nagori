@@ -107,6 +107,8 @@ pub struct Settings {
     // nullは無期限。7・14・30・60・90以外の値は30日へ直す
     #[serde(deserialize_with = "deserialize_retention")]
     pub trash_retention_days: Option<u16>,
+    // 拡大縮小のショートカットとピンチで文字サイズを変える。古い設定はオフで読む
+    pub zoom_font_size: bool,
     // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
@@ -133,6 +135,7 @@ impl Default for Settings {
             heading_rule: true,
             recent_edited_count: 30,
             trash_retention_days: Some(30),
+            zoom_font_size: false,
             recent_opened_at: BTreeMap::new(),
         }
     }
@@ -1098,11 +1101,13 @@ mod tests {
         assert!(defaults.heading_rule);
         assert_eq!(defaults.recent_edited_count, 30);
         assert_eq!(defaults.trash_retention_days, Some(30));
+        assert!(!defaults.zoom_font_size);
         assert!(defaults.recent_opened_at.is_empty());
         // 項目のない古い設定は初期値で読む
         let old: Settings = serde_json::from_str(r#"{"theme":"dark","fontSize":17}"#).unwrap();
         assert_eq!(old.editor_width, 720);
         assert_eq!(old.trash_retention_days, Some(30));
+        assert!(!old.zoom_font_size);
         assert!(old.heading_rule && !old.start_in_preview);
         assert!(old.recent_opened_at.is_empty());
         // 範囲内の値は保存して読み直しても同じ
@@ -1124,6 +1129,10 @@ mod tests {
         assert_eq!(restored.font_family, "serif");
         assert_eq!(restored.trash_retention_days, Some(90));
         assert_eq!(restored.recent_opened_at, settings.recent_opened_at);
+        let zoom: Settings = serde_json::from_str(r#"{"zoomFontSize":true}"#).unwrap();
+        assert!(zoom.zoom_font_size);
+        let saved = serde_json::to_value(&zoom).unwrap();
+        assert_eq!(saved["zoomFontSize"], true);
         // 範囲の両端は受け付ける
         for (width, height, delay, edited) in [(560, 1.4, 300, 10), (1000, 2.4, 5000, 50)] {
             let settings: Settings = serde_json::from_str(&format!(

@@ -30,7 +30,7 @@ open src-tauri/target/release/bundle/macos/Nagori.app
 | 画像 | 画像の貼り付け、Finderからのドロップ、`assets`への保存 |
 | Markdown | コードの色分け、LaTeX数式、見出しから作る目次 |
 | ノート管理 | すべてのノート、スター付き、最近見たノート、ゴミ箱、ドラッグ移動 |
-| 表示・設定 | 集中モード、タイプライター表示、テーマ、本文の文字サイズ・幅・行間・字体、自動保存、起動時の表示、目次、最近見たノートの件数、ゴミ箱の保存期限 |
+| 表示・設定 | 集中モード、タイプライター表示、テーマ、本文の文字サイズ（拡大縮小で変更可）・幅・行間・字体、自動保存、起動時の表示、目次、最近見たノートの件数、ゴミ箱の保存期限 |
 
 ## キー操作
 
@@ -47,6 +47,7 @@ open src-tauri/target/release/bundle/macos/Nagori.app
 | Live PreviewとPreviewを切り替える | Command+Shift+L |
 | 集中モード | Command+Shift+J |
 | タイプライター表示 | Command+Shift+T |
+| 本文の文字サイズを大きく・小さく・標準に戻す（拡大縮小の設定がオンの時） | Command+= / Command+- / Command+0 |
 | 設定を開く | Command+, |
 | リストの字下げ・解除 | Tab / Shift+Tab |
 | Undo・Redo | Command+Z / Shift+Command+Z |
