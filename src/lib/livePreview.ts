@@ -6,7 +6,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { undo, redo, isolateHistory } from '@codemirror/commands';
-import { applyTableCommand, parseTable, setTableCell, tableCellSource, tableShape, type TableCommand, type TableTarget } from './tableEdit.ts';
+import { applyTableCommand, setTableCell, tableCells, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
 import type { TableCellRef } from './editor.ts';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
@@ -190,31 +190,31 @@ class TableWidget extends WidgetType {
   readonly math: MathContext;
   constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext, previewOnly = false, cells = false) { super(); this.previewOnly = previewOnly; this.cells = cells; this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
   eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math && this.previewOnly === other.previewOnly && this.cells === other.cells; }
-  // 行ごとのマスのノード。原文のマスの数で並べる。Lezerは空白だけのマスに節を作らないため、そのマスは null にする
-  private cellNodes?: (SyntaxNode | null)[][];
-  rows(): (SyntaxNode | null)[][] {
-    if (this.cellNodes) return this.cellNodes;
-    const model = parseTable(this.text), found = children(this.node).filter(n => n.name === 'TableHeader' || n.name === 'TableRow');
-    this.cellNodes = found.map((row, index) => {
-      const nodes = children(row).filter(n => n.name === 'TableCell');
-      let next = 0;
-      // 原文の行番号は、見出しが0、区切り行が1で、本文は2から
-      return (model.lines[index === 0 ? 0 : index + 1]?.cells ?? []).map(cell => cell.trim() ? nodes[next++] ?? null : null);
-    });
-    return this.cellNodes;
+  // 表の行とマスの範囲。表示・書き戻し・行列の操作と同じ結果を使う
+  private spans?: TableRowSpan[];
+  private nodes?: SyntaxNode[];
+  // 原文の全行(区切り行を含む)
+  allRows(): TableRowSpan[] { return this.spans ??= tableCells(this.text, this.node.from, this.node.to); }
+  // 表示の行。見出しを0とし、区切り行は含めない
+  rows(): TableRowSpan[] { return this.allRows().filter(row => row.kind !== 'delimiter'); }
+  // マスの中身の構文の節。空白だけのマスなどには節がないため null になる
+  cellNode(row: number, column: number): SyntaxNode | null {
+    const span = this.rows()[row]?.cells[column];
+    if (!span) return null;
+    if (!this.nodes) { this.nodes = []; walk(this.node, node => { if (node.name === 'TableCell') this.nodes!.push(node); }); }
+    return this.nodes.find(node => node.from >= span.from && node.from < span.to) ?? null;
   }
   toDOM(view: EditorView) {
     const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap';
     wrapper.tabIndex = this.previewOnly || this.cells ? -1 : 0;
     wrapper.setAttribute('role', this.previewOnly || this.cells ? 'group' : 'button'); wrapper.setAttribute('aria-label', this.cells ? tableFocusLabel : this.previewOnly ? '表' : '表のMarkdownを編集');
     const table = document.createElement('table');
-    const delimiter = children(this.node).find(n => n.name === 'TableDelimiter');
-    const align = delimiter ? this.text.slice(delimiter.from, delimiter.to).replace(/^\||\|$/g, '').split('|').map(s => s.trim()) : [];
-    this.rows().forEach((cells, row) => {
+    const align = this.allRows()[1]?.cells.map(cell => cell.raw.trim()) ?? [];
+    this.rows().forEach((row, index) => {
       const tr = document.createElement('tr');
-      cells.forEach((_cell, column) => {
-        const td = document.createElement(row === 0 ? 'th' : 'td');
-        td.dataset.row = String(row); td.dataset.column = String(column);
+      row.cells.forEach((_cell, column) => {
+        const td = document.createElement(index === 0 ? 'th' : 'td');
+        td.dataset.row = String(index); td.dataset.column = String(column);
         if (align[column]?.startsWith(':') && align[column]?.endsWith(':')) td.style.textAlign = 'center'; else if (align[column]?.endsWith(':')) td.style.textAlign = 'right';
         if (this.cells) bindCell(td);
         renderCell(td, this, view); tr.append(td);
@@ -228,8 +228,9 @@ class TableWidget extends WidgetType {
   }
   // 本文の変更で部品を作り直す代わりに、フォーカスのあるマス以外の表示を更新する。構造が変わった時だけ作り直す
   updateDOM(dom: HTMLElement, view: EditorView) {
+    // 行・列の数が変わった時は表の部品を作り直す。マスの対応がずれないよう、同じ数の時だけ使い回す
     const state = tableStates.get(dom), rows = this.rows(), trs = dom.querySelectorAll('tr');
-    if (!state || state.cells !== this.cells || trs.length !== rows.length || rows.some((cells, row) => trs[row].children.length !== cells.length)) return false;
+    if (!state || state.cells !== this.cells || trs.length !== rows.length || rows.some((row, index) => trs[index].children.length !== row.cells.length)) return false;
     tableStates.set(dom, { widget: this, view, cells: this.cells });
     const focused = document.activeElement;
     dom.querySelectorAll<HTMLElement>('[data-row][data-column]').forEach(td => { if (td !== focused) renderCell(td, this, view); });
@@ -240,11 +241,12 @@ class TableWidget extends WidgetType {
 }
 // マスの表示を、フォーカスがない時の装飾つきの表示にする。フォーカス中は原文を入れる
 function renderCell(td: HTMLElement, widget: TableWidget, view: EditorView) {
-  const row = Number(td.dataset.row), column = Number(td.dataset.column), node = widget.rows()[row]?.[column];
+  const row = Number(td.dataset.row), column = Number(td.dataset.column), span = widget.rows()[row]?.cells[column], node = widget.cellNode(row, column);
   td.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath);
   td.replaceChildren();
   if (node) renderInline(td, node, widget.text, widget.refs, widget.options, view, widget.math);
-  td.dataset.raw = tableCellSource(widget.text, row, column);
+  // フォーカスした時に出す原文は、本文のマスの範囲から読む
+  td.dataset.raw = span ? widget.text.slice(span.contentFrom, span.contentTo) : '';
 }
 function stateOf(element: Element): TableState | undefined {
   const wrapper = element.closest<HTMLElement>('.nagori-table-wrap');

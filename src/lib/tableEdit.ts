@@ -34,50 +34,71 @@ export function tableCellWidth(text: string): number {
   return width;
 }
 
-// 表の原文を行ごとに分けた形。セルの原文は前後の空白ごと残し、変えたセルと追加した行・列だけを作り直す。
-export type TableLine = { indent: string; leading: boolean; cells: string[]; trailing: string | null };
-export type TableModel = { newline: string; lines: TableLine[] };
+// 表の原文を行とマスに分ける。位置は、渡した本文の中の絶対位置で返す。表示・書き戻し・行列の操作は、すべてこの結果を使う。
+// 見出しの行が0、区切り行が1、本文が2以降で、表示の行番号と原文の行の対応は行の種類で決まる。
+export type TableCellSpan = { from: number; to: number; contentFrom: number; contentTo: number; raw: string };
+export type TableRowSpan = { kind: 'header' | 'delimiter' | 'body'; from: number; to: number; indent: string; leading: boolean; trailing: string | null; cells: TableCellSpan[] };
 export type TableCommand = 'row-above' | 'row-below' | 'row-delete' | 'column-left' | 'column-right' | 'column-delete';
 export type TableTarget = { row: number; column: number };
 
-// 区切りでない | で分ける。\| は分けない
-function splitPipes(text: string): string[] {
-  const parts: string[] = [];
-  let start = 0, escaped = false;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '|' && !escaped) { parts.push(text.slice(start, i)); start = i + 1; }
-    escaped = !escaped && text[i] === '\\';
-  }
-  parts.push(text.slice(start));
-  return parts;
+// 本文の from から to までの表を、行ごとのマスの範囲にする。区切りでない | で分け、\| は分けない
+export function tableCells(text: string, from: number, to: number): TableRowSpan[] {
+  const source = text.slice(from, to), rows: TableRowSpan[] = [];
+  let lineStart = 0;
+  source.split(/\r?\n/).forEach((line, index) => {
+    const base = from + lineStart;
+    lineStart += line.length;
+    if (source.startsWith('\r\n', lineStart)) lineStart += 2; else if (source.startsWith('\n', lineStart)) lineStart += 1;
+    const indent = /^[ \t]*/.exec(line)![0], body = indent.length;
+    const pipes: number[] = [];
+    let escaped = false;
+    for (let i = body; i < line.length; i++) {
+      if (line[i] === '|' && !escaped) pipes.push(i);
+      escaped = !escaped && line[i] === '\\';
+    }
+    // 区切りの間の部分。先頭が | なら先頭の空の部分を、末尾が | なら末尾の空白の部分を、マスの外として扱う
+    const segments: { from: number; to: number }[] = [];
+    let start = body;
+    for (const pipe of pipes) { segments.push({ from: start, to: pipe }); start = pipe + 1; }
+    segments.push({ from: start, to: line.length });
+    const leading = pipes.length > 0 && pipes[0] === body;
+    const last = segments.at(-1)!;
+    const trailing = pipes.length > 0 && line.slice(last.from, last.to).trim() === '' ? line.slice(last.from, last.to) : null;
+    const cells = segments.slice(leading ? 1 : 0, trailing !== null ? -1 : undefined).map(segment => {
+      const raw = line.slice(segment.from, segment.to), lead = raw.length - raw.trimStart().length, content = raw.trim();
+      const contentFrom = base + segment.from + lead;
+      return { from: base + segment.from, to: base + segment.to, contentFrom, contentTo: contentFrom + content.length, raw };
+    });
+    rows.push({ kind: index === 0 ? 'header' : index === 1 ? 'delimiter' : 'body', from: base, to: base + line.length, indent, leading, trailing, cells });
+  });
+  return rows;
 }
 
-function parseLine(text: string): TableLine {
-  const indent = /^[ \t]*/.exec(text)![0], parts = splitPipes(text.slice(indent.length));
-  // 先頭と末尾の | の有無を覚えておき、書き戻す時に同じ形を保つ
-  const leading = parts.length > 1 && parts[0] === '';
-  const trailing = parts.length > 1 && parts.at(-1)!.trim() === '' ? parts.at(-1)! : null;
-  return { indent, leading, cells: parts.slice(leading ? 1 : 0, trailing !== null ? -1 : undefined), trailing };
+// 表の原文を行ごとに分けた形。セルの原文は前後の空白ごと残し、変えたセルと追加した行・列だけを作り直す。
+export type TableLine = { indent: string; leading: boolean; cells: string[]; trailing: string | null };
+export type TableModel = { newline: string; lines: TableLine[] };
+
+// 区切り行を含む原文の行番号。論理の行番号(0が見出し)から変える
+function lineIndex(row: number): number {
+  return row === 0 ? 0 : row + 1;
+}
+
+export function parseTable(source: string): TableModel {
+  return {
+    newline: source.includes('\r\n') ? '\r\n' : '\n',
+    lines: tableCells(source, 0, source.length).map(row => ({ indent: row.indent, leading: row.leading, cells: row.cells.map(cell => cell.raw), trailing: row.trailing })),
+  };
 }
 
 function renderLine(line: TableLine): string {
   return line.indent + (line.leading ? '|' : '') + line.cells.join('|') + (line.trailing !== null ? '|' + line.trailing : '');
 }
 
-export function parseTable(source: string): TableModel {
-  return { newline: source.includes('\r\n') ? '\r\n' : '\n', lines: source.split(/\r?\n/).map(parseLine) };
-}
-
 function renderTable(model: TableModel): string {
   return model.lines.map(renderLine).join(model.newline);
 }
 
-// 論理の行番号(0が見出し、区切り行を除く)から、原文の行番号へ変える
-function lineIndex(row: number): number {
-  return row === 0 ? 0 : row + 1;
-}
-
-// 表示の行数と列数。列数は見出しのセル数で決める
+// 表示の行数（見出しを含む）と列数。列数は見出しのセル数で決める
 export function tableShape(source: string): { rows: number; columns: number } {
   const model = parseTable(source);
   return { rows: model.lines.length - 1, columns: model.lines[0].cells.length };
@@ -85,7 +106,8 @@ export function tableShape(source: string): { rows: number; columns: number } {
 
 // セルの原文を前後の空白を除いて返す
 export function tableCellSource(source: string, row: number, column: number): string {
-  return parseTable(source).lines[lineIndex(row)]?.cells[column]?.trim() ?? '';
+  const span = tableCells(source, 0, source.length)[lineIndex(row)]?.cells[column];
+  return span ? source.slice(span.contentFrom, span.contentTo) : '';
 }
 
 // マスに入れる値を Markdown の表のセルにする。改行は空白にし、| は \| にする。\| はそのまま残す
@@ -98,25 +120,27 @@ export function escapeTableCell(value: string): string {
   return escaped;
 }
 
+// 空のマスは右クリックの表の雛形と同じ '  ' で書く
+const blankCell = '  ';
+
 // 1つのマスの原文を書き換える。ほかのセルと記号は変えない
 export function setTableCell(source: string, row: number, column: number, value: string): string {
   const model = parseTable(source), line = model.lines[lineIndex(row)];
   if (!line) return source;
-  while (line.cells.length <= column) line.cells.push('');
-  // 空の値は空のままにし、Enterや追加で空白を入れない
+  while (line.cells.length <= column) line.cells.push(blankCell);
   const text = escapeTableCell(value);
-  line.cells[column] = text ? ` ${text} ` : '';
+  line.cells[column] = text ? ` ${text} ` : blankCell;
   return renderTable(model);
 }
 
-// 行を追加する。見出しの上には入れず、区切り行の上にも入れない
+// 行を追加する。見出しの上には入れず、区切り行の前には入れない
 export function insertTableRow(source: string, row: number, where: 'above' | 'below'): string {
   const model = parseTable(source);
   if (where === 'above' && row === 0) return source;
   const reference = model.lines[lineIndex(row)];
   if (!reference) return source;
   const columns = model.lines[0].cells.length;
-  const added: TableLine = { indent: reference.indent, leading: reference.leading, cells: Array.from({ length: columns }, () => ''), trailing: reference.trailing === null ? null : '' };
+  const added: TableLine = { indent: reference.indent, leading: reference.leading, cells: Array.from({ length: columns }, () => blankCell), trailing: reference.trailing === null ? null : '' };
   // 見出しの下に入れる時も、区切り行の前には入れない
   const index = Math.max(2, where === 'above' ? lineIndex(row) : lineIndex(row) + 1);
   model.lines.splice(index, 0, added);
@@ -131,12 +155,12 @@ export function deleteTableRow(source: string, row: number): string {
   return renderTable(model);
 }
 
-// 列を追加する。区切り行には揃えを付けない新しい列を入れる
+// 列を追加する。区切り行には --- を入れ、ほかの行は空のマスにする
 export function insertTableColumn(source: string, column: number, where: 'left' | 'right'): string {
   const model = parseTable(source), at = where === 'left' ? column : column + 1;
   model.lines.forEach((line, index) => {
-    while (line.cells.length < at) line.cells.push('');
-    line.cells.splice(at, 0, index === 1 ? ' --- ' : '');
+    while (line.cells.length < at) line.cells.push(blankCell);
+    line.cells.splice(at, 0, index === 1 ? ' --- ' : blankCell);
   });
   return renderTable(model);
 }
