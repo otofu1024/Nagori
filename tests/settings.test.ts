@@ -264,3 +264,12 @@ test('本文の幅の自動調整は既定でオフで、古い設定ではオ�
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
   assert.equal(startupSettings(JSON.parse(JSON.stringify(saved))).editorWidth, 900);
 });
+
+test('表の見た目のまま編集は既定でオンで、古い設定ではオンとして読み、オフの保存は残す', () => {
+  assert.equal(defaults.tableWysiwyg, true);
+  const { tableWysiwyg: _, ...legacy } = defaults;
+  assert.equal(startupSettings(legacy).tableWysiwyg, true);
+  assert.equal(startupSettings({ ...defaults, tableWysiwyg: 'no' as never }).tableWysiwyg, true);
+  const saved = { ...defaults, tableWysiwyg: false };
+  assert.equal(startupSettings(JSON.parse(JSON.stringify(saved))).tableWysiwyg, false);
+});

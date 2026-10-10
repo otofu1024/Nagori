@@ -13,7 +13,7 @@
   import { restoredScrollTop } from './scrollRestore.ts';
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
-  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
+  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect, tableWysiwygMode, tableCellAt, runTableCommand, removeTable, focusTableStart, focusTableCellAt } from './livePreview.ts';
   import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
@@ -27,9 +27,9 @@
   import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from './workspaceSearch.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, tableWysiwyg = true, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
+    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; previewOnly?: boolean; tableWysiwyg?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -208,7 +208,10 @@
     const plan = blockEdit(view.state.doc.toString(), position, kind);
     if (!plan) return;
     view.dispatch({ changes: plan.changes, selection: EditorSelection.range(plan.selection.from, plan.selection.to), userEvent: 'input.format', annotations: isolateHistory.of('full') });
-    view.focus(); updateToolbar();
+    // 見た目のまま編集する時は、挿入した表の見出しの最初のマスへ入る。表の原文の先頭は選択の位置から2文字前(| の前)
+    if (kind === 'table' && tableWysiwyg && view) { forceParsing(view, view.state.doc.length, 50); focusTableStart(view, plan.selection.from - 2); }
+    else view.focus();
+    updateToolbar();
   }
   function showContextMenu(event: MouseEvent | KeyboardEvent, editor: EditorView) {
     event.preventDefault();
@@ -220,7 +223,9 @@
     if (!composing) editor.focus();
     const coords = editor.coordsAtPos(editor.state.selection.main.head), bounds = editor.dom.getBoundingClientRect();
     const at = position ?? range.head;
-    onContextMenu?.({ ...contextState(at), position: at, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
+    // 表のマスの上では、行・列の操作を出す。編集できない時は本文の項目だけにする
+    const state = contextState(at), table = state.editable && tableWysiwyg ? tableCellAt(event instanceof MouseEvent ? event.target : document.activeElement) : null;
+    onContextMenu?.({ ...state, position: at, table: table ?? undefined, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
     return true;
   }
   function createState(text: string) {
@@ -316,7 +321,7 @@
     const contextKeys = (event: KeyboardEvent) => { if (event.key === 'F10' && event.shiftKey) showContextMenu(event, editor); };
     editor.scrollDOM.addEventListener('contextmenu', contextmenu, true);
     editor.scrollDOM.addEventListener('keydown', contextKeys, true);
-    view.dispatch({ effects: previewOnlyMode.of(previewOnly) });
+    view.dispatch({ effects: [previewOnlyMode.of(previewOnly), tableWysiwygMode.of(tableWysiwyg)] });
     scheduleOutline();
     // CodeMirrorが測定する本文のpaddingに付け、スクロール高と余白を一致させる。
     const resize = new ResizeObserver(() => {
@@ -331,7 +336,7 @@
         linkDialog = false; pendingLink = undefined; linkError = ''; revision++; menuRevision++; parsed = null;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
-        old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
+        old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: [previewOnlyMode.of(previewOnly), tableWysiwygMode.of(tableWysiwyg)] });
         old.scrollDOM.scrollTop = scroll; toolbar = null;
         headings = []; outlinePosition = -1; onOutlinePosition?.(-1); scheduleOutline();
       },
@@ -345,6 +350,14 @@
       format: apply, listify: applyList, find: () => { if (view && !composition && !view.composing) openSearchPanel(view); },
       refreshImages: () => view?.dispatch({ effects: refreshImagesEffect.of(undefined) }),
       goToHeading,
+      tableCommand: (kind, cell) => {
+        if (!view || readonly || previewOnly || composition || view.composing) return;
+        const target = cell ?? tableCellAt(document.activeElement);
+        if (!target) return;
+        if (kind === 'table-delete') removeTable(view, target);
+        else runTableCommand(view, kind, target);
+      },
+      focusTableCell: (index, row, column) => { if (view) focusTableCellAt(view, index, row, column); },
       revealRange: (line, column, length) => {
         const span = view && !composition && !view.composing ? matchSpan(view.state.doc, line, column, length) : null;
         if (!view || !span) return;
@@ -369,6 +382,10 @@
   $effect(() => {
     void editorStyle;
     view?.requestMeasure();
+  });
+  $effect(() => {
+    const enabled = tableWysiwyg;
+    if (view) view.dispatch({ effects: tableWysiwygMode.of(enabled) });
   });
   $effect(() => {
     const blocked = readonly || busy || saving || previewOnly;

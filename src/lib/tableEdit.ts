@@ -34,6 +34,145 @@ export function tableCellWidth(text: string): number {
   return width;
 }
 
+// 表の原文を行ごとに分けた形。セルの原文は前後の空白ごと残し、変えたセルと追加した行・列だけを作り直す。
+export type TableLine = { indent: string; leading: boolean; cells: string[]; trailing: string | null };
+export type TableModel = { newline: string; lines: TableLine[] };
+export type TableCommand = 'row-above' | 'row-below' | 'row-delete' | 'column-left' | 'column-right' | 'column-delete';
+export type TableTarget = { row: number; column: number };
+
+// 区切りでない | で分ける。\| は分けない
+function splitPipes(text: string): string[] {
+  const parts: string[] = [];
+  let start = 0, escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '|' && !escaped) { parts.push(text.slice(start, i)); start = i + 1; }
+    escaped = !escaped && text[i] === '\\';
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+function parseLine(text: string): TableLine {
+  const indent = /^[ \t]*/.exec(text)![0], parts = splitPipes(text.slice(indent.length));
+  // 先頭と末尾の | の有無を覚えておき、書き戻す時に同じ形を保つ
+  const leading = parts.length > 1 && parts[0] === '';
+  const trailing = parts.length > 1 && parts.at(-1)!.trim() === '' ? parts.at(-1)! : null;
+  return { indent, leading, cells: parts.slice(leading ? 1 : 0, trailing !== null ? -1 : undefined), trailing };
+}
+
+function renderLine(line: TableLine): string {
+  return line.indent + (line.leading ? '|' : '') + line.cells.join('|') + (line.trailing !== null ? '|' + line.trailing : '');
+}
+
+export function parseTable(source: string): TableModel {
+  return { newline: source.includes('\r\n') ? '\r\n' : '\n', lines: source.split(/\r?\n/).map(parseLine) };
+}
+
+function renderTable(model: TableModel): string {
+  return model.lines.map(renderLine).join(model.newline);
+}
+
+// 論理の行番号(0が見出し、区切り行を除く)から、原文の行番号へ変える
+function lineIndex(row: number): number {
+  return row === 0 ? 0 : row + 1;
+}
+
+// 表示の行数と列数。列数は見出しのセル数で決める
+export function tableShape(source: string): { rows: number; columns: number } {
+  const model = parseTable(source);
+  return { rows: model.lines.length - 1, columns: model.lines[0].cells.length };
+}
+
+// セルの原文を前後の空白を除いて返す
+export function tableCellSource(source: string, row: number, column: number): string {
+  return parseTable(source).lines[lineIndex(row)]?.cells[column]?.trim() ?? '';
+}
+
+// マスに入れる値を Markdown の表のセルにする。改行は空白にし、| は \| にする。\| はそのまま残す
+export function escapeTableCell(value: string): string {
+  let escaped = '', previous = false;
+  for (const character of value.replace(/\r?\n/g, ' ').trim()) {
+    escaped += character === '|' && !previous ? '\\|' : character;
+    previous = !previous && character === '\\';
+  }
+  return escaped;
+}
+
+// 1つのマスの原文を書き換える。ほかのセルと記号は変えない
+export function setTableCell(source: string, row: number, column: number, value: string): string {
+  const model = parseTable(source), line = model.lines[lineIndex(row)];
+  if (!line) return source;
+  while (line.cells.length <= column) line.cells.push('');
+  // 空の値は空のままにし、Enterや追加で空白を入れない
+  const text = escapeTableCell(value);
+  line.cells[column] = text ? ` ${text} ` : '';
+  return renderTable(model);
+}
+
+// 行を追加する。見出しの上には入れず、区切り行の上にも入れない
+export function insertTableRow(source: string, row: number, where: 'above' | 'below'): string {
+  const model = parseTable(source);
+  if (where === 'above' && row === 0) return source;
+  const reference = model.lines[lineIndex(row)];
+  if (!reference) return source;
+  const columns = model.lines[0].cells.length;
+  const added: TableLine = { indent: reference.indent, leading: reference.leading, cells: Array.from({ length: columns }, () => ''), trailing: reference.trailing === null ? null : '' };
+  // 見出しの下に入れる時も、区切り行の前には入れない
+  const index = Math.max(2, where === 'above' ? lineIndex(row) : lineIndex(row) + 1);
+  model.lines.splice(index, 0, added);
+  return renderTable(model);
+}
+
+// 行を削除する。見出しは消せない
+export function deleteTableRow(source: string, row: number): string {
+  const model = parseTable(source);
+  if (row === 0 || !model.lines[lineIndex(row)]) return source;
+  model.lines.splice(lineIndex(row), 1);
+  return renderTable(model);
+}
+
+// 列を追加する。区切り行には揃えを付けない新しい列を入れる
+export function insertTableColumn(source: string, column: number, where: 'left' | 'right'): string {
+  const model = parseTable(source), at = where === 'left' ? column : column + 1;
+  model.lines.forEach((line, index) => {
+    while (line.cells.length < at) line.cells.push('');
+    line.cells.splice(at, 0, index === 1 ? ' --- ' : '');
+  });
+  return renderTable(model);
+}
+
+// 列を削除する。列が1つだけの表では消さない
+export function deleteTableColumn(source: string, column: number): string {
+  const model = parseTable(source);
+  if (model.lines[0].cells.length <= 1 || column >= model.lines[0].cells.length) return source;
+  for (const line of model.lines) if (column < line.cells.length) line.cells.splice(column, 1);
+  return renderTable(model);
+}
+
+// 表の操作をまとめて行う。戻り値は書き換え後の原文と、操作の後にフォーカスするマスの位置
+export function applyTableCommand(source: string, command: TableCommand, row: number, column: number): { source: string; target: TableTarget } | null {
+  const shape = tableShape(source);
+  if (command === 'row-above' || command === 'row-below') {
+    if (command === 'row-above' && row === 0) return null;
+    const next = insertTableRow(source, row, command === 'row-above' ? 'above' : 'below');
+    if (next === source) return null;
+    return { source: next, target: { row: command === 'row-above' ? row : row + 1, column } };
+  }
+  if (command === 'row-delete') {
+    if (row === 0) return null;
+    const next = deleteTableRow(source, row);
+    if (next === source) return null;
+    return { source: next, target: { row: Math.min(row, shape.rows - 2), column } };
+  }
+  if (command === 'column-left' || command === 'column-right') {
+    // 左に入れると、今のマスは1つ右へずれる
+    const next = insertTableColumn(source, column, command === 'column-left' ? 'left' : 'right');
+    return { source: next, target: { row, column: command === 'column-left' ? column + 1 : column } };
+  }
+  if (shape.columns <= 1) return null;
+  return { source: deleteTableColumn(source, column), target: { row, column: Math.min(column, shape.columns - 2) } };
+}
+
 export function moveTable({ state, dispatch }: Parameters<StateCommand>[0], direction: 'next' | 'previous' | 'down'): boolean {
   if (state.readOnly) return false;
   const doc = state.doc, head = state.selection.main.head, current = doc.lineAt(head);

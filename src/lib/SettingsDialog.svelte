@@ -78,6 +78,7 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.focusMode} onchange={onChange} /> 集中モード</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.typewriterMode} onchange={onChange} /> タイプライター表示</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.tableWysiwyg} onchange={onChange} /> 表を見た目のまま編集する</label>
       {:else if section === 'sidebar'}
         <label class="range-row">最近見たノートの件数 <output>{settings.recentEditedCount}件</output>
           <input type="range" min={RANGES.recentEditedCount.min} max={RANGES.recentEditedCount.max} step="1" style:--fill={rangeFill(settings.recentEditedCount, RANGES.recentEditedCount)} bind:value={settings.recentEditedCount} onchange={onChange} />

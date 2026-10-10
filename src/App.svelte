@@ -28,7 +28,7 @@
   import nagoriIcon from './lib/assets/nagori-icon.png';
   import nagoriWordmark from './lib/assets/nagori-wordmark.png';
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
-  import type { EditorApi, EditorContextMenu } from './lib/editor';
+  import type { EditorApi, EditorContextMenu, TableCommandKind } from './lib/editor';
   import type { BlockKind } from './lib/blockEdit';
   import { EditSession, failure, type OpenedDocument } from './lib/session';
   import { AppFlow } from './lib/appFlow';
@@ -806,7 +806,27 @@
         if (active()) source.block(kind, context.revision, context.position);
       },
     });
+    // 表のマスの上では、行・列の操作を先頭に出す。見出しの行は消せず、上に行を足すのは見出しより下だけ
+    const table = context.table;
+    const tableCommand = (kind: TableCommandKind) => () => {
+      if (active()) source.tableCommand(kind, table);
+    };
+    const tableItems: NonNullable<MenuOptions['items']> = table
+      ? [
+          { id: 'table-row-above', text: '上に行を追加', enabled: table.row > 0, action: tableCommand('row-above') },
+          { id: 'table-row-below', text: '下に行を追加', action: tableCommand('row-below') },
+          { id: 'table-column-left', text: '左に列を追加', action: tableCommand('column-left') },
+          { id: 'table-column-right', text: '右に列を追加', action: tableCommand('column-right') },
+          { item: 'Separator' },
+          { id: 'table-row-delete', text: '行を削除', enabled: table.row > 0, action: tableCommand('row-delete') },
+          { id: 'table-column-delete', text: '列を削除', enabled: table.columns > 1, action: tableCommand('column-delete') },
+          { item: 'Separator' },
+          { id: 'table-delete', text: '表を削除', action: tableCommand('table-delete') },
+          { item: 'Separator' },
+        ]
+      : [];
     const items: NonNullable<MenuOptions['items']> = [
+      ...tableItems,
       context.editable ? { item: 'Cut', text: '切り取り' } : { id: 'editor-cut-disabled', text: '切り取り', enabled: false },
       { item: 'Copy', text: 'コピー' },
       context.editable ? { item: 'Paste', text: '貼り付け' } : { id: 'editor-paste-disabled', text: '貼り付け', enabled: false },
@@ -1475,6 +1495,7 @@
               fontSize={settings.fontSize}
               editorStyle={editorStyle({ ...settings, editorWidth: layout.editorWidth })}
               headingRule={settings.headingRule}
+              tableWysiwyg={settings.tableWysiwyg}
               onChange={changed}
               onComposition={composition}
               onSave={() => void flush()}
