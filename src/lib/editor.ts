@@ -29,4 +29,6 @@ export interface EditorApi {
   tableCommand(kind: TableCommandKind, cell?: TableCellRef): void;
   // 本文の順で index 番目の表の、行・列のマスへフォーカスする
   focusTableCell(index: number, row: number, column: number): void;
+  // 本文の順で index 番目の表の列の幅を、列ごとの比で変える。比は区切り行の - の数に書き、比の合計は表の文字の幅に近い約60にそろえる
+  setTableColumnWidths(index: number, ratios: number[]): void;
 }

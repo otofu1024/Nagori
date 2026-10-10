@@ -5,7 +5,7 @@ import { history, undo, redo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { markdownParser, markdownExtensions } from '../src/lib/markdown.ts';
-import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource } from '../src/lib/tableEdit.ts';
+import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource, columnDashes, tableColumnDashes, setTableColumnWidths } from '../src/lib/tableEdit.ts';
 
 function edit(text: string, anchor: number, direction: Parameters<typeof moveTable>[1]) {
   let state = EditorState.create({ doc: text, selection: { anchor }, extensions: history() });
@@ -44,7 +44,8 @@ test('最後のセルでTabを押すと空行を足し、その先頭のセル�
 test('日本語を2桁で数え、最大の幅へそろえて左右中央の寄せ方を保つ', () => {
   const text = '| 列 | abcdef | 中 |\n| :--- | ---: | :---: |\n| 長い本文 | x | y |';
   const result = edit(text, text.indexOf('列'), 'next');
-  assert.equal(result.text, '| 列       | abcdef | 中    |\n| :------- | -----: | :---: |\n| 長い本文 | x      | y     |');
+  // 区切り行の - の数は列の幅なので、整形で変えない。本文の行だけを揃える
+  assert.equal(result.text, '| 列       | abcdef | 中    |\n| :---     | ---:   | :---: |\n| 長い本文 | x      | y     |');
   assert.equal(result.selected, 'abcdef');
   assert.equal(tableCellWidth('Ａあ漢ｶa'), 8); assert.equal(tableCellWidth('e\u0301'), 1);
   const spaces = '| 　本文　 | b |\n| --- | --- |\n| c | d |';
@@ -215,4 +216,48 @@ test('空のマスの書式は右クリックの表の雛形と同じ、| の間
 test('表の原文のマスの内容は、表示のマスと同じ位置から読む', () => {
   assert.equal(tableCellSource(wholeTable, 1, 0), '**太字**');
   assert.equal(tableCellSource(wholeTable, 2, 0), 'B');
+});
+
+test('列の幅の比は - の数に変え、合計を約60にそろえ、各列は3以上にする', () => {
+  assert.deepEqual(columnDashes([1, 1]), [30, 30]);
+  assert.deepEqual(columnDashes([1, 3]), [15, 45]);
+  // 比が極端に小さい列も3つ以上の - にする
+  assert.deepEqual(columnDashes([1, 1000]), [3, 60]);
+  // 比として使えない値は0として扱い、すべて0なら各列3にする
+  assert.deepEqual(columnDashes([0, 0]), [3, 3]);
+  assert.deepEqual(columnDashes([NaN, 1]), [3, 60]);
+});
+
+test('区切り行の - の数で列の幅を覚え、全列が同じ時は自動の幅にする', () => {
+  assert.equal(tableColumnDashes(sample), null);
+  assert.equal(tableColumnDashes('| a | b |\n| --- | --- |\n| 1 | 2 |'), null);
+  assert.deepEqual(tableColumnDashes(setTableColumnWidths(sample, [1, 3])), [15, 45]);
+});
+
+test('列の幅を書くと、揃えの : を保ち、ほかの行と空白は変えない', () => {
+  const next = setTableColumnWidths(sample, [1, 3]);
+  assert.equal(next, `| 見出し | 数値 |\n| :${'-'.repeat(15)} | ${'-'.repeat(45)}: |\n| a | 1 |\n| b | 2 |`);
+  // 区切り行の空白の書き方（| --- |）も、そのまま残す
+  assert.equal(setTableColumnWidths('|a|b|\n|:-|-:|\n|1|2|', [1, 1]), '|a|b|\n|:' + '-'.repeat(30) + '|' + '-'.repeat(30) + ':|\n|1|2|');
+});
+
+test('列の幅の比の数が列数と合わない時は、原文を変えない', () => {
+  assert.equal(setTableColumnWidths(sample, [1]), sample);
+  assert.equal(setTableColumnWidths(sample, [1, 2, 3]), sample);
+});
+
+test('行・列の追加と削除は、既存の列の - の数を保ち、追加した列は ---（3）にする', () => {
+  const three = setTableColumnWidths('| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |', [1, 2, 3]);
+  assert.deepEqual(tableColumnDashes(three), [10, 20, 30]);
+  assert.deepEqual(tableColumnDashes(insertTableColumn(three, 0, 'right')), [10, 3, 20, 30]);
+  assert.deepEqual(tableColumnDashes(deleteTableColumn(three, 1)), [10, 30]);
+  assert.deepEqual(tableColumnDashes(insertTableRow(three, 0, 'below')), [10, 20, 30]);
+  assert.deepEqual(tableColumnDashes(deleteTableRow(three, 1)), [10, 20, 30]);
+});
+
+test('Tabで表を整えても、区切り行の - の数（列の幅）は変わらない', () => {
+  const wide = setTableColumnWidths(sample, [1, 3]);
+  const moved = edit(wide, wide.indexOf('a'), 'next');
+  assert.ok(moved.handled);
+  assert.deepEqual(tableColumnDashes(moved.text), [15, 45]);
 });
