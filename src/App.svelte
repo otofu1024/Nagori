@@ -391,9 +391,8 @@
     documentKey++;
     releaseImages();
   }
-  // 記事中の表示(preview)は縮小版を、画像そのものを開く時は元のバイト列を使う
-  async function blobImage(path: string, documentPath?: string, preview = false) {
-    const bytes = new Uint8Array(await invoke<ArrayBuffer>('image_read', { path, documentPath, preview }));
+  async function blobImage(path: string, documentPath?: string) {
+    const bytes = new Uint8Array(await invoke<ArrayBuffer>('image_read', { path, documentPath }));
     const url = URL.createObjectURL(new Blob([bytes], { type: imageMime(bytes) }));
     imageUrls.add(url);
     return url;
@@ -405,7 +404,7 @@
     const key = path + '\0' + ref,
       cached = imageCache.get(key);
     if (cached) return cached;
-    const promise = blobImage(ref, path, true).then((url) => {
+    const promise = blobImage(ref, path).then((url) => {
       if (epoch !== imageEpoch || path !== current?.path) {
         URL.revokeObjectURL(url);
         imageUrls.delete(url);

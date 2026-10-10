@@ -1,4 +1,3 @@
-use image::{AnimationDecoder, ImageDecoder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -6,18 +5,12 @@ use std::{
     fs,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
-    sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
+    time::UNIX_EPOCH,
 };
 
 pub const DOCUMENT_LIMIT: usize = 2 * 1024 * 1024;
 const IMAGE_LIMIT: usize = 20 * 1024 * 1024;
 const PIXEL_LIMIT: u64 = 16_000_000;
-// 記事中の画像の表示用に、長い辺をこの長さまで縮める
-const PREVIEW_EDGE: u32 = 1600;
-// 表示用の画像のキャッシュは件数とバイト数の両方で上限を付ける
-const PREVIEW_CACHE_COUNT: usize = 64;
-const PREVIEW_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct Error {
@@ -816,134 +809,6 @@ fn verify_image(image: &Image) -> Result<()> {
         .decode()
         .map_err(|e| Error::new("IMAGE", e.to_string()))?;
     Ok(())
-}
-// 表示用の画像を見分けるための鍵。外部で更新されると更新日時かサイズが変わり、作り直される
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PreviewKey {
-    path: PathBuf,
-    modified: SystemTime,
-    len: u64,
-}
-// 表示用の画像のキャッシュ。使われた順に並べ、件数かバイト数が上限を超えたら古いものから捨てる
-#[derive(Default)]
-pub struct PreviewCache {
-    entries: Vec<(PreviewKey, Vec<u8>)>,
-    bytes: usize,
-}
-impl PreviewCache {
-    fn get(&mut self, key: &PreviewKey) -> Option<Vec<u8>> {
-        let index = self.entries.iter().position(|(k, _)| k == key)?;
-        // 使われたものを末尾へ移し、捨てられにくくする
-        let entry = self.entries.remove(index);
-        let data = entry.1.clone();
-        self.entries.push(entry);
-        Some(data)
-    }
-    fn insert(&mut self, key: PreviewKey, data: Vec<u8>) {
-        // 上限より大きいものは残さず、毎回作り直す
-        if data.len() > PREVIEW_CACHE_BYTES {
-            return;
-        }
-        if let Some(index) = self.entries.iter().position(|(k, _)| k == &key) {
-            let (_, old) = self.entries.remove(index);
-            self.bytes -= old.len();
-        }
-        self.bytes += data.len();
-        self.entries.push((key, data));
-        while self.entries.len() > PREVIEW_CACHE_COUNT || self.bytes > PREVIEW_CACHE_BYTES {
-            let (_, old) = self.entries.remove(0);
-            self.bytes -= old.len();
-        }
-    }
-}
-// 表示用の画像の元になるファイル。鍵は読む前に取り、読んだ内容と鍵がずれないようにする
-pub struct PreviewSource {
-    key: PreviewKey,
-    image: Image,
-}
-impl PreviewSource {
-    // ワークスペースのロックの中で行う。パス検証と読み込みだけをし、重い処理はしない
-    pub fn read(path: &Path) -> Result<Self> {
-        require_file(path)?;
-        let metadata = fs::metadata(path)?;
-        let key = PreviewKey {
-            path: path.to_path_buf(),
-            modified: metadata.modified()?,
-            len: metadata.len(),
-        };
-        Ok(Self {
-            key,
-            image: read_image(path)?,
-        })
-    }
-    // ワークスペースのロックの外で行う。キャッシュにあればそれを返し、なければ縮小して登録する
-    pub fn preview(self, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
-        let lock = || {
-            cache
-                .lock()
-                .map_err(|_| Error::new("INTERNAL", "画像のキャッシュのロックに失敗しました。"))
-        };
-        if let Some(data) = lock()?.get(&self.key) {
-            return Ok(data);
-        }
-        let data = make_preview(self.image)?;
-        lock()?.insert(self.key, data.clone());
-        Ok(data)
-    }
-}
-// 長い辺が上限以下の画像と、アニメーションGIFは元のバイト列のまま返す
-fn make_preview(Image { data, format }: Image) -> Result<Vec<u8>> {
-    if format == image::ImageFormat::Gif && animated_gif(&data)? {
-        return Ok(data);
-    }
-    let (width, height) = image::ImageReader::with_format(io::Cursor::new(&data), format)
-        .into_dimensions()
-        .map_err(decode_error)?;
-    if width.max(height) <= PREVIEW_EDGE {
-        return Ok(data);
-    }
-    let mut reader = image::ImageReader::with_format(io::Cursor::new(&data), format);
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
-    let mut decoder = reader.into_decoder().map_err(decode_error)?;
-    // 縮小すると向きの情報が消えるため、先に向きを反映する
-    let orientation = decoder.orientation().map_err(decode_error)?;
-    let mut image = image::DynamicImage::from_decoder(decoder).map_err(decode_error)?;
-    image.apply_orientation(orientation);
-    let image = image.resize(
-        PREVIEW_EDGE,
-        PREVIEW_EDGE,
-        image::imageops::FilterType::Lanczos3,
-    );
-    // 透過のない画像はJPEGにして展開後の大きさを抑え、透過のある画像は透過を残すためPNGにする
-    let mut out = Vec::new();
-    if has_transparency(&image) {
-        image
-            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut out))
-            .map_err(decode_error)?;
-    } else {
-        image
-            .to_rgb8()
-            .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut out, 85,
-            ))
-            .map_err(decode_error)?;
-    }
-    Ok(out)
-}
-// 2枚以上のフレームがあるGIFをアニメーションとみなす
-fn animated_gif(data: &[u8]) -> Result<bool> {
-    let decoder =
-        image::codecs::gif::GifDecoder::new(io::Cursor::new(data)).map_err(decode_error)?;
-    Ok(decoder.into_frames().take(2).count() > 1)
-}
-// 色の種類だけではRGBAの不透明画像を見分けられないため、画素のα値まで確かめる
-fn has_transparency(image: &image::DynamicImage) -> bool {
-    image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel.0[3] < u8::MAX)
-}
-fn decode_error(e: image::ImageError) -> Error {
-    Error::new("IMAGE", e.to_string())
 }
 pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Result<PathBuf> {
     let input = if let Some(document_path) = document_path {
@@ -1779,139 +1644,6 @@ mod tests {
             Some("PERMISSION")
         );
         assert_eq!(list(root, "posts/assets").unwrap().len(), 3);
-    }
-    // 読み込みと縮小をまとめて行う(実際にはワークスペースのロックの中と外に分かれる)
-    fn preview_of(path: &Path, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
-        PreviewSource::read(path)?.preview(cache)
-    }
-    // 表示用の画像の寸法と形式を、ヘッダーだけ読んで確かめる
-    fn preview_shape(bytes: &[u8]) -> (u32, u32, image::ImageFormat) {
-        let format = image::guess_format(bytes).unwrap();
-        let (width, height) = image::ImageReader::with_format(io::Cursor::new(bytes), format)
-            .into_dimensions()
-            .unwrap();
-        (width, height, format)
-    }
-    #[test]
-    fn preview_keeps_images_within_the_edge_limit() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
-        let cache = Mutex::new(PreviewCache::default());
-        let small = root.join("small.png");
-        image::RgbImage::from_fn(1600, 900, |x, y| image::Rgb([x as u8, y as u8, 0]))
-            .save(&small)
-            .unwrap();
-        assert_eq!(
-            preview_of(&small, &cache).unwrap(),
-            fs::read(&small).unwrap()
-        );
-    }
-    #[test]
-    fn preview_resizes_large_images_and_keeps_aspect_ratio() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
-        let cache = Mutex::new(PreviewCache::default());
-        let wide = root.join("wide.png");
-        image::RgbImage::from_fn(3000, 1500, |x, y| image::Rgb([x as u8, y as u8, 128]))
-            .save(&wide)
-            .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&wide, &cache).unwrap()),
-            (1600, 800, image::ImageFormat::Jpeg)
-        );
-        let tall = root.join("tall.png");
-        image::RgbImage::from_fn(800, 2400, |x, y| image::Rgb([x as u8, y as u8, 128]))
-            .save(&tall)
-            .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&tall, &cache).unwrap()),
-            (533, 1600, image::ImageFormat::Jpeg)
-        );
-    }
-    #[test]
-    fn preview_keeps_transparency_as_png() {
-        let directory = tempfile::tempdir().unwrap();
-        let cache = Mutex::new(PreviewCache::default());
-        let path = directory.path().join("clear.png");
-        image::RgbaImage::from_fn(3000, 1500, |x, _| {
-            let alpha = if x < 300 { 0 } else { 255 };
-            image::Rgba([x as u8, 0, 0, alpha])
-        })
-        .save(&path)
-        .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&path, &cache).unwrap()),
-            (1600, 800, image::ImageFormat::Png)
-        );
-    }
-    #[test]
-    fn preview_keeps_animated_gifs_and_resizes_still_gifs() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
-        let cache = Mutex::new(PreviewCache::default());
-        let frames = [[255, 0, 0, 255], [0, 0, 255, 255]].map(|color| {
-            image::Frame::new(image::RgbaImage::from_pixel(1700, 1700, image::Rgba(color)))
-        });
-        let mut animated = Vec::new();
-        image::codecs::gif::GifEncoder::new(&mut animated)
-            .encode_frames(frames)
-            .unwrap();
-        let animated_path = root.join("animated.gif");
-        fs::write(&animated_path, &animated).unwrap();
-        assert_eq!(preview_of(&animated_path, &cache).unwrap(), animated);
-
-        let still = root.join("still.gif");
-        let mut out = Vec::new();
-        image::codecs::gif::GifEncoder::new(&mut out)
-            .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
-                1700,
-                1700,
-                image::Rgba([0, 255, 0, 255]),
-            )))
-            .unwrap();
-        fs::write(&still, &out).unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&still, &cache).unwrap()),
-            (1600, 1600, image::ImageFormat::Jpeg)
-        );
-    }
-    #[test]
-    fn preview_cache_reuses_until_the_file_changes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("photo.png");
-        image::RgbImage::from_fn(2000, 1000, |x, y| image::Rgb([x as u8, y as u8, 0]))
-            .save(&path)
-            .unwrap();
-        let cache = Mutex::new(PreviewCache::default());
-        let first = preview_of(&path, &cache).unwrap();
-        assert_eq!(cache.lock().unwrap().entries.len(), 1);
-        // 同じ鍵なら作り直さず、キャッシュの中身をそのまま返す
-        cache.lock().unwrap().entries[0].1 = b"cached".to_vec();
-        assert_eq!(preview_of(&path, &cache).unwrap(), b"cached");
-        cache.lock().unwrap().entries[0].1 = first;
-        // 外部で画像が差し替えられ更新日時が変わったら、作り直す
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        image::RgbImage::from_fn(1000, 2000, |x, y| image::Rgb([y as u8, x as u8, 255]))
-            .save(&path)
-            .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&path, &cache).unwrap()),
-            (800, 1600, image::ImageFormat::Jpeg)
-        );
-    }
-    #[test]
-    fn preview_cache_stays_within_its_count_limit() {
-        let mut cache = PreviewCache::default();
-        for index in 0..PREVIEW_CACHE_COUNT + 3 {
-            let key = PreviewKey {
-                path: PathBuf::from(format!("{index}.png")),
-                modified: UNIX_EPOCH,
-                len: 1,
-            };
-            cache.insert(key, vec![0; 1024]);
-        }
-        assert_eq!(cache.entries.len(), PREVIEW_CACHE_COUNT);
-        assert_eq!(cache.bytes, PREVIEW_CACHE_COUNT * 1024);
     }
     #[test]
     fn images_validate_and_copy_without_clobber() {
