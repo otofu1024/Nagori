@@ -5,7 +5,7 @@ import { history, undo, redo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { markdownParser, markdownExtensions } from '../src/lib/markdown.ts';
-import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource, columnDashes, tableColumnDashes, setTableColumnWidths, tableEntryTarget, tableExitEdit } from '../src/lib/tableEdit.ts';
+import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource, columnDashes, tableColumnDashes, setTableColumnWidths, tableEntryTarget, tableExitEdit, columnPercentages } from '../src/lib/tableEdit.ts';
 
 function edit(text: string, anchor: number, direction: Parameters<typeof moveTable>[1]) {
   let state = EditorState.create({ doc: text, selection: { anchor }, extensions: history() });
@@ -284,4 +284,20 @@ test('表の後ろへ出る時は、後ろの行の先頭へ移し、表が末�
   assert.deepEqual(tableExitEdit(end, 0, end.length, 'after'), { anchor: end.length + 1, insert: '\n' });
   const crlf = '| a |\r\n| --- |';
   assert.deepEqual(tableExitEdit(crlf, 0, crlf.length, 'after'), { anchor: crlf.length + 2, insert: '\r\n' });
+});
+
+test('列の幅（%）は - の数の比を表す。表の幅が分かる時は、各列が48px以上になるよう比を補正する', () => {
+  // 表の幅が十分広い時は、比のまま
+  assert.deepEqual(columnPercentages([15, 45, 15], 1000), [20, 60, 20]);
+  // 表が200pxなら48pxは24%。24%を下回る列は24%に固定し、残りを比で配る
+  assert.deepEqual(columnPercentages([15, 45, 15], 200), [24, 52, 24]);
+  // 列が多く、下限を全部守れない時は均等にする
+  assert.deepEqual(columnPercentages([3, 3, 3, 3], 100), [25, 25, 25, 25]);
+  // 表の幅が分からない時は、比のまま返す
+  assert.deepEqual(columnPercentages([15, 45, 15], 0), [20, 60, 20]);
+  assert.deepEqual(columnPercentages([0, 0], 300), [50, 50]);
+  // 結果は合計100%になる
+  const shares = columnPercentages([3, 17, 40, 9], 260);
+  assert.ok(Math.abs(shares.reduce((total, share) => total + share, 0) - 100) < 1e-9);
+  assert.ok(shares.every(share => share >= 48 / 260 * 100 - 1e-9));
 });

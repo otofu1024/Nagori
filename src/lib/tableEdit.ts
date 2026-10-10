@@ -142,6 +142,26 @@ export function columnDashes(ratios: number[]): number[] {
   return weights.map(weight => Math.max(3, Math.round(sum > 0 ? weight / sum * dashTotal : 0)));
 }
 
+// 列の幅（%）を - の数の比から求める。表の幅が分かる時は、各列が minWidth（px）以上になるよう、下限に届く列を下限に固定し、残りの列で比を配り直す。幅が分からない時（0以下）は比のまま返す
+export function columnPercentages(dashes: number[], tableWidth: number, minWidth = 48): number[] {
+  const count = dashes.length, sum = dashes.reduce((total, dash) => total + dash, 0);
+  if (count === 0) return [];
+  const shares = dashes.map(dash => sum > 0 ? dash / sum * 100 : 100 / count);
+  if (!(tableWidth > 0)) return shares;
+  // 下限は、列の数で割った幅を超えない（全列が下限に届かない時は均等にする）
+  const floor = Math.min(minWidth / tableWidth * 100, 100 / count);
+  // 比の合計が0の時は、列を同じ重みで配る
+  const weights = sum > 0 ? dashes : dashes.map(() => 1), fixed = dashes.map(() => false);
+  for (;;) {
+    const rest = 100 - fixed.filter(Boolean).length * floor;
+    const restSum = weights.reduce((total, weight, index) => fixed[index] ? total : total + weight, 0);
+    const result = weights.map((weight, index) => fixed[index] ? floor : restSum > 0 ? weight / restSum * rest : 0);
+    let changed = false;
+    result.forEach((share, index) => { if (!fixed[index] && share < floor) { fixed[index] = true; changed = true; } });
+    if (!changed) return result;
+  }
+}
+
 // 区切り行の各列の - の数。全列が同じ（既定の --- など）時と、区切り行がない時は null にし、内容に合わせた自動の幅で表示する
 export function tableColumnDashes(source: string): number[] | null {
   const delimiter = tableCells(source, 0, source.length).find(row => row.kind === 'delimiter');

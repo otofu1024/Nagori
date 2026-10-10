@@ -6,7 +6,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { undo, redo, isolateHistory } from '@codemirror/commands';
-import { applyTableCommand, setTableCell, setTableColumnWidths, tableCells, tableColumnDashes, tableEntryTarget, tableExitEdit, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
+import { applyTableCommand, setTableCell, setTableColumnWidths, tableCells, tableColumnDashes, tableEntryTarget, tableExitEdit, tableShape, columnPercentages, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
 import type { TableCellRef } from './editor.ts';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
@@ -179,6 +179,8 @@ let caretHint: 'start' | 'end' = 'end';
 const tableFocusLabel = '表（Tab・矢印キーでマスを移動、Escapeで表を抜ける）';
 // 列の幅を変える時の最小幅（px）
 const minColumnWidth = 48;
+// 表のマスの枠を、表の幅の変化に合わせて当て直すための監視
+const tableObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
 class TableWidget extends WidgetType {
   readonly previewOnly: boolean;
@@ -229,6 +231,9 @@ class TableWidget extends WidgetType {
     applyColumnWidths(table, this);
     wrapper.append(table);
     tableStates.set(wrapper, { widget: this, view, cells: this.cells });
+    // 表の幅が決まった時（表示された時や窓の幅が変わった時）に、最小幅を守る比を当て直す
+    const observer = new ResizeObserver(() => { const state = tableStates.get(wrapper); if (state) applyColumnWidths(table, state.widget); });
+    observer.observe(wrapper); tableObservers.set(wrapper, observer);
     if (!this.cells) { wrapper.addEventListener('click', () => selectSource(view, this.position)); wrapper.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); }); }
     return wrapper;
   }
@@ -244,7 +249,7 @@ class TableWidget extends WidgetType {
     if (table) applyColumnWidths(table, this);
     return true;
   }
-  destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); }
+  destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); tableObservers.get(element)?.disconnect(); tableObservers.delete(element); }
   ignoreEvent() { return true; }
 }
 // マスの表示を、フォーカスがない時の装飾つきの表示にする。フォーカス中は原文を入れる
@@ -269,10 +274,10 @@ function columnResizer() {
 // 区切り行の - の数で列の幅を当てる。全列が同じ（自動）時は、表の幅を内容に合わせる。列の最小幅は48px
 function applyColumnWidths(table: HTMLTableElement, widget: TableWidget) {
   const columns = widget.rows()[0]?.cells.length ?? 0, dashes = tableColumnDashes(widget.text.slice(widget.node.from, widget.node.to));
-  const sum = dashes ? dashes.slice(0, columns).reduce((total, count) => total + count, 0) : 0;
-  table.style.tableLayout = dashes && sum > 0 ? 'fixed' : '';
+  const percents = dashes && columns > 0 ? columnPercentages(Array.from({ length: columns }, (_, index) => dashes[index] ?? 0), table.clientWidth, minColumnWidth) : null;
+  table.style.tableLayout = percents ? 'fixed' : '';
   table.querySelectorAll('col').forEach((col, index) => {
-    col.style.width = dashes && sum > 0 ? `max(${minColumnWidth}px, ${(dashes[index] ?? 0) / sum * 100}%)` : '';
+    col.style.width = percents ? `${percents[index] ?? 0}%` : '';
   });
 }
 // つまみを押した時、隣の2列の境目を動かす。ドラッグの間は表示だけ変え、離した時に区切り行を1回書き換える
@@ -282,15 +287,17 @@ function startColumnResize(event: PointerEvent, handle: HTMLElement) {
   event.preventDefault(); event.stopPropagation();
   const table = th.closest('table')!, column = Number(th.dataset.column), cols = table.querySelectorAll('col');
   const start = [...table.rows[0].cells].map(cell => cell.getBoundingClientRect().width), current = start.slice(), startX = event.clientX;
-  const pair = start[column] + start[column + 1];
+  const pair = start[column] + start[column + 1], total = start.reduce((sum, width) => sum + width, 0);
+  // ドラッグ中も、<col> の幅は表の幅に対するパーセントで書く
+  const percent = (width: number) => `${width / total * 100}%`;
   table.style.tableLayout = 'fixed';
-  start.forEach((width, index) => { cols[index].style.width = `${width}px`; });
+  start.forEach((width, index) => { cols[index].style.width = percent(width); });
   handle.setPointerCapture(event.pointerId);
   const move = (moved: PointerEvent) => {
     // 隣の2列の合計は変えず、どちらも最小幅を下回らないようにする
     const left = Math.min(Math.max(start[column] + moved.clientX - startX, minColumnWidth), pair - minColumnWidth);
     current[column] = left; current[column + 1] = pair - left;
-    cols[column].style.width = `${left}px`; cols[column + 1].style.width = `${pair - left}px`;
+    cols[column].style.width = percent(left); cols[column + 1].style.width = percent(pair - left);
   };
   const end = (finished: PointerEvent) => {
     handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end);
