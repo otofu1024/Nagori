@@ -5,7 +5,7 @@ import { history, undo, redo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { markdownParser, markdownExtensions } from '../src/lib/markdown.ts';
-import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource, columnDashes, tableColumnDashes, setTableColumnWidths } from '../src/lib/tableEdit.ts';
+import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource, columnDashes, tableColumnDashes, setTableColumnWidths, tableEntryTarget, tableExitEdit } from '../src/lib/tableEdit.ts';
 
 function edit(text: string, anchor: number, direction: Parameters<typeof moveTable>[1]) {
   let state = EditorState.create({ doc: text, selection: { anchor }, extensions: history() });
@@ -260,4 +260,28 @@ test('Tabで表を整えても、区切り行の - の数（列の幅）は変�
   const moved = edit(wide, wide.indexOf('a'), 'next');
   assert.ok(moved.handled);
   assert.deepEqual(tableColumnDashes(moved.text), [15, 45]);
+});
+
+test('本文から表へ入る時は、↓で見出しの左上、↑で最後の行の左下のマスを選ぶ', () => {
+  assert.deepEqual(tableEntryTarget(3, 'down'), { row: 0, column: 0 });
+  assert.deepEqual(tableEntryTarget(3, 'up'), { row: 2, column: 0 });
+});
+
+test('表の前へ出る時は、表の直前の行の末尾へ移し、改行は入れない', () => {
+  const doc = '前の行\n| a |\n| --- |\n| 1 |';
+  const from = doc.indexOf('| a'), to = doc.length;
+  assert.deepEqual(tableExitEdit(doc, from, to, 'before'), { anchor: 3, insert: '' });
+  assert.deepEqual(tableExitEdit('| a |\n| --- |', 0, 11, 'before'), { anchor: 0, insert: '' });
+  // CRLF の原文では、直前の行の末尾は \r の前になる
+  const crlf = '前\r\n| a |\r\n| --- |';
+  assert.equal(tableExitEdit(crlf, crlf.indexOf('| a'), crlf.length, 'before').anchor, 1);
+});
+
+test('表の後ろへ出る時は、後ろの行の先頭へ移し、表が末尾なら改行を入れて空の行へ移す', () => {
+  const doc = '| a |\n| --- |\n| 1 |\n後の行';
+  assert.deepEqual(tableExitEdit(doc, 0, doc.indexOf('\n後'), 'after'), { anchor: doc.indexOf('後'), insert: '' });
+  const end = '| a |\n| --- |\n| 1 |';
+  assert.deepEqual(tableExitEdit(end, 0, end.length, 'after'), { anchor: end.length + 1, insert: '\n' });
+  const crlf = '| a |\r\n| --- |';
+  assert.deepEqual(tableExitEdit(crlf, 0, crlf.length, 'after'), { anchor: crlf.length + 2, insert: '\r\n' });
 });

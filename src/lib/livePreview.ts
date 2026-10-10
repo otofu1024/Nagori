@@ -6,7 +6,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { undo, redo, isolateHistory } from '@codemirror/commands';
-import { applyTableCommand, setTableCell, setTableColumnWidths, tableCells, tableColumnDashes, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
+import { applyTableCommand, setTableCell, setTableColumnWidths, tableCells, tableColumnDashes, tableEntryTarget, tableExitEdit, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
 import type { TableCellRef } from './editor.ts';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
@@ -378,8 +378,9 @@ function focusCell(wrapper: HTMLElement, row: number, column: number, caret: 'st
 // 表の前後へ本文のカーソルを移す。前は表の直前の改行、後は表の直後の改行の先
 function exitTable(view: EditorView, widget: TableWidget, side: 'before' | 'after') {
   const { from, to } = widget.node;
-  const anchor = side === 'before' ? Math.max(0, from - 1) : Math.min(to + 1, view.state.doc.length);
-  view.dispatch({ selection: { anchor }, scrollIntoView: true });
+  // 表の後ろに行がなければ、空の行を作ってそこへ移す
+  const { anchor, insert } = tableExitEdit(view.state.doc.toString(), from, to, side);
+  view.dispatch({ ...(insert ? { changes: { from: to, insert } } : {}), selection: { anchor }, scrollIntoView: true });
   view.focus();
 }
 function handleCellKey(event: KeyboardEvent, td: HTMLElement) {
@@ -439,12 +440,31 @@ export function removeTable(view: EditorView, cell: TableCellRef): boolean {
   view.focus();
   return true;
 }
-function focusTableAt(view: EditorView, from: number, target: TableTarget) {
+function focusTableAt(view: EditorView, from: number, target: TableTarget, caret: 'start' | 'end' = 'end'): boolean {
   for (const wrapper of view.contentDOM.querySelectorAll<HTMLElement>('.nagori-table-wrap')) {
     if (tableStates.get(wrapper)?.widget.node.from !== from) continue;
-    focusCell(wrapper, target.row, target.column, 'end');
-    return;
+    focusCell(wrapper, target.row, target.column, caret);
+    return true;
   }
+  return false;
+}
+// 見た目のまま編集の時は、本文の Enter と Tab で表の行・マスを動かさない。表の操作はマスの編集欄の中だけで行う
+export function isTableWysiwyg(state: EditorState): boolean {
+  return !state.field(previewOnlyField, false) && (state.field(tableWysiwygField, false) ?? false);
+}
+// 本文のカーソルが表の直上（↓）・直下（↑）の行にある時、表の左上か左下のマスへ入る。入れなければ false
+export function enterTableFromBody(view: EditorView, direction: 'down' | 'up'): boolean {
+  const { state } = view, selection = state.selection.main;
+  if (!isTableWysiwyg(state) || state.readOnly || !selection.empty) return false;
+  const line = state.doc.lineAt(selection.head), position = direction === 'down' ? line.to + 1 : line.from - 1;
+  if (position < 0 || position > state.doc.length) return false;
+  let table: SyntaxNode | undefined;
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(position, direction === 'down' ? 1 : -1); node; node = node.parent) {
+    if (node.name === 'Table') { table = node; break; }
+  }
+  if (!table || (direction === 'down' ? table.from : table.to) !== position) return false;
+  const rows = tableShape(state.doc.sliceString(table.from, table.to)).rows;
+  return focusTableAt(view, table.from, tableEntryTarget(rows, direction), direction === 'down' ? 'start' : 'end');
 }
 // 本文の位置から表のマスを探す。マスの外や編集できない表なら null
 export function tableCellAt(target: EventTarget | Element | null | undefined): (TableCellRef & { rows: number; columns: number }) | null {

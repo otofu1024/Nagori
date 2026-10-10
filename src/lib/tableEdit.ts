@@ -227,6 +227,20 @@ export function applyTableCommand(source: string, command: TableCommand, row: nu
   return { source: deleteTableColumn(source, column), target: { row, column: Math.min(column, shape.columns - 2) } };
 }
 
+// 本文から表へ入る時のマス。↓は見出しの1列目、↑は最後の行の1列目
+export function tableEntryTarget(rows: number, direction: 'down' | 'up'): TableTarget {
+  return direction === 'down' ? { row: 0, column: 0 } : { row: rows - 1, column: 0 };
+}
+
+// 表の前後へ出る時のカーソル位置と、表の後ろに入れる改行。表の後ろに行がない時だけ改行を入れる。from と to は表の範囲
+export function tableExitEdit(doc: string, from: number, to: number, side: 'before' | 'after'): { anchor: number; insert: string } {
+  if (side === 'before') return { anchor: from > 0 ? from - (doc.slice(0, from).endsWith('\r\n') ? 2 : 1) : 0, insert: '' };
+  const newline = doc.indexOf('\n', to);
+  if (newline !== -1) return { anchor: newline + 1, insert: '' };
+  const insert = doc.includes('\r\n') ? '\r\n' : '\n';
+  return { anchor: to + insert.length, insert };
+}
+
 export function moveTable({ state, dispatch }: Parameters<StateCommand>[0], direction: 'next' | 'previous' | 'down'): boolean {
   if (state.readOnly) return false;
   const doc = state.doc, head = state.selection.main.head, current = doc.lineAt(head);

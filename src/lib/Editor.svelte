@@ -13,7 +13,7 @@
   import { restoredScrollTop } from './scrollRestore.ts';
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
-  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect, tableWysiwygMode, tableCellAt, runTableCommand, removeTable, focusTableStart, focusTableCellAt, setTableColumnWidthsAt } from './livePreview.ts';
+  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect, tableWysiwygMode, tableCellAt, runTableCommand, removeTable, focusTableStart, focusTableCellAt, setTableColumnWidthsAt, isTableWysiwyg, enterTableFromBody } from './livePreview.ts';
   import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
@@ -282,9 +282,11 @@
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       Prec.highest(keymap.of([
-        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
-        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
-        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'down') || continueList(editor)) },
+        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'next')) || moveList(editor)) },
+        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'previous')) || moveList(editor, true)) },
+        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'down')) || continueList(editor)) },
+        { key: 'ArrowDown', run: editor => !plain && !previewOnly && !composition && !editor.composing && !linkDialog && enterTableFromBody(editor, 'down') },
+        { key: 'ArrowUp', run: editor => !plain && !previewOnly && !composition && !editor.composing && !linkDialog && enterTableFromBody(editor, 'up') },
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
         { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
