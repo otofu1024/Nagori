@@ -1,4 +1,3 @@
-use image::{AnimationDecoder, ImageDecoder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -14,6 +13,7 @@ pub const DOCUMENT_LIMIT: usize = 2 * 1024 * 1024;
 const IMAGE_LIMIT: usize = 20 * 1024 * 1024;
 const PIXEL_LIMIT: u64 = 16_000_000;
 // 記事中の画像の表示用に、長い辺をこの長さまで縮める
+#[cfg(target_os = "macos")]
 const PREVIEW_EDGE: u32 = 1600;
 // 表示用の画像のキャッシュは件数とバイト数の両方で上限を付ける
 const PREVIEW_CACHE_COUNT: usize = 64;
@@ -856,10 +856,16 @@ impl PreviewCache {
         }
     }
 }
+// 縮小は同時に1枚だけ行う。大きな画像を複数同時に展開すると、メモリが一気に増えるため
+static PREVIEW_GATE: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+static PREVIEW_RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static PREVIEW_PEAK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 // 表示用の画像の元になるファイル。鍵は読む前に取り、読んだ内容と鍵がずれないようにする
 pub struct PreviewSource {
     key: PreviewKey,
-    image: Image,
+    data: Vec<u8>,
 }
 impl PreviewSource {
     // ワークスペースのロックの中で行う。パス検証と読み込みだけをし、重い処理はしない
@@ -873,7 +879,7 @@ impl PreviewSource {
         };
         Ok(Self {
             key,
-            image: read_image(path)?,
+            data: read_image(path)?.data,
         })
     }
     // ワークスペースのロックの外で行う。キャッシュにあればそれを返し、なければ縮小して登録する
@@ -886,64 +892,248 @@ impl PreviewSource {
         if let Some(data) = lock()?.get(&self.key) {
             return Ok(data);
         }
-        let data = make_preview(self.image)?;
+        // 待っている間に別の呼び出しが同じ画像を作っていれば、その結果を使う
+        let _gate = PREVIEW_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(data) = lock()?.get(&self.key) {
+            return Ok(data);
+        }
+        #[cfg(test)]
+        let running = PREVIEW_RUNNING.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        #[cfg(test)]
+        PREVIEW_PEAK.fetch_max(running, std::sync::atomic::Ordering::SeqCst);
+        let data = make_preview(self.data);
+        #[cfg(test)]
+        PREVIEW_RUNNING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        let data = data?;
         lock()?.insert(self.key, data.clone());
         Ok(data)
     }
 }
 // 長い辺が上限以下の画像と、アニメーションGIFは元のバイト列のまま返す
-fn make_preview(Image { data, format }: Image) -> Result<Vec<u8>> {
-    if format == image::ImageFormat::Gif && animated_gif(&data)? {
-        return Ok(data);
-    }
-    let (width, height) = image::ImageReader::with_format(io::Cursor::new(&data), format)
-        .into_dimensions()
-        .map_err(decode_error)?;
-    if width.max(height) <= PREVIEW_EDGE {
-        return Ok(data);
-    }
-    let mut reader = image::ImageReader::with_format(io::Cursor::new(&data), format);
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
-    let mut decoder = reader.into_decoder().map_err(decode_error)?;
-    // 縮小すると向きの情報が消えるため、先に向きを反映する
-    let orientation = decoder.orientation().map_err(decode_error)?;
-    let mut image = image::DynamicImage::from_decoder(decoder).map_err(decode_error)?;
-    image.apply_orientation(orientation);
-    let image = image.resize(
-        PREVIEW_EDGE,
-        PREVIEW_EDGE,
-        image::imageops::FilterType::Lanczos3,
-    );
-    // 透過のない画像はJPEGにして展開後の大きさを抑え、透過のある画像は透過を残すためPNGにする
-    let mut out = Vec::new();
-    if has_transparency(&image) {
-        image
-            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut out))
-            .map_err(decode_error)?;
-    } else {
-        image
-            .to_rgb8()
-            .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-                &mut out, 85,
-            ))
-            .map_err(decode_error)?;
-    }
-    Ok(out)
+#[cfg(target_os = "macos")]
+fn make_preview(data: Vec<u8>) -> Result<Vec<u8>> {
+    imageio::preview(data)
 }
-// 2枚以上のフレームがあるGIFをアニメーションとみなす
-fn animated_gif(data: &[u8]) -> Result<bool> {
-    let decoder =
-        image::codecs::gif::GifDecoder::new(io::Cursor::new(data)).map_err(decode_error)?;
-    Ok(decoder.into_frames().take(2).count() > 1)
+// macOS以外では縮小せず、元のバイト列を返す
+#[cfg(not(target_os = "macos"))]
+fn make_preview(data: Vec<u8>) -> Result<Vec<u8>> {
+    Ok(data)
 }
-// 色の種類だけではRGBAの不透明画像を見分けられないため、画素のα値まで確かめる
-fn has_transparency(image: &image::DynamicImage) -> bool {
-    image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel.0[3] < u8::MAX)
-}
-fn decode_error(e: image::ImageError) -> Error {
-    Error::new("IMAGE", e.to_string())
+// macOSのImageIOで縮小する。展開を元の解像度で行わず、CGImageSourceの縮小機能に任せるため、
+// 大きな写真を開いてもメモリの使用量を抑えられる
+#[cfg(target_os = "macos")]
+#[allow(non_snake_case, non_upper_case_globals)]
+mod imageio {
+    use super::{Error, Result, PREVIEW_EDGE};
+    use std::{ffi::c_void, ptr};
+
+    // フレームワークごとにextern "C"のブロックを分ける。1つのブロックに複数の#[link]を並べると、
+    // リンク指定が重複したとclippyに指摘されるため
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        static kCFBooleanTrue: *const c_void;
+        static kCFBooleanFalse: *const c_void;
+        // コールバックはアドレスだけを渡すため、中身の型は問わない
+        static kCFTypeDictionaryKeyCallBacks: u8;
+        static kCFTypeDictionaryValueCallBacks: u8;
+
+        fn CFRelease(cf: *const c_void);
+        fn CFDataCreate(allocator: *const c_void, bytes: *const u8, length: isize) -> *const c_void;
+        fn CFDataCreateMutable(allocator: *const c_void, capacity: isize) -> *const c_void;
+        fn CFDataGetLength(data: *const c_void) -> isize;
+        fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
+        fn CFStringCreateWithBytes(
+            allocator: *const c_void,
+            bytes: *const u8,
+            length: isize,
+            encoding: u32,
+            is_external_representation: bool,
+        ) -> *const c_void;
+        fn CFDictionaryCreate(
+            allocator: *const c_void,
+            keys: *const *const c_void,
+            values: *const *const c_void,
+            count: isize,
+            key_callbacks: *const c_void,
+            value_callbacks: *const c_void,
+        ) -> *const c_void;
+        fn CFDictionaryGetValue(dictionary: *const c_void, key: *const c_void) -> *const c_void;
+        fn CFNumberCreate(allocator: *const c_void, number_type: isize, value: *const c_void)
+            -> *const c_void;
+        fn CFNumberGetValue(number: *const c_void, number_type: isize, value: *mut c_void) -> bool;
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGImageGetAlphaInfo(image: *const c_void) -> u32;
+    }
+    #[link(name = "ImageIO", kind = "framework")]
+    unsafe extern "C" {
+        static kCGImageSourceCreateThumbnailFromImageAlways: *const c_void;
+        static kCGImageSourceCreateThumbnailWithTransform: *const c_void;
+        static kCGImageSourceShouldCacheImmediately: *const c_void;
+        static kCGImageSourceThumbnailMaxPixelSize: *const c_void;
+        static kCGImagePropertyPixelWidth: *const c_void;
+        static kCGImagePropertyPixelHeight: *const c_void;
+        static kCGImageDestinationLossyCompressionQuality: *const c_void;
+
+        fn CGImageSourceCreateWithData(data: *const c_void, options: *const c_void) -> *const c_void;
+        fn CGImageSourceGetCount(source: *const c_void) -> usize;
+        fn CGImageSourceCopyPropertiesAtIndex(
+            source: *const c_void,
+            index: usize,
+            options: *const c_void,
+        ) -> *const c_void;
+        fn CGImageSourceCreateThumbnailAtIndex(
+            source: *const c_void,
+            index: usize,
+            options: *const c_void,
+        ) -> *const c_void;
+        fn CGImageDestinationCreateWithData(
+            data: *const c_void,
+            uti: *const c_void,
+            count: usize,
+            options: *const c_void,
+        ) -> *const c_void;
+        fn CGImageDestinationAddImage(
+            destination: *const c_void,
+            image: *const c_void,
+            properties: *const c_void,
+        );
+        fn CGImageDestinationFinalize(destination: *const c_void) -> bool;
+    }
+
+    // CFNumberTypeとCFStringEncodingの値。ヘッダーで定められた定数
+    const CF_NUMBER_SINT32: isize = 3;
+    const CF_NUMBER_SINT64: isize = 4;
+    const CF_NUMBER_FLOAT64: isize = 6;
+    const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+    // 所有権を持つCF参照。Dropで解放するため、途中で失敗しても参照は漏れない
+    struct Cf(*const c_void);
+    impl Drop for Cf {
+        fn drop(&mut self) {
+            unsafe { CFRelease(self.0) }
+        }
+    }
+
+    fn failed() -> Error {
+        Error::new("IMAGE", "画像を縮小できませんでした。")
+    }
+    // Create/Copyで得た参照を受け取る。nullなら失敗として扱う
+    fn owned(ptr: *const c_void) -> Result<Cf> {
+        if ptr.is_null() {
+            return Err(failed());
+        }
+        Ok(Cf(ptr))
+    }
+    fn data(bytes: &[u8]) -> Result<Cf> {
+        owned(unsafe { CFDataCreate(ptr::null(), bytes.as_ptr(), bytes.len() as isize) })
+    }
+    fn string(text: &str) -> Result<Cf> {
+        owned(unsafe {
+            CFStringCreateWithBytes(
+                ptr::null(),
+                text.as_ptr(),
+                text.len() as isize,
+                CF_STRING_ENCODING_UTF8,
+                false,
+            )
+        })
+    }
+    fn number<T>(number_type: isize, value: &T) -> Result<Cf> {
+        owned(unsafe { CFNumberCreate(ptr::null(), number_type, (value as *const T).cast()) })
+    }
+    fn dictionary(pairs: &[(*const c_void, *const c_void)]) -> Result<Cf> {
+        let keys: Vec<*const c_void> = pairs.iter().map(|&(key, _)| key).collect();
+        let values: Vec<*const c_void> = pairs.iter().map(|&(_, value)| value).collect();
+        owned(unsafe {
+            CFDictionaryCreate(
+                ptr::null(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                pairs.len() as isize,
+                ptr::addr_of!(kCFTypeDictionaryKeyCallBacks).cast(),
+                ptr::addr_of!(kCFTypeDictionaryValueCallBacks).cast(),
+            )
+        })
+    }
+    // 展開せずにプロパティから整数の値を読む。値がなければNone
+    fn property(properties: &Cf, key: *const c_void) -> Option<i64> {
+        let value = unsafe { CFDictionaryGetValue(properties.0, key) };
+        if value.is_null() {
+            return None;
+        }
+        let mut out: i64 = 0;
+        let ok =
+            unsafe { CFNumberGetValue(value, CF_NUMBER_SINT64, (&mut out as *mut i64).cast()) };
+        ok.then_some(out)
+    }
+
+    // 長い辺がPREVIEW_EDGEを超える画像だけを縮小し、そのほかは元のバイト列のまま返す
+    pub fn preview(bytes: Vec<u8>) -> Result<Vec<u8>> {
+        let encoded = data(&bytes)?;
+        let source = owned(unsafe { CGImageSourceCreateWithData(encoded.0, ptr::null()) })?;
+        // 2枚以上のフレームがあるアニメーションは、1枚にすると動かなくなるため元のまま返す
+        if unsafe { CGImageSourceGetCount(source.0) } > 1 {
+            return Ok(bytes);
+        }
+        let properties =
+            owned(unsafe { CGImageSourceCopyPropertiesAtIndex(source.0, 0, ptr::null()) })?;
+        let (width_key, height_key) =
+            unsafe { (kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight) };
+        let (Some(width), Some(height)) = (
+            property(&properties, width_key),
+            property(&properties, height_key),
+        ) else {
+            return Err(failed());
+        };
+        if width.max(height) <= i64::from(PREVIEW_EDGE) {
+            return Ok(bytes);
+        }
+
+        // EXIFの向きを反映し、長い辺をPREVIEW_EDGEにした画像を作る。展開は縮小した大きさだけ
+        let max_size = number(CF_NUMBER_SINT32, &(PREVIEW_EDGE as i32))?;
+        let thumbnail_options = dictionary(unsafe {
+            &[
+                (kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue),
+                (kCGImageSourceThumbnailMaxPixelSize, max_size.0),
+                (kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue),
+                (kCGImageSourceShouldCacheImmediately, kCFBooleanFalse),
+            ]
+        })?;
+        let thumbnail = owned(unsafe {
+            CGImageSourceCreateThumbnailAtIndex(source.0, 0, thumbnail_options.0)
+        })?;
+
+        // 透過のない画像はJPEG、透過のある画像は透過を残すためPNGにする。
+        // CGImageAlphaInfoのうち、アルファ成分を持つ値は1から4と7(Onlyのみ)
+        let has_alpha = matches!(unsafe { CGImageGetAlphaInfo(thumbnail.0) }, 1..=4 | 7);
+        let (uti, encode_options) = if has_alpha {
+            ("public.png", None)
+        } else {
+            let quality = number(CF_NUMBER_FLOAT64, &0.8_f64)?;
+            let options =
+                dictionary(unsafe { &[(kCGImageDestinationLossyCompressionQuality, quality.0)] })?;
+            ("public.jpeg", Some(options))
+        };
+        let uti = string(uti)?;
+        let out = owned(unsafe { CFDataCreateMutable(ptr::null(), 0) })?;
+        let destination =
+            owned(unsafe { CGImageDestinationCreateWithData(out.0, uti.0, 1, ptr::null()) })?;
+        let encode_options = encode_options
+            .as_ref()
+            .map_or(ptr::null(), |options| options.0);
+        unsafe { CGImageDestinationAddImage(destination.0, thumbnail.0, encode_options) };
+        if !unsafe { CGImageDestinationFinalize(destination.0) } {
+            return Err(failed());
+        }
+        let length = unsafe { CFDataGetLength(out.0) } as usize;
+        if length == 0 {
+            return Err(failed());
+        }
+        let encoded = unsafe { std::slice::from_raw_parts(CFDataGetBytePtr(out.0), length) };
+        Ok(encoded.to_vec())
+    }
 }
 pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Result<PathBuf> {
     let input = if let Some(document_path) = document_path {
@@ -1785,12 +1975,44 @@ mod tests {
         PreviewSource::read(path)?.preview(cache)
     }
     // 表示用の画像の寸法と形式を、ヘッダーだけ読んで確かめる
+    #[cfg(target_os = "macos")]
     fn preview_shape(bytes: &[u8]) -> (u32, u32, image::ImageFormat) {
         let format = image::guess_format(bytes).unwrap();
         let (width, height) = image::ImageReader::with_format(io::Cursor::new(bytes), format)
             .into_dimensions()
             .unwrap();
         (width, height, format)
+    }
+    // ImageIOの縮小は端数の丸めで1pxずれることがあるため、1pxまでの差を許す
+    #[cfg(target_os = "macos")]
+    fn assert_preview_size(bytes: &[u8], expected: (u32, u32), format: image::ImageFormat) {
+        let (width, height, actual) = preview_shape(bytes);
+        assert_eq!(actual, format);
+        assert!(
+            width.abs_diff(expected.0) <= 1 && height.abs_diff(expected.1) <= 1,
+            "{width}x{height}"
+        );
+    }
+    // EXIFの向き(Orientation)だけを持つAPP1を、JPEGのSOIの直後に差し込む
+    #[cfg(target_os = "macos")]
+    fn with_orientation(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+        let mut tiff = b"II*\0".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        tiff.extend(1u16.to_le_bytes());
+        tiff.extend(0x0112u16.to_le_bytes());
+        tiff.extend(3u16.to_le_bytes());
+        tiff.extend(1u32.to_le_bytes());
+        tiff.extend(orientation.to_le_bytes());
+        tiff.extend([0, 0]);
+        tiff.extend(0u32.to_le_bytes());
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend(tiff);
+        let mut out = jpeg[..2].to_vec();
+        out.extend([0xFF, 0xE1]);
+        out.extend(((app1.len() + 2) as u16).to_be_bytes());
+        out.extend(app1);
+        out.extend(&jpeg[2..]);
+        out
     }
     #[test]
     fn preview_keeps_images_within_the_edge_limit() {
@@ -1806,6 +2028,7 @@ mod tests {
             fs::read(&small).unwrap()
         );
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn preview_resizes_large_images_and_keeps_aspect_ratio() {
         let directory = tempfile::tempdir().unwrap();
@@ -1815,19 +2038,46 @@ mod tests {
         image::RgbImage::from_fn(3000, 1500, |x, y| image::Rgb([x as u8, y as u8, 128]))
             .save(&wide)
             .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&wide, &cache).unwrap()),
-            (1600, 800, image::ImageFormat::Jpeg)
+        assert_preview_size(
+            &preview_of(&wide, &cache).unwrap(),
+            (1600, 800),
+            image::ImageFormat::Jpeg,
         );
         let tall = root.join("tall.png");
         image::RgbImage::from_fn(800, 2400, |x, y| image::Rgb([x as u8, y as u8, 128]))
             .save(&tall)
             .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&tall, &cache).unwrap()),
-            (533, 1600, image::ImageFormat::Jpeg)
+        assert_preview_size(
+            &preview_of(&tall, &cache).unwrap(),
+            (533, 1600),
+            image::ImageFormat::Jpeg,
         );
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preview_applies_exif_orientation_before_resizing() {
+        let directory = tempfile::tempdir().unwrap();
+        let cache = Mutex::new(PreviewCache::default());
+        let path = directory.path().join("photo.jpg");
+        image::RgbImage::from_fn(3000, 1500, |x, y| image::Rgb([x as u8, y as u8, 128]))
+            .save(&path)
+            .unwrap();
+        let jpeg = fs::read(&path).unwrap();
+        // 向きが1(そのまま)なら横長のまま、6(時計回りに90度)なら縦長になる
+        fs::write(&path, with_orientation(&jpeg, 1)).unwrap();
+        assert_preview_size(
+            &preview_of(&path, &cache).unwrap(),
+            (1600, 800),
+            image::ImageFormat::Jpeg,
+        );
+        fs::write(&path, with_orientation(&jpeg, 6)).unwrap();
+        assert_preview_size(
+            &preview_of(&path, &cache).unwrap(),
+            (800, 1600),
+            image::ImageFormat::Jpeg,
+        );
+    }
+    #[cfg(target_os = "macos")]
     #[test]
     fn preview_keeps_transparency_as_png() {
         let directory = tempfile::tempdir().unwrap();
@@ -1839,15 +2089,15 @@ mod tests {
         })
         .save(&path)
         .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&path, &cache).unwrap()),
-            (1600, 800, image::ImageFormat::Png)
+        assert_preview_size(
+            &preview_of(&path, &cache).unwrap(),
+            (1600, 800),
+            image::ImageFormat::Png,
         );
     }
     #[test]
-    fn preview_keeps_animated_gifs_and_resizes_still_gifs() {
+    fn preview_keeps_animated_gifs() {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
         let cache = Mutex::new(PreviewCache::default());
         let frames = [[255, 0, 0, 255], [0, 0, 255, 255]].map(|color| {
             image::Frame::new(image::RgbaImage::from_pixel(1700, 1700, image::Rgba(color)))
@@ -1856,11 +2106,15 @@ mod tests {
         image::codecs::gif::GifEncoder::new(&mut animated)
             .encode_frames(frames)
             .unwrap();
-        let animated_path = root.join("animated.gif");
+        let animated_path = directory.path().join("animated.gif");
         fs::write(&animated_path, &animated).unwrap();
         assert_eq!(preview_of(&animated_path, &cache).unwrap(), animated);
-
-        let still = root.join("still.gif");
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preview_resizes_still_gifs() {
+        let directory = tempfile::tempdir().unwrap();
+        let cache = Mutex::new(PreviewCache::default());
         let mut out = Vec::new();
         image::codecs::gif::GifEncoder::new(&mut out)
             .encode_frame(image::Frame::new(image::RgbaImage::from_pixel(
@@ -1869,12 +2123,15 @@ mod tests {
                 image::Rgba([0, 255, 0, 255]),
             )))
             .unwrap();
+        let still = directory.path().join("still.gif");
         fs::write(&still, &out).unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&still, &cache).unwrap()),
-            (1600, 1600, image::ImageFormat::Jpeg)
+        assert_preview_size(
+            &preview_of(&still, &cache).unwrap(),
+            (1600, 1600),
+            image::ImageFormat::Jpeg,
         );
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn preview_cache_reuses_until_the_file_changes() {
         let directory = tempfile::tempdir().unwrap();
@@ -1894,10 +2151,36 @@ mod tests {
         image::RgbImage::from_fn(1000, 2000, |x, y| image::Rgb([y as u8, x as u8, 255]))
             .save(&path)
             .unwrap();
-        assert_eq!(
-            preview_shape(&preview_of(&path, &cache).unwrap()),
-            (800, 1600, image::ImageFormat::Jpeg)
+        assert_preview_size(
+            &preview_of(&path, &cache).unwrap(),
+            (800, 1600),
+            image::ImageFormat::Jpeg,
         );
+    }
+    #[test]
+    fn preview_runs_one_image_at_a_time() {
+        use std::sync::atomic::Ordering;
+        let directory = tempfile::tempdir().unwrap();
+        let cache = Mutex::new(PreviewCache::default());
+        let paths: Vec<PathBuf> = (0..4)
+            .map(|index| {
+                let path = directory.path().join(format!("{index}.png"));
+                image::RgbImage::from_fn(2400, 1200, |x, y| {
+                    image::Rgb([x as u8, y as u8, index as u8])
+                })
+                .save(&path)
+                .unwrap();
+                path
+            })
+            .collect();
+        std::thread::scope(|scope| {
+            for path in &paths {
+                let cache = &cache;
+                scope.spawn(move || preview_of(path, cache).unwrap());
+            }
+        });
+        // 同時に作っていた数の最大値が1なら、1枚ずつ処理されている
+        assert_eq!(PREVIEW_PEAK.load(Ordering::SeqCst), 1);
     }
     #[test]
     fn preview_cache_stays_within_its_count_limit() {
