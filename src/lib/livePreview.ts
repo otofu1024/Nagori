@@ -6,7 +6,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { undo, redo, isolateHistory } from '@codemirror/commands';
-import { applyTableCommand, setTableCell, tableCells, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
+import { applyTableCommand, setTableCell, setTableColumnWidths, tableCells, tableColumnDashes, tableEntryTarget, tableExitEdit, tableShape, columnPercentages, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
 import type { TableCellRef } from './editor.ts';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
@@ -177,6 +177,10 @@ const composingCells = new WeakSet<HTMLElement>();
 // 次にマスへフォーカスした時、文字の先頭と末尾のどちらへ置くか
 let caretHint: 'start' | 'end' = 'end';
 const tableFocusLabel = '表（Tab・矢印キーでマスを移動、Escapeで表を抜ける）';
+// 列の幅を変える時の最小幅（px）
+const minColumnWidth = 48;
+// 表のマスの枠を、表の幅の変化に合わせて当て直すための監視
+const tableObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
 class TableWidget extends WidgetType {
   readonly previewOnly: boolean;
@@ -210,6 +214,9 @@ class TableWidget extends WidgetType {
     wrapper.setAttribute('role', this.previewOnly || this.cells ? 'group' : 'button'); wrapper.setAttribute('aria-label', this.cells ? tableFocusLabel : this.previewOnly ? '表' : '表のMarkdownを編集');
     const table = document.createElement('table');
     const align = this.allRows()[1]?.cells.map(cell => cell.raw.trim()) ?? [];
+    const colgroup = document.createElement('colgroup');
+    this.rows()[0]?.cells.forEach(() => colgroup.append(document.createElement('col')));
+    table.append(colgroup);
     this.rows().forEach((row, index) => {
       const tr = document.createElement('tr');
       row.cells.forEach((_cell, column) => {
@@ -221,8 +228,12 @@ class TableWidget extends WidgetType {
       });
       table.append(tr);
     });
+    applyColumnWidths(table, this);
     wrapper.append(table);
     tableStates.set(wrapper, { widget: this, view, cells: this.cells });
+    // 表の幅が決まった時（表示された時や窓の幅が変わった時）に、最小幅を守る比を当て直す
+    const observer = new ResizeObserver(() => { const state = tableStates.get(wrapper); if (state) applyColumnWidths(table, state.widget); });
+    observer.observe(wrapper); tableObservers.set(wrapper, observer);
     if (!this.cells) { wrapper.addEventListener('click', () => selectSource(view, this.position)); wrapper.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); }); }
     return wrapper;
   }
@@ -234,9 +245,11 @@ class TableWidget extends WidgetType {
     tableStates.set(dom, { widget: this, view, cells: this.cells });
     const focused = document.activeElement;
     dom.querySelectorAll<HTMLElement>('[data-row][data-column]').forEach(td => { if (td !== focused) renderCell(td, this, view); });
+    const table = dom.querySelector<HTMLTableElement>('table');
+    if (table) applyColumnWidths(table, this);
     return true;
   }
-  destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); }
+  destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); tableObservers.get(element)?.disconnect(); tableObservers.delete(element); }
   ignoreEvent() { return true; }
 }
 // マスの表示を、フォーカスがない時の装飾つきの表示にする。フォーカス中は原文を入れる
@@ -247,6 +260,71 @@ function renderCell(td: HTMLElement, widget: TableWidget, view: EditorView) {
   if (node) renderInline(td, node, widget.text, widget.refs, widget.options, view, widget.math);
   // フォーカスした時に出す原文は、本文のマスの範囲から読む
   td.dataset.raw = span ? widget.text.slice(span.contentFrom, span.contentTo) : '';
+  if (widget.cells && row === 0 && column < widget.rows()[0].cells.length - 1) td.append(columnResizer());
+}
+// 列の幅のつまみ。見出しの右端に置き、隣の列との境目を動かす
+function columnResizer() {
+  const handle = document.createElement('span');
+  handle.className = 'nagori-col-resizer'; handle.setAttribute('aria-hidden', 'true');
+  // 押しても、マスへのフォーカスや文字選択にしない
+  handle.addEventListener('mousedown', event => event.preventDefault());
+  handle.addEventListener('pointerdown', event => startColumnResize(event, handle));
+  return handle;
+}
+// 区切り行の - の数で列の幅を当てる。全列が同じ（自動）時は、表の幅を内容に合わせる。列の最小幅は48px
+function applyColumnWidths(table: HTMLTableElement, widget: TableWidget) {
+  const columns = widget.rows()[0]?.cells.length ?? 0, dashes = tableColumnDashes(widget.text.slice(widget.node.from, widget.node.to));
+  const percents = dashes && columns > 0 ? columnPercentages(Array.from({ length: columns }, (_, index) => dashes[index] ?? 0), table.clientWidth, minColumnWidth) : null;
+  table.style.tableLayout = percents ? 'fixed' : '';
+  table.querySelectorAll('col').forEach((col, index) => {
+    col.style.width = percents ? `${percents[index] ?? 0}%` : '';
+  });
+}
+// つまみを押した時、隣の2列の境目を動かす。ドラッグの間は表示だけ変え、離した時に区切り行を1回書き換える
+function startColumnResize(event: PointerEvent, handle: HTMLElement) {
+  const th = handle.parentElement as HTMLTableCellElement, state = stateOf(handle);
+  if (event.button !== 0 || !state?.cells || state.view.state.readOnly) return;
+  event.preventDefault(); event.stopPropagation();
+  const table = th.closest('table')!, column = Number(th.dataset.column), cols = table.querySelectorAll('col');
+  const start = [...table.rows[0].cells].map(cell => cell.getBoundingClientRect().width), current = start.slice(), startX = event.clientX;
+  const pair = start[column] + start[column + 1], total = start.reduce((sum, width) => sum + width, 0);
+  // ドラッグ中も、<col> の幅は表の幅に対するパーセントで書く
+  const percent = (width: number) => `${width / total * 100}%`;
+  table.style.tableLayout = 'fixed';
+  start.forEach((width, index) => { cols[index].style.width = percent(width); });
+  handle.setPointerCapture(event.pointerId);
+  const move = (moved: PointerEvent) => {
+    // 隣の2列の合計は変えず、どちらも最小幅を下回らないようにする
+    const left = Math.min(Math.max(start[column] + moved.clientX - startX, minColumnWidth), pair - minColumnWidth);
+    current[column] = left; current[column + 1] = pair - left;
+    cols[column].style.width = percent(left); cols[column + 1].style.width = percent(pair - left);
+  };
+  const end = (finished: PointerEvent) => {
+    handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end);
+    if (handle.hasPointerCapture(finished.pointerId)) handle.releasePointerCapture(finished.pointerId);
+    if (finished.type === 'pointerup' && current[column] !== start[column]) writeColumnWidths(state, current);
+    else applyColumnWidths(table, state.widget);
+  };
+  handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+}
+// 列の幅（px）を区切り行の - の数に書き換え、1回の変更として本文へ入れる
+function writeColumnWidths(state: TableState, widths: number[]) {
+  const { widget, view } = state, { from, to } = widget.node;
+  const source = view.state.doc.sliceString(from, to);
+  const next = setTableColumnWidths(source, widths);
+  if (next !== source) view.dispatch({ changes: { from, to, insert: next }, annotations: isolateHistory.of('full') });
+}
+// 確認用の操作で、本文の順で index 番目の表の列の幅を比で変える。比は - の数に変えて区切り行へ書く
+export function setTableColumnWidthsAt(view: EditorView, index: number, ratios: number[]): boolean {
+  if (view.state.readOnly) return false;
+  const tables: { from: number; to: number }[] = [];
+  walk(markdownParser.parse(view.state.doc.toString()).topNode, node => { if (node.name === 'Table') { tables.push({ from: node.from, to: node.to }); return false; } });
+  const table = tables[index];
+  if (!table) return false;
+  const source = view.state.doc.sliceString(table.from, table.to), next = setTableColumnWidths(source, ratios);
+  if (next === source) return false;
+  view.dispatch({ changes: { from: table.from, to: table.to, insert: next }, annotations: isolateHistory.of('full'), scrollIntoView: true });
+  return true;
 }
 function stateOf(element: Element): TableState | undefined {
   const wrapper = element.closest<HTMLElement>('.nagori-table-wrap');
@@ -271,7 +349,10 @@ function bindCell(td: HTMLElement) {
     const state = stateOf(td); if (!state) return;
     // 読み取り専用の時は編集させない
     if (state.view.state.readOnly) { td.blur(); return; }
+    // 原文に入れ替えても、見出しのつまみは残す
+    const handle = td.querySelector(':scope > .nagori-col-resizer');
     td.textContent = td.dataset.raw ?? '';
+    if (handle) td.append(handle);
     placeCaret(td, caretHint); caretHint = 'end';
   });
   td.addEventListener('blur', () => {
@@ -304,8 +385,9 @@ function focusCell(wrapper: HTMLElement, row: number, column: number, caret: 'st
 // 表の前後へ本文のカーソルを移す。前は表の直前の改行、後は表の直後の改行の先
 function exitTable(view: EditorView, widget: TableWidget, side: 'before' | 'after') {
   const { from, to } = widget.node;
-  const anchor = side === 'before' ? Math.max(0, from - 1) : Math.min(to + 1, view.state.doc.length);
-  view.dispatch({ selection: { anchor }, scrollIntoView: true });
+  // 表の後ろに行がなければ、空の行を作ってそこへ移す
+  const { anchor, insert } = tableExitEdit(view.state.doc.toString(), from, to, side);
+  view.dispatch({ ...(insert ? { changes: { from: to, insert } } : {}), selection: { anchor }, scrollIntoView: true });
   view.focus();
 }
 function handleCellKey(event: KeyboardEvent, td: HTMLElement) {
@@ -365,12 +447,31 @@ export function removeTable(view: EditorView, cell: TableCellRef): boolean {
   view.focus();
   return true;
 }
-function focusTableAt(view: EditorView, from: number, target: TableTarget) {
+function focusTableAt(view: EditorView, from: number, target: TableTarget, caret: 'start' | 'end' = 'end'): boolean {
   for (const wrapper of view.contentDOM.querySelectorAll<HTMLElement>('.nagori-table-wrap')) {
     if (tableStates.get(wrapper)?.widget.node.from !== from) continue;
-    focusCell(wrapper, target.row, target.column, 'end');
-    return;
+    focusCell(wrapper, target.row, target.column, caret);
+    return true;
   }
+  return false;
+}
+// 見た目のまま編集の時は、本文の Enter と Tab で表の行・マスを動かさない。表の操作はマスの編集欄の中だけで行う
+export function isTableWysiwyg(state: EditorState): boolean {
+  return !state.field(previewOnlyField, false) && (state.field(tableWysiwygField, false) ?? false);
+}
+// 本文のカーソルが表の直上（↓）・直下（↑）の行にある時、表の左上か左下のマスへ入る。入れなければ false
+export function enterTableFromBody(view: EditorView, direction: 'down' | 'up'): boolean {
+  const { state } = view, selection = state.selection.main;
+  if (!isTableWysiwyg(state) || state.readOnly || !selection.empty) return false;
+  const line = state.doc.lineAt(selection.head), position = direction === 'down' ? line.to + 1 : line.from - 1;
+  if (position < 0 || position > state.doc.length) return false;
+  let table: SyntaxNode | undefined;
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(position, direction === 'down' ? 1 : -1); node; node = node.parent) {
+    if (node.name === 'Table') { table = node; break; }
+  }
+  if (!table || (direction === 'down' ? table.from : table.to) !== position) return false;
+  const rows = tableShape(state.doc.sliceString(table.from, table.to)).rows;
+  return focusTableAt(view, table.from, tableEntryTarget(rows, direction), direction === 'down' ? 'start' : 'end');
 }
 // 本文の位置から表のマスを探す。マスの外や編集できない表なら null
 export function tableCellAt(target: EventTarget | Element | null | undefined): (TableCellRef & { rows: number; columns: number }) | null {

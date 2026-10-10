@@ -13,7 +13,7 @@
   import { restoredScrollTop } from './scrollRestore.ts';
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
-  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect, tableWysiwygMode, tableCellAt, runTableCommand, removeTable, focusTableStart, focusTableCellAt } from './livePreview.ts';
+  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect, tableWysiwygMode, tableCellAt, runTableCommand, removeTable, focusTableStart, focusTableCellAt, setTableColumnWidthsAt, isTableWysiwyg, enterTableFromBody } from './livePreview.ts';
   import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
@@ -282,9 +282,11 @@
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       Prec.highest(keymap.of([
-        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'next') || moveList(editor)) },
-        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'previous') || moveList(editor, true)) },
-        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && (moveTable(editor, 'down') || continueList(editor)) },
+        { key: 'Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'next')) || moveList(editor)) },
+        { key: 'Shift-Tab', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'previous')) || moveList(editor, true)) },
+        { key: 'Enter', run: editor => !plain && !previewOnly && !composition && !editor.composing && !editor.compositionStarted && !linkDialog && ((!isTableWysiwyg(editor.state) && moveTable(editor, 'down')) || continueList(editor)) },
+        { key: 'ArrowDown', run: editor => !plain && !previewOnly && !composition && !editor.composing && !linkDialog && enterTableFromBody(editor, 'down') },
+        { key: 'ArrowUp', run: editor => !plain && !previewOnly && !composition && !editor.composing && !linkDialog && enterTableFromBody(editor, 'up') },
         { key: 'Mod-s', run: () => { if (!composition && !view?.composing) onSave(); return true; } },
         { key: 'Mod-b', run: () => { if (plain) return false; apply('bold'); return true; } },
         { key: 'Mod-i', run: () => { if (plain) return false; apply('italic'); return true; } },
@@ -358,6 +360,7 @@
         else runTableCommand(view, kind, target);
       },
       focusTableCell: (index, row, column) => { if (view) focusTableCellAt(view, index, row, column); },
+      setTableColumnWidths: (index, ratios) => { if (view) setTableColumnWidthsAt(view, index, ratios); },
       revealRange: (line, column, length) => {
         const span = view && !composition && !view.composing ? matchSpan(view.state.doc, line, column, length) : null;
         if (!view || !span) return;
@@ -479,7 +482,14 @@
   .editor-host :global(.nagori-table-wrap) { overflow-x: auto; padding: 10px 0; cursor: text; }
   .editor-host :global(.nagori-table-wrap table) { border-collapse: collapse; width: 100%; font-size: .94em; }
   .editor-host :global(.nagori-table-wrap td), .editor-host :global(.nagori-table-wrap th) { border: 1px solid var(--border); padding: 9px 12px; }
-  .editor-host :global(.nagori-table-wrap th) { background: var(--code-bg); color: var(--heading); text-align: left; }
+  .editor-host :global(.nagori-table-wrap th) { background: var(--code-bg); color: var(--heading); text-align: left; position: relative; }
+  /* 枠の外側に描くと overflow-x で切れるため、マスの内側に描く */
+  .editor-host :global(.nagori-table-wrap td:focus), .editor-host :global(.nagori-table-wrap th:focus) { outline-offset: -2px; }
+  /* マスの編集欄では、本文と違ってキャレットを見せる */
+  .editor-host :global(.nagori-table-wrap td[contenteditable='true']), .editor-host :global(.nagori-table-wrap th[contenteditable='true']) { caret-color: var(--accent); }
+  /* 列の幅のつまみは見出しの右端に置き、隣の列との境目を押さえる */
+  .editor-host :global(.nagori-col-resizer) { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; user-select: none; touch-action: none; z-index: 1; }
+  .editor-host :global(.nagori-col-resizer:hover) { background: var(--accent-soft); }
   .editor-host :global(.nagori-image) { display: inline-block; max-width: 100%; color: var(--muted); font-size: .9em; cursor: text; }
   .editor-host :global(.nagori-image img) { max-width: 100%; max-height: 480px; display: block; border-radius: 12px; }
   .editor-host :global(.nagori-find) { display: grid; gap: 6px; padding: 9px 18px; background: var(--bar); border-bottom: 1px solid var(--border); font-size: 13px; }

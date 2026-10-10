@@ -133,6 +133,56 @@ export function setTableCell(source: string, row: number, column: number, value:
   return renderTable(model);
 }
 
+// 列の幅は区切り行の - の数で覚える。比の合計は、表の文字の幅に近い約60にそろえる
+const dashTotal = 60;
+// 列の幅の比（任意の正の数）を、区切り行の - の数にする。各列は3以上にし、比を保つ
+export function columnDashes(ratios: number[]): number[] {
+  const weights = ratios.map(ratio => Number.isFinite(ratio) && ratio > 0 ? ratio : 0);
+  const sum = weights.reduce((total, weight) => total + weight, 0);
+  return weights.map(weight => Math.max(3, Math.round(sum > 0 ? weight / sum * dashTotal : 0)));
+}
+
+// 列の幅（%）を - の数の比から求める。表の幅が分かる時は、各列が minWidth（px）以上になるよう、下限に届く列を下限に固定し、残りの列で比を配り直す。幅が分からない時（0以下）は比のまま返す
+export function columnPercentages(dashes: number[], tableWidth: number, minWidth = 48): number[] {
+  const count = dashes.length, sum = dashes.reduce((total, dash) => total + dash, 0);
+  if (count === 0) return [];
+  const shares = dashes.map(dash => sum > 0 ? dash / sum * 100 : 100 / count);
+  if (!(tableWidth > 0)) return shares;
+  // 下限は、列の数で割った幅を超えない（全列が下限に届かない時は均等にする）
+  const floor = Math.min(minWidth / tableWidth * 100, 100 / count);
+  // 比の合計が0の時は、列を同じ重みで配る
+  const weights = sum > 0 ? dashes : dashes.map(() => 1), fixed = dashes.map(() => false);
+  for (;;) {
+    const rest = 100 - fixed.filter(Boolean).length * floor;
+    const restSum = weights.reduce((total, weight, index) => fixed[index] ? total : total + weight, 0);
+    const result = weights.map((weight, index) => fixed[index] ? floor : restSum > 0 ? weight / restSum * rest : 0);
+    let changed = false;
+    result.forEach((share, index) => { if (!fixed[index] && share < floor) { fixed[index] = true; changed = true; } });
+    if (!changed) return result;
+  }
+}
+
+// 区切り行の各列の - の数。全列が同じ（既定の --- など）時と、区切り行がない時は null にし、内容に合わせた自動の幅で表示する
+export function tableColumnDashes(source: string): number[] | null {
+  const delimiter = tableCells(source, 0, source.length).find(row => row.kind === 'delimiter');
+  if (!delimiter) return null;
+  const counts = delimiter.cells.map(cell => (cell.raw.match(/-/g) ?? []).length);
+  if (counts.length === 0 || counts.every(count => count === counts[0])) return null;
+  return counts;
+}
+
+// 区切り行の - の数を列の幅の比で書き換える。揃えの : は保ち、ほかの行と空白は変えない。列数と比の数が合わない時は変えない
+export function setTableColumnWidths(source: string, ratios: number[]): string {
+  const model = parseTable(source), delimiter = model.lines[1];
+  if (!delimiter || delimiter.cells.length !== ratios.length || ratios.length !== model.lines[0].cells.length) return source;
+  const dashes = columnDashes(ratios);
+  delimiter.cells = delimiter.cells.map((raw, column) => {
+    const content = raw.trim(), left = content.startsWith(':') ? ':' : '', right = content.length > left.length && content.endsWith(':') ? ':' : '';
+    return raw.slice(0, raw.length - raw.trimStart().length) + left + '-'.repeat(dashes[column]) + right + raw.slice(raw.trimEnd().length);
+  });
+  return renderTable(model);
+}
+
 // 行を追加する。見出しの上には入れず、区切り行の前には入れない
 export function insertTableRow(source: string, row: number, where: 'above' | 'below'): string {
   const model = parseTable(source);
@@ -197,6 +247,20 @@ export function applyTableCommand(source: string, command: TableCommand, row: nu
   return { source: deleteTableColumn(source, column), target: { row, column: Math.min(column, shape.columns - 2) } };
 }
 
+// 本文から表へ入る時のマス。↓は見出しの1列目、↑は最後の行の1列目
+export function tableEntryTarget(rows: number, direction: 'down' | 'up'): TableTarget {
+  return direction === 'down' ? { row: 0, column: 0 } : { row: rows - 1, column: 0 };
+}
+
+// 表の前後へ出る時のカーソル位置と、表の後ろに入れる改行。表の後ろに行がない時だけ改行を入れる。from と to は表の範囲
+export function tableExitEdit(doc: string, from: number, to: number, side: 'before' | 'after'): { anchor: number; insert: string } {
+  if (side === 'before') return { anchor: from > 0 ? from - (doc.slice(0, from).endsWith('\r\n') ? 2 : 1) : 0, insert: '' };
+  const newline = doc.indexOf('\n', to);
+  if (newline !== -1) return { anchor: newline + 1, insert: '' };
+  const insert = doc.includes('\r\n') ? '\r\n' : '\n';
+  return { anchor: to + insert.length, insert };
+}
+
 export function moveTable({ state, dispatch }: Parameters<StateCommand>[0], direction: 'next' | 'previous' | 'down'): boolean {
   if (state.readOnly) return false;
   const doc = state.doc, head = state.selection.main.head, current = doc.lineAt(head);
@@ -241,14 +305,12 @@ export function moveTable({ state, dispatch }: Parameters<StateCommand>[0], dire
     insert += entry.prefix + '|';
     const total = Math.max(count, entry.cells.length);
     for (let i = 0; i < total; i++) {
-      let content = entry.cells[i]?.text ?? '';
-      if (entry === delimiter) {
-        const left = content.startsWith(':') ? ':' : '', right = content.endsWith(':') ? ':' : '';
-        content = left + '-'.repeat(widths[i] - left.length - right.length) + right;
-      }
+      // 区切り行の - の数は書き換えず、列の幅の指定を残す
+      const content = entry.cells[i]?.text ?? '';
       insert += ' ';
       if (entry === data[rowIndex] && i === column) { anchor = insert.length; end = anchor + content.length; }
-      insert += content + ' '.repeat(widths[i] - tableCellWidth(content)) + ' |';
+      // 区切り行は - の数が本文の幅より広いことがあるため、負の埋めは作らない
+      insert += content + ' '.repeat(Math.max(0, widths[i] - tableCellWidth(content))) + ' |';
     }
   }
   const from = rows[0].line.from, to = doc.lineAt(table.to).to;
