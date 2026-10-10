@@ -13,6 +13,8 @@ export type Settings = {
   zoomFontSize: boolean;
   // オンの時、本文の幅はウィンドウの空きに合わせて決める。editorWidthは手動の値として残す
   autoEditorWidth: boolean;
+  // オンの時、表は常に表の見た目で出し、マスをそのまま編集する。オフの時は、カーソルが表の中にある間は記法を出す
+  tableWysiwyg: boolean;
 };
 export type FontFamily = 'sans' | 'serif';
 export type TrashRetentionDays = 7 | 14 | 30 | 60 | 90 | null;
@@ -26,7 +28,7 @@ export const RANGES = {
 } as const;
 export const defaults: Settings = {
   lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
-  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false,
+  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, tableWysiwyg: true,
 };
 
 function clamp(value: unknown, fallback: number, { min, max }: { min: number; max: number }): number {
@@ -65,6 +67,7 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.trashRetentionDays = (TRASH_RETENTION_OPTIONS as unknown[]).includes(settings.trashRetentionDays) ? settings.trashRetentionDays : defaults.trashRetentionDays;
   settings.zoomFontSize = flag(settings.zoomFontSize, defaults.zoomFontSize);
   settings.autoEditorWidth = flag(settings.autoEditorWidth, defaults.autoEditorWidth);
+  settings.tableWysiwyg = flag(settings.tableWysiwyg, defaults.tableWysiwyg);
   return settings;
 }
 

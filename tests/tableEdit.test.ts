@@ -5,7 +5,7 @@ import { history, undo, redo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { markdownParser, markdownExtensions } from '../src/lib/markdown.ts';
-import { moveTable, tableCellWidth } from '../src/lib/tableEdit.ts';
+import { moveTable, tableCellWidth, tableCells, setTableCell, escapeTableCell, insertTableRow, deleteTableRow, insertTableColumn, deleteTableColumn, applyTableCommand, tableShape, tableCellSource } from '../src/lib/tableEdit.ts';
 
 function edit(text: string, anchor: number, direction: Parameters<typeof moveTable>[1]) {
   let state = EditorState.create({ doc: text, selection: { anchor }, extensions: history() });
@@ -113,4 +113,106 @@ test('通常本文は解析し直さずに返し、パイプのない表の省�
     assert.equal(moveTable({ state, dispatch }, 'next'), true);
     assert.ok(state.doc.toString().endsWith('| c   |     |'));
   } finally { markdownParser.parse = parse; }
+});
+
+const sample = '| 見出し | 数値 |\n| :--- | ---: |\n| a | 1 |\n| b | 2 |';
+
+test('マスの書き戻しは、そのマスだけを変え、ほかの行・列の空白と揃えを残す', () => {
+  assert.equal(setTableCell(sample, 1, 0, '**太字**'), '| 見出し | 数値 |\n| :--- | ---: |\n| **太字** | 1 |\n| b | 2 |');
+  assert.equal(setTableCell(sample, 2, 1, ''), '| 見出し | 数値 |\n| :--- | ---: |\n| a | 1 |\n| b |  |');
+});
+
+test('マスの書き戻しは、| を \\| にし、既にエスケープ済みの \\| は重ねない', () => {
+  assert.equal(escapeTableCell('a|b'), 'a\\|b');
+  assert.equal(escapeTableCell('a\\|b'), 'a\\|b');
+  assert.equal(setTableCell(sample, 1, 1, 'x|y'), '| 見出し | 数値 |\n| :--- | ---: |\n| a | x\\|y |\n| b | 2 |');
+  assert.equal(tableCellSource(setTableCell(sample, 1, 1, 'x|y'), 1, 1), 'x\\|y');
+});
+
+test('マスの書き戻しは改行を空白にし、CRLFの原文では改行を CRLF のまま残す', () => {
+  assert.equal(escapeTableCell('一\n二'), '一 二');
+  const crlf = sample.replace(/\n/g, '\r\n');
+  const next = setTableCell(crlf, 1, 0, 'x');
+  assert.equal(next, crlf.replace('| a |', '| x |'));
+  assert.ok(!/[^\r]\n/.test(next));
+});
+
+test('マスの書き戻しは、先頭と末尾の | がない表の形を変えない', () => {
+  assert.equal(setTableCell('a | b\n--- | ---\nc | d', 1, 0, 'x'), 'a | b\n--- | ---\n x | d');
+});
+
+test('表の形は行数（見出しを含む）と列数で数える', () => {
+  assert.deepEqual(tableShape(sample), { rows: 3, columns: 2 });
+});
+
+test('行の追加は見出しの下・本文の間・末尾に入れ、区切り行の前には入れない', () => {
+  assert.equal(insertTableRow(sample, 0, 'below'), '| 見出し | 数値 |\n| :--- | ---: |\n|  |  |\n| a | 1 |\n| b | 2 |');
+  assert.equal(insertTableRow(sample, 1, 'above'), '| 見出し | 数値 |\n| :--- | ---: |\n|  |  |\n| a | 1 |\n| b | 2 |');
+  assert.equal(insertTableRow(sample, 2, 'below').split('\n').length, 5);
+  assert.equal(insertTableRow(sample, 0, 'above'), sample);
+});
+
+test('行の削除は見出しを消さず、本文の行だけを消す', () => {
+  assert.equal(deleteTableRow(sample, 0), sample);
+  assert.equal(deleteTableRow(sample, 1), '| 見出し | 数値 |\n| :--- | ---: |\n| b | 2 |');
+});
+
+test('列の追加は区切り行に --- を入れ、左右の位置へ入れる', () => {
+  assert.equal(insertTableColumn(sample, 0, 'right'), '| 見出し |  | 数値 |\n| :--- | --- | ---: |\n| a |  | 1 |\n| b |  | 2 |');
+  assert.equal(insertTableColumn(sample, 0, 'left'), '|  | 見出し | 数値 |\n| --- | :--- | ---: |\n|  | a | 1 |\n|  | b | 2 |');
+});
+
+test('列の削除は列が1つの表では消さない', () => {
+  assert.equal(deleteTableColumn(sample, 0), '| 数値 |\n| ---: |\n| 1 |\n| 2 |');
+  assert.equal(deleteTableColumn('| a |\n| --- |\n| b |', 0), '| a |\n| --- |\n| b |');
+});
+
+test('表の操作は、見出しの行の削除と、列が1つだけの列の削除を拒み、移動先を返す', () => {
+  assert.equal(applyTableCommand(sample, 'row-delete', 0, 0), null);
+  assert.equal(applyTableCommand(sample, 'row-above', 0, 0), null);
+  assert.equal(applyTableCommand('| a |\n| --- |\n| b |', 'column-delete', 0, 0), null);
+  assert.deepEqual(applyTableCommand(sample, 'row-below', 2, 1)?.target, { row: 3, column: 1 });
+  assert.deepEqual(applyTableCommand(sample, 'column-left', 1, 0)?.target, { row: 1, column: 1 });
+});
+
+// 本文の途中の表。表の位置は本文の中の絶対位置で扱う
+const doc = '前の段落。\n\n| 名前 | 説明 |\n| --- | :---: |\n| **太字** | 説明1 |\n| B | 説明2 |\n\n後の段落。';
+const tableFrom = doc.indexOf('| 名前'), tableTo = doc.indexOf('\n\n後の段落');
+const wholeTable = doc.slice(tableFrom, tableTo);
+
+test('表の行とマスは本文の中の位置で分け、区切り行を除いた表示の行と対応させる', () => {
+  const rows = tableCells(doc, tableFrom, tableTo);
+  assert.deepEqual(rows.map(row => row.kind), ['header', 'delimiter', 'body', 'body']);
+  const text = rows.map(row => row.cells.map(cell => doc.slice(cell.contentFrom, cell.contentTo)));
+  assert.deepEqual(text, [['名前', '説明'], ['---', ':---:'], ['**太字**', '説明1'], ['B', '説明2']]);
+  // 原文の範囲は、マスの前後の空白を含む
+  assert.equal(doc.slice(rows[3].cells[0].from, rows[3].cells[0].to), ' B ');
+});
+
+test('表示のB（2行目の1列目）を書き戻すと、区切り行ではなくB のマスだけが変わる', () => {
+  const next = setTableCell(wholeTable, 2, 0, 'B日本語');
+  assert.equal(next, '| 名前 | 説明 |\n| --- | :---: |\n| **太字** | 説明1 |\n| B日本語 | 説明2 |');
+  assert.equal(next.split('\n')[1], '| --- | :---: |');
+});
+
+test('行と列を増やした後も、新しいマスは空で、ほかのマスの内容を持たない', () => {
+  const below = applyTableCommand(wholeTable, 'row-below', 2, 0);
+  assert.ok(below);
+  assert.equal(below.source.split('\n')[4], '|  |  |');
+  const rows = tableCells(below.source, 0, below.source.length);
+  assert.deepEqual(rows[4].cells.map(cell => below.source.slice(cell.contentFrom, cell.contentTo)), ['', '']);
+  const right = applyTableCommand(wholeTable, 'column-right', 1, 0);
+  assert.ok(right);
+  const cells = tableCells(right.source, 0, right.source.length).map(row => row.cells.map(cell => right.source.slice(cell.contentFrom, cell.contentTo)));
+  assert.deepEqual(cells[2], ['**太字**', '', '説明1']);
+  assert.deepEqual(cells[0], ['名前', '', '説明']);
+});
+
+test('空のマスの書式は右クリックの表の雛形と同じ、| の間に半角空白2つにする', () => {
+  assert.equal(setTableCell(wholeTable, 2, 1, ''), '| 名前 | 説明 |\n| --- | :---: |\n| **太字** | 説明1 |\n| B |  |');
+});
+
+test('表の原文のマスの内容は、表示のマスと同じ位置から読む', () => {
+  assert.equal(tableCellSource(wholeTable, 1, 0), '**太字**');
+  assert.equal(tableCellSource(wholeTable, 2, 0), 'B');
 });

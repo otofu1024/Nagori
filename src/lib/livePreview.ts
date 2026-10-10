@@ -5,10 +5,15 @@ import { StateEffect, StateField, EditorState, type Extension, type Range } from
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode, Tree } from '@lezer/common';
+import { undo, redo, isolateHistory } from '@codemirror/commands';
+import { applyTableCommand, setTableCell, tableCells, tableShape, type TableCommand, type TableRowSpan, type TableTarget } from './tableEdit.ts';
+import type { TableCellRef } from './editor.ts';
 import { children, codeDisplay, decodeMarkdown, frontMatter, inlineContent, intersects, linkTarget, markdownParser, references, touches, walk, type Span } from './markdown.ts';
 
 export const refreshImagesEffect = StateEffect.define<void>();
 export const previewOnlyMode = StateEffect.define<boolean>();
+// 表を見た目のまま編集するかどうか(設定)
+export const tableWysiwygMode = StateEffect.define<boolean>();
 export const compositionMode = StateEffect.define<boolean>();
 export const previewOnlyField = StateField.define({
   create: () => false,
@@ -18,6 +23,7 @@ export const previewOnlyField = StateField.define({
     EditorView.editable.computeN([field], state => state.field(field) ? [false] : []),
   ],
 });
+const tableWysiwygField = StateField.define({ create: () => false, update: (value, tr) => tr.effects.reduce((v, e) => e.is(tableWysiwygMode) ? e.value : v, value) });
 const compositionField = StateField.define({ create: () => false, update: (value, tr) => tr.effects.reduce((v, e) => e.is(compositionMode) ? e.value : v, value) });
 type Options = { resolveImage(reference: string): Promise<string>; onLink(href: string): void };
 const inlineClasses: Record<string, string> = { StrongEmphasis: 'nagori-bold', Emphasis: 'nagori-italic', Strikethrough: 'nagori-strike', InlineCode: 'nagori-code', Link: 'nagori-link', Autolink: 'nagori-link' };
@@ -163,34 +169,226 @@ function renderInline(parent: HTMLElement, node: SyntaxNode, text: string, refs:
   }
   if (at < content.to) parent.append(document.createTextNode(decodeMarkdown(text.slice(at, content.to))));
 }
+// 表のマスは本文と別の編集欄として扱う。部品ごとに、今の本文と表示の状態を覚えておく
+type TableState = { widget: TableWidget; view: EditorView; cells: boolean };
+const tableStates = new WeakMap<HTMLElement, TableState>();
+// IMEの変換中のマス。変換が終わるまで本文へ書き戻さない
+const composingCells = new WeakSet<HTMLElement>();
+// 次にマスへフォーカスした時、文字の先頭と末尾のどちらへ置くか
+let caretHint: 'start' | 'end' = 'end';
+const tableFocusLabel = '表（Tab・矢印キーでマスを移動、Escapeで表を抜ける）';
+
 class TableWidget extends WidgetType {
   readonly previewOnly: boolean;
+  // 見た目のまま編集するか。オフ・プレビューの時は、記法を開く従来の表示にする
+  readonly cells: boolean;
   readonly position: number;
   readonly node: SyntaxNode;
   readonly text: string;
   readonly options: Options;
   readonly refs: Map<string, string>;
   readonly math: MathContext;
-  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext, previewOnly = false) { super(); this.previewOnly = previewOnly; this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
-  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math && this.previewOnly === other.previewOnly; }
+  constructor(position: number, node: SyntaxNode, text: string, options: Options, refs: Map<string, string>, math: MathContext, previewOnly = false, cells = false) { super(); this.previewOnly = previewOnly; this.cells = cells; this.position = position; this.node = node; this.text = text; this.options = options; this.refs = refs; this.math = math; }
+  eq(other: TableWidget) { return this.position === other.position && this.text.slice(this.node.from, this.node.to) === other.text.slice(other.node.from, other.node.to) && JSON.stringify([...this.refs]) === JSON.stringify([...other.refs]) && this.options.resolveImage === other.options.resolveImage && this.math === other.math && this.previewOnly === other.previewOnly && this.cells === other.cells; }
+  // 表の行とマスの範囲。表示・書き戻し・行列の操作と同じ結果を使う
+  private spans?: TableRowSpan[];
+  private nodes?: SyntaxNode[];
+  // 原文の全行(区切り行を含む)
+  allRows(): TableRowSpan[] { return this.spans ??= tableCells(this.text, this.node.from, this.node.to); }
+  // 表示の行。見出しを0とし、区切り行は含めない
+  rows(): TableRowSpan[] { return this.allRows().filter(row => row.kind !== 'delimiter'); }
+  // マスの中身の構文の節。空白だけのマスなどには節がないため null になる
+  cellNode(row: number, column: number): SyntaxNode | null {
+    const span = this.rows()[row]?.cells[column];
+    if (!span) return null;
+    if (!this.nodes) { this.nodes = []; walk(this.node, node => { if (node.name === 'TableCell') this.nodes!.push(node); }); }
+    return this.nodes.find(node => node.from >= span.from && node.from < span.to) ?? null;
+  }
   toDOM(view: EditorView) {
-    const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap'; wrapper.tabIndex = this.previewOnly ? -1 : 0; wrapper.setAttribute('role', this.previewOnly ? 'group' : 'button'); wrapper.setAttribute('aria-label', this.previewOnly ? '表' : '表のMarkdownを編集');
-    const table = document.createElement('table'); const rows = children(this.node).filter(n => n.name === 'TableHeader' || n.name === 'TableRow');
-    const delimiter = children(this.node).find(n => n.name === 'TableDelimiter');
-    const align = delimiter ? this.text.slice(delimiter.from, delimiter.to).replace(/^\||\|$/g, '').split('|').map(s => s.trim()) : [];
-    for (const row of rows) {
+    const wrapper = document.createElement('div'); wrapper.className = 'nagori-table-wrap';
+    wrapper.tabIndex = this.previewOnly || this.cells ? -1 : 0;
+    wrapper.setAttribute('role', this.previewOnly || this.cells ? 'group' : 'button'); wrapper.setAttribute('aria-label', this.cells ? tableFocusLabel : this.previewOnly ? '表' : '表のMarkdownを編集');
+    const table = document.createElement('table');
+    const align = this.allRows()[1]?.cells.map(cell => cell.raw.trim()) ?? [];
+    this.rows().forEach((row, index) => {
       const tr = document.createElement('tr');
-      children(row).filter(n => n.name === 'TableCell').forEach((cell, i) => {
-        const td = document.createElement(row.name === 'TableHeader' ? 'th' : 'td');
-        if (align[i]?.startsWith(':') && align[i]?.endsWith(':')) td.style.textAlign = 'center'; else if (align[i]?.endsWith(':')) td.style.textAlign = 'right';
-        renderInline(td, cell, this.text, this.refs, this.options, view, this.math); tr.append(td);
-      }); table.append(tr);
-    }
-    wrapper.append(table); wrapper.addEventListener('click', () => selectSource(view, this.position)); wrapper.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); }); return wrapper;
+      row.cells.forEach((_cell, column) => {
+        const td = document.createElement(index === 0 ? 'th' : 'td');
+        td.dataset.row = String(index); td.dataset.column = String(column);
+        if (align[column]?.startsWith(':') && align[column]?.endsWith(':')) td.style.textAlign = 'center'; else if (align[column]?.endsWith(':')) td.style.textAlign = 'right';
+        if (this.cells) bindCell(td);
+        renderCell(td, this, view); tr.append(td);
+      });
+      table.append(tr);
+    });
+    wrapper.append(table);
+    tableStates.set(wrapper, { widget: this, view, cells: this.cells });
+    if (!this.cells) { wrapper.addEventListener('click', () => selectSource(view, this.position)); wrapper.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(view, this.position); }); }
+    return wrapper;
+  }
+  // 本文の変更で部品を作り直す代わりに、フォーカスのあるマス以外の表示を更新する。構造が変わった時だけ作り直す
+  updateDOM(dom: HTMLElement, view: EditorView) {
+    // 行・列の数が変わった時は表の部品を作り直す。マスの対応がずれないよう、同じ数の時だけ使い回す
+    const state = tableStates.get(dom), rows = this.rows(), trs = dom.querySelectorAll('tr');
+    if (!state || state.cells !== this.cells || trs.length !== rows.length || rows.some((row, index) => trs[index].children.length !== row.cells.length)) return false;
+    tableStates.set(dom, { widget: this, view, cells: this.cells });
+    const focused = document.activeElement;
+    dom.querySelectorAll<HTMLElement>('[data-row][data-column]').forEach(td => { if (td !== focused) renderCell(td, this, view); });
+    return true;
   }
   destroy(element: HTMLElement) { element.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath); }
   ignoreEvent() { return true; }
 }
+// マスの表示を、フォーカスがない時の装飾つきの表示にする。フォーカス中は原文を入れる
+function renderCell(td: HTMLElement, widget: TableWidget, view: EditorView) {
+  const row = Number(td.dataset.row), column = Number(td.dataset.column), span = widget.rows()[row]?.cells[column], node = widget.cellNode(row, column);
+  td.querySelectorAll<HTMLElement>('.nagori-math').forEach(releaseMath);
+  td.replaceChildren();
+  if (node) renderInline(td, node, widget.text, widget.refs, widget.options, view, widget.math);
+  // フォーカスした時に出す原文は、本文のマスの範囲から読む
+  td.dataset.raw = span ? widget.text.slice(span.contentFrom, span.contentTo) : '';
+}
+function stateOf(element: Element): TableState | undefined {
+  const wrapper = element.closest<HTMLElement>('.nagori-table-wrap');
+  return wrapper ? tableStates.get(wrapper) : undefined;
+}
+function placeCaret(td: HTMLElement, at: 'start' | 'end') {
+  const selection = window.getSelection(); if (!selection) return;
+  const range = document.createRange(); range.selectNodeContents(td); range.collapse(at === 'start');
+  selection.removeAllRanges(); selection.addRange(range);
+}
+// カーソルが文字の先頭・末尾にあるかを返す。選択範囲があれば、どちらでもない扱いにする
+function caretEdges(td: HTMLElement) {
+  const selection = window.getSelection(), text = td.textContent ?? '';
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed || !selection.anchorNode || !td.contains(selection.anchorNode)) return { start: false, end: false };
+  const before = document.createRange(); before.selectNodeContents(td); before.setEnd(selection.anchorNode, selection.anchorOffset);
+  const offset = before.toString().length;
+  return { start: offset === 0, end: offset === text.length };
+}
+function bindCell(td: HTMLElement) {
+  td.contentEditable = 'true';
+  td.addEventListener('focus', () => {
+    const state = stateOf(td); if (!state) return;
+    // 読み取り専用の時は編集させない
+    if (state.view.state.readOnly) { td.blur(); return; }
+    td.textContent = td.dataset.raw ?? '';
+    placeCaret(td, caretHint); caretHint = 'end';
+  });
+  td.addEventListener('blur', () => {
+    // 変換の途中でフォーカスが外れた時は、compositionend で書き戻してから表示を戻す
+    if (!td.isConnected || composingCells.has(td)) return;
+    const state = stateOf(td); if (state) renderCell(td, state.widget, state.view);
+  });
+  td.addEventListener('compositionstart', () => composingCells.add(td));
+  td.addEventListener('compositionend', () => {
+    composingCells.delete(td); writeCell(td);
+    if (!td.matches(':focus')) { const state = stateOf(td); if (state) renderCell(td, state.widget, state.view); }
+  });
+  td.addEventListener('input', event => { if (!composingCells.has(td) && !(event as InputEvent).isComposing) writeCell(td); });
+  td.addEventListener('keydown', event => handleCellKey(event, td));
+  // 貼り付けは書式を持たない文字列にし、改行は空白にする
+  td.addEventListener('paste', event => { event.preventDefault(); document.execCommand('insertText', false, (event.clipboardData?.getData('text/plain') ?? '').replace(/\r?\n/g, ' ')); });
+}
+// マスの内容を表の原文へ書き戻す。表全体を1つの変更として本文へ入れ、Undoは入力の区切りでまとめる
+function writeCell(td: HTMLElement) {
+  const state = stateOf(td); if (!state || state.view.state.readOnly) return;
+  const { widget, view } = state, { from, to } = widget.node;
+  const source = view.state.doc.sliceString(from, to);
+  const next = setTableCell(source, Number(td.dataset.row), Number(td.dataset.column), td.textContent ?? '');
+  if (next !== source) view.dispatch({ changes: { from, to, insert: next }, userEvent: 'input.type' });
+}
+function focusCell(wrapper: HTMLElement, row: number, column: number, caret: 'start' | 'end') {
+  const td = wrapper.querySelector<HTMLElement>(`[data-row="${row}"][data-column="${column}"]`);
+  if (td) { caretHint = caret; td.focus(); }
+}
+// 表の前後へ本文のカーソルを移す。前は表の直前の改行、後は表の直後の改行の先
+function exitTable(view: EditorView, widget: TableWidget, side: 'before' | 'after') {
+  const { from, to } = widget.node;
+  const anchor = side === 'before' ? Math.max(0, from - 1) : Math.min(to + 1, view.state.doc.length);
+  view.dispatch({ selection: { anchor }, scrollIntoView: true });
+  view.focus();
+}
+function handleCellKey(event: KeyboardEvent, td: HTMLElement) {
+  const state = stateOf(td); if (!state) return;
+  // 変換中のキーは変換の操作なので、表の操作に使わない
+  if (event.isComposing || event.keyCode === 229) return;
+  const { widget, view } = state, wrapper = td.closest<HTMLElement>('.nagori-table-wrap')!;
+  const row = Number(td.dataset.row), column = Number(td.dataset.column);
+  const cell = { from: widget.node.from, to: widget.node.to, row, column };
+  const shape = tableShape(view.state.doc.sliceString(cell.from, cell.to));
+  const last = shape.rows - 1, lastColumn = shape.columns - 1;
+  const mod = event.metaKey || event.ctrlKey;
+  const handled = (run: () => void) => { event.preventDefault(); event.stopPropagation(); run(); };
+  if (event.key === 'Enter') return handled(() => {
+    // Enterは下のマスへ。最後の行なら行を追加する。空白は入れない
+    if (mod || row === last) runTableCommand(view, 'row-below', cell, { row: row + 1, column });
+    else focusCell(wrapper, row + 1, column, 'end');
+  });
+  if (event.key === 'Tab') return handled(() => {
+    if (event.shiftKey) { if (column > 0) focusCell(wrapper, row, column - 1, 'end'); else if (row > 0) focusCell(wrapper, row - 1, lastColumn, 'end'); return; }
+    if (column < lastColumn) focusCell(wrapper, row, column + 1, 'start');
+    else runTableCommand(view, 'row-below', cell, { row: row + 1, column: 0 });
+  });
+  if (event.key === 'Escape') return handled(() => exitTable(view, widget, 'after'));
+  if (mod && event.key.toLowerCase() === 'z' && !event.altKey) return handled(() => { (event.shiftKey ? redo : undo)(view); view.focus(); });
+  if (mod && event.altKey && event.key === 'ArrowRight') return handled(() => runTableCommand(view, 'column-right', cell));
+  if (mod && event.altKey && event.key === 'ArrowLeft') return handled(() => runTableCommand(view, 'column-left', cell));
+  if (event.shiftKey || event.altKey || mod) return;
+  const edges = caretEdges(td);
+  if (event.key === 'ArrowLeft' && edges.start) return handled(() => {
+    if (column > 0) focusCell(wrapper, row, column - 1, 'end');
+    else if (row > 0) focusCell(wrapper, row - 1, lastColumn, 'end');
+    else exitTable(view, widget, 'before');
+  });
+  if (event.key === 'ArrowRight' && edges.end) return handled(() => {
+    if (column < lastColumn) focusCell(wrapper, row, column + 1, 'start');
+    else if (row < last) focusCell(wrapper, row + 1, 0, 'start');
+    else exitTable(view, widget, 'after');
+  });
+  if (event.key === 'ArrowUp' && edges.start) return handled(() => { if (row > 0) focusCell(wrapper, row - 1, column, 'start'); else exitTable(view, widget, 'before'); });
+  if (event.key === 'ArrowDown' && edges.end) return handled(() => { if (row < last) focusCell(wrapper, row + 1, column, 'end'); else exitTable(view, widget, 'after'); });
+}
+// 表の操作を本文へ1つの変更として入れ、操作の後のマスへフォーカスする
+export function runTableCommand(view: EditorView, command: TableCommand, cell: TableCellRef, override?: TableTarget): boolean {
+  if (view.state.readOnly) return false;
+  const result = applyTableCommand(view.state.doc.sliceString(cell.from, cell.to), command, cell.row, cell.column);
+  if (!result) return false;
+  view.dispatch({ changes: { from: cell.from, to: cell.to, insert: result.source }, annotations: isolateHistory.of('full'), scrollIntoView: true });
+  focusTableAt(view, cell.from, override ?? result.target);
+  return true;
+}
+// 表を本文から消す。直後の改行も一緒に消す
+export function removeTable(view: EditorView, cell: TableCellRef): boolean {
+  if (view.state.readOnly) return false;
+  const to = view.state.doc.sliceString(cell.to, cell.to + 1) === '\n' ? cell.to + 1 : cell.to;
+  view.dispatch({ changes: { from: cell.from, to }, selection: { anchor: cell.from }, annotations: isolateHistory.of('full'), scrollIntoView: true });
+  view.focus();
+  return true;
+}
+function focusTableAt(view: EditorView, from: number, target: TableTarget) {
+  for (const wrapper of view.contentDOM.querySelectorAll<HTMLElement>('.nagori-table-wrap')) {
+    if (tableStates.get(wrapper)?.widget.node.from !== from) continue;
+    focusCell(wrapper, target.row, target.column, 'end');
+    return;
+  }
+}
+// 本文の位置から表のマスを探す。マスの外や編集できない表なら null
+export function tableCellAt(target: EventTarget | Element | null | undefined): (TableCellRef & { rows: number; columns: number }) | null {
+  const td = target instanceof Element ? target.closest<HTMLElement>('[data-row][data-column]') : null;
+  const state = td ? stateOf(td) : undefined;
+  if (!td || !state?.cells) return null;
+  const { widget, view } = state, { from, to } = widget.node, shape = tableShape(view.state.doc.sliceString(from, to));
+  return { from, to, row: Number(td.dataset.row), column: Number(td.dataset.column), rows: shape.rows, columns: shape.columns };
+}
+// 確認用の操作で、指定した表の番号(本文の順)と行・列のマスへフォーカスする
+export function focusTableCellAt(view: EditorView, index: number, row: number, column: number): boolean {
+  const wrapper = view.contentDOM.querySelectorAll<HTMLElement>('.nagori-table-wrap')[index];
+  if (!wrapper || !tableStates.get(wrapper)?.cells) return false;
+  focusCell(wrapper, row, column, 'end');
+  return true;
+}
+// 表の挿入の直後に、見出しの最初のマスへフォーカスする
+export function focusTableStart(view: EditorView, from: number) { focusTableAt(view, from, { row: 0, column: 0 }); }
 type PreviewContext = { tree: Tree; text: string; front: Span | null; refs: Map<string, string>; math: MathContext };
 function previewContext(state: EditorState, previous?: PreviewContext): PreviewContext {
   const tree = syntaxTree(state), text = state.doc.toString();
@@ -203,6 +401,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   const previewOnly = state.field(previewOnlyField, false) ?? false;
   const { tree, text, front, refs, math } = context ?? previewContext(state), ranges: Range<Decoration>[] = [];
   const active = (span: Span) => !previewOnly && state.selection.ranges.some(r => touches(span, r));
+  const wysiwyg = !previewOnly && (state.field(tableWysiwygField, false) ?? false);
   const mark = (from: number, to: number, className: string, attributes?: Record<string, string>) => { if (from < to) ranges.push(Decoration.mark({ class: className, attributes }).range(from, to)); };
   // 記号は本文のDOMに残し、CSSで幅0にして隠す。replaceで消すと、変換中に未確定文字より後ろの隠し部品が作り直され、WebKitが変換中の文字を見失うため。
   // 隠した記号は支援技術に読ませない(replaceで消していた時と同じ扱い)。
@@ -227,7 +426,8 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
       return false;
     }
     if (node.name === 'Table') {
-      if (!active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs, math, previewOnly), block: true }).range(node.from, node.to)); return false; }
+      // 見た目のまま編集する時は、カーソルが表の中でも表の見た目を出す
+      if (wysiwyg || !active(node)) { ranges.push(Decoration.replace({ widget: new TableWidget(node.from, node, text, options, refs, math, previewOnly, wysiwyg && !previewOnly), block: true }).range(node.from, node.to)); return false; }
       line(node.from, 'nagori-table-source');
     }
     if (node.name === 'Image') {
@@ -333,7 +533,7 @@ export function livePreview(options: Options): Extension {
     },
     provide: field => EditorView.decorations.from(field)
   });
-  return [previewOnlyField, compositionField, field, EditorState.changeFilter.of(tr => !tr.startState.field(previewOnlyField)), EditorView.domEventHandlers({ click(event) {
+  return [previewOnlyField, tableWysiwygField, compositionField, field, EditorState.changeFilter.of(tr => !tr.startState.field(previewOnlyField)), EditorView.domEventHandlers({ click(event) {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-href]');
     if (target && event.metaKey) { event.preventDefault(); options.onLink(target.dataset.href!); return true; }
     return false;

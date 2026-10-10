@@ -118,6 +118,8 @@ pub struct Settings {
     pub zoom_font_size: bool,
     // オンの時、本文の幅はウィンドウの空きに合わせて決める。editor_widthは手動の値として残す。古い設定はオフで読む
     pub auto_editor_width: bool,
+    // オンの時、表は見た目のまま編集する。古い設定はオンで読む
+    pub table_wysiwyg: bool,
     // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
@@ -146,6 +148,7 @@ impl Default for Settings {
             trash_retention_days: Some(30),
             zoom_font_size: false,
             auto_editor_width: false,
+            table_wysiwyg: true,
             recent_opened_at: BTreeMap::new(),
         }
     }
@@ -1431,6 +1434,7 @@ mod tests {
         assert_eq!(defaults.trash_retention_days, Some(30));
         assert!(!defaults.zoom_font_size);
         assert!(!defaults.auto_editor_width);
+        assert!(defaults.table_wysiwyg);
         assert!(defaults.recent_opened_at.is_empty());
         // 項目のない古い設定は初期値で読む
         let old: Settings = serde_json::from_str(r#"{"theme":"dark","fontSize":17}"#).unwrap();
@@ -1438,6 +1442,7 @@ mod tests {
         assert_eq!(old.trash_retention_days, Some(30));
         assert!(!old.zoom_font_size);
         assert!(!old.auto_editor_width);
+        assert!(old.table_wysiwyg);
         assert!(old.heading_rule && !old.start_in_preview);
         assert!(old.recent_opened_at.is_empty());
         // 範囲内の値は保存して読み直しても同じ
@@ -1467,6 +1472,9 @@ mod tests {
         assert!(auto.auto_editor_width);
         assert_eq!(auto.editor_width, 900);
         assert_eq!(serde_json::to_value(&auto).unwrap()["autoEditorWidth"], true);
+        let table: Settings = serde_json::from_str(r#"{"tableWysiwyg":false}"#).unwrap();
+        assert!(!table.table_wysiwyg);
+        assert_eq!(serde_json::to_value(&table).unwrap()["tableWysiwyg"], false);
         // 範囲の両端は受け付ける
         for (width, height, delay, edited) in [(560, 1.4, 300, 10), (1000, 2.4, 5000, 50)] {
             let settings: Settings = serde_json::from_str(&format!(
