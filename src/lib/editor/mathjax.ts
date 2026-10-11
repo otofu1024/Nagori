@@ -21,11 +21,13 @@ const adaptor = liteAdaptor({ fontSize: 16 });
 AssistiveMmlHandler(RegisterHTMLHandler(adaptor));
 const output = new CHTML<LiteElement, LiteText, LiteDocument>({ fontURL: 'nagori-mathjax-font', dynamicPrefix: '@mathjax/mathjax-newcm-font/js/chtml/dynamic', adaptiveCSS: true });
 // Vite emits local hashed font/data assets. No CDN, autoload, require, menu or speech workers.
-const fontData = typeof window !== 'undefined' ? import.meta.glob('../../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/*.js') : {};
-const fontURLs = typeof window !== 'undefined' ? import.meta.glob<string>('../../../node_modules/@mathjax/mathjax-newcm-font/chtml/woff2/*.woff2', { query: '?url&no-inline', import: 'default', eager: true }) : {};
+// globのキーはこのファイルからの相対パスなので、ファイルを移してもずれないようファイル名で引く
+const byName = <T,>(files: Record<string, T>) => new Map(Object.entries(files).map(([path, value]) => [path.split('/').at(-1)!, value]));
+const fontData = byName(typeof window !== 'undefined' ? import.meta.glob('../../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/*.js') : {});
+const fontURLs = byName(typeof window !== 'undefined' ? import.meta.glob<string>('../../../node_modules/@mathjax/mathjax-newcm-font/chtml/woff2/*.woff2', { query: '?url&no-inline', import: 'default', eager: true }) : {});
 mathjax.asyncLoad = (path: string) => {
   const name = path.split('/').at(-1)!;
-  const load = fontData[`../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/${name}`];
+  const load = fontData.get(name);
   if (load) return load();
   // The same renderer's Node tests use the installed official font package.
   if (typeof window === 'undefined' && /^@mathjax\/mathjax-newcm-font\/js\/chtml\/dynamic\/[a-z0-9-]+\.js$/.test(path)) return import(/* @vite-ignore */ path);
@@ -83,7 +85,7 @@ export function renderMath(expressions: MathExpression[], active: () => boolean 
         result.set(item.from, error ? { error } : { html });
       });
       const css = adaptor.cssText(output.styleSheet(doc)).replace(/nagori-mathjax-font\/([a-z0-9-]+\.woff2)/g, (_match, name: string) => {
-        const url = fontURLs[`../../node_modules/@mathjax/mathjax-newcm-font/chtml/woff2/${name}`];
+        const url = fontURLs.get(name);
         if (typeof window !== 'undefined' && !url) throw new Error('数式フォントが見つかりません');
         return url ?? `nagori-mathjax-font/${name}`;
       });
