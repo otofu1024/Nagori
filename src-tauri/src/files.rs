@@ -339,7 +339,7 @@ fn require_file(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>> {
+fn open_limited(path: &Path, limit: usize) -> Result<fs::File> {
     require_file(path)?;
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -355,6 +355,13 @@ pub fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>> {
             format!("ファイルサイズの上限は{}MiBです。", limit / 1024 / 1024),
         ));
     }
+    Ok(file)
+}
+pub fn read_limited(path: &Path, limit: usize) -> Result<Vec<u8>> {
+    read_file_limited(open_limited(path, limit)?, limit)
+}
+fn read_file_limited(mut file: fs::File, limit: usize) -> Result<Vec<u8>> {
+    io::Seek::rewind(&mut file)?;
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > limit {
@@ -782,11 +789,24 @@ pub fn read_image(path: &Path) -> Result<Image> {
             "PNG、JPEG、GIF、WebPのみ対応しています。",
         ));
     }
-    image_from_bytes(read_limited(path, IMAGE_LIMIT)?)
+    read_image_file(open_limited(path, IMAGE_LIMIT)?)
+}
+fn read_image_file(file: fs::File) -> Result<Image> {
+    image_from_bytes(read_file_limited(file, IMAGE_LIMIT)?)
 }
 // 画像のバイト列について、対応形式と寸法の上限を確かめる
 fn image_from_bytes(data: Vec<u8>) -> Result<Image> {
     let format = image::guess_format(&data).map_err(|e| Error::new("IMAGE", e.to_string()))?;
+    validate_image(image::ImageReader::with_format(
+        std::io::Cursor::new(&data),
+        format,
+    ))?;
+    Ok(Image { data, format })
+}
+fn validate_image<R: io::BufRead + io::Seek>(reader: image::ImageReader<R>) -> Result<()> {
+    let format = reader
+        .format()
+        .ok_or_else(|| Error::new("IMAGE", "画像の形式を判別できません。"))?;
     if !matches!(
         format,
         image::ImageFormat::Png
@@ -797,13 +817,13 @@ fn image_from_bytes(data: Vec<u8>) -> Result<Image> {
         return Err(Error::new("UNSUPPORTED", "非対応の画像形式です。"));
     }
     // 表示ではWebViewがデコードするため、ここでは形式と寸法だけを確かめる
-    let (width, height) = image::ImageReader::with_format(std::io::Cursor::new(&data), format)
+    let (width, height) = reader
         .into_dimensions()
         .map_err(|e| Error::new("IMAGE", e.to_string()))?;
     if width == 0 || height == 0 || width as u64 * height as u64 > PIXEL_LIMIT {
         return Err(Error::new("LIMIT", "画像の上限は1,600万画素です。"));
     }
-    Ok(Image { data, format })
+    Ok(())
 }
 // 取り込む画像だけは最後までデコードし、破損したファイルをプロジェクトへ複製しない
 fn verify_image(image: &Image) -> Result<()> {
@@ -862,25 +882,33 @@ static PREVIEW_GATE: Mutex<()> = Mutex::new(());
 static PREVIEW_RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
 static PREVIEW_PEAK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-// 表示用の画像の元になるファイル。鍵は読む前に取り、読んだ内容と鍵がずれないようにする
+// 表示用の元画像はファイルを開いたまま保持し、処理前の移動や差し替えで別のパスを読まない
 pub struct PreviewSource {
     key: PreviewKey,
-    data: Vec<u8>,
+    file: fs::File,
 }
 impl PreviewSource {
-    // ワークスペースのロックの中で行う。パス検証と読み込みだけをし、重い処理はしない
+    // ワークスペースのロックの中で行う。ファイルを開いて鍵とヘッダーを読み、重い処理はしない
     pub fn read(path: &Path) -> Result<Self> {
-        require_file(path)?;
-        let metadata = fs::metadata(path)?;
+        if !image_extension(path) {
+            return Err(Error::new(
+                "UNSUPPORTED",
+                "PNG、JPEG、GIF、WebPのみ対応しています。",
+            ));
+        }
+        let mut file = open_limited(path, IMAGE_LIMIT)?;
+        let metadata = file.metadata()?;
         let key = PreviewKey {
             path: path.to_path_buf(),
             modified: metadata.modified()?,
             len: metadata.len(),
         };
-        Ok(Self {
-            key,
-            data: read_image(path)?.data,
-        })
+        let reader = image::ImageReader::new(io::BufReader::new(&mut file))
+            .with_guessed_format()
+            .map_err(|e| Error::new("IMAGE", e.to_string()))?;
+        validate_image(reader)?;
+        io::Seek::rewind(&mut file)?;
+        Ok(Self { key, file })
     }
     // ワークスペースのロックの外で行う。キャッシュにあればそれを返し、なければ縮小して登録する
     pub fn preview(self, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
@@ -901,7 +929,7 @@ impl PreviewSource {
         let running = PREVIEW_RUNNING.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         #[cfg(test)]
         PREVIEW_PEAK.fetch_max(running, std::sync::atomic::Ordering::SeqCst);
-        let data = make_preview(self.data);
+        let data = make_preview(self.file);
         #[cfg(test)]
         PREVIEW_RUNNING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         let data = data?;
@@ -911,21 +939,21 @@ impl PreviewSource {
 }
 // 長い辺が上限以下の画像と、アニメーションGIFは元のバイト列のまま返す
 #[cfg(target_os = "macos")]
-fn make_preview(data: Vec<u8>) -> Result<Vec<u8>> {
-    imageio::preview(data)
+fn make_preview(file: fs::File) -> Result<Vec<u8>> {
+    imageio::preview(file)
 }
 // macOS以外では縮小せず、元のバイト列を返す
 #[cfg(not(target_os = "macos"))]
-fn make_preview(data: Vec<u8>) -> Result<Vec<u8>> {
-    Ok(data)
+fn make_preview(file: fs::File) -> Result<Vec<u8>> {
+    Ok(read_image_file(file)?.data)
 }
 // macOSのImageIOで縮小する。展開を元の解像度で行わず、CGImageSourceの縮小機能に任せるため、
 // 大きな写真を開いてもメモリの使用量を抑えられる
 #[cfg(target_os = "macos")]
 #[allow(non_snake_case, non_upper_case_globals)]
 mod imageio {
-    use super::{Error, Result, PREVIEW_EDGE};
-    use std::{ffi::c_void, ptr};
+    use super::{read_image_file, Error, Result, IMAGE_LIMIT, PIXEL_LIMIT, PREVIEW_EDGE};
+    use std::{ffi::c_void, fs::File, os::fd::AsRawFd, ptr};
 
     // フレームワークごとにextern "C"のブロックを分ける。1つのブロックに複数の#[link]を並べると、
     // リンク指定が重複したとclippyに指摘されるため
@@ -938,7 +966,13 @@ mod imageio {
         static kCFTypeDictionaryValueCallBacks: u8;
 
         fn CFRelease(cf: *const c_void);
-        fn CFDataCreate(allocator: *const c_void, bytes: *const u8, length: isize) -> *const c_void;
+        fn CFEqual(first: *const c_void, second: *const c_void) -> bool;
+        fn CFURLCreateFromFileSystemRepresentation(
+            allocator: *const c_void,
+            bytes: *const u8,
+            length: isize,
+            is_directory: bool,
+        ) -> *const c_void;
         fn CFDataCreateMutable(allocator: *const c_void, capacity: isize) -> *const c_void;
         fn CFDataGetLength(data: *const c_void) -> isize;
         fn CFDataGetBytePtr(data: *const c_void) -> *const u8;
@@ -976,7 +1010,8 @@ mod imageio {
         static kCGImagePropertyPixelHeight: *const c_void;
         static kCGImageDestinationLossyCompressionQuality: *const c_void;
 
-        fn CGImageSourceCreateWithData(data: *const c_void, options: *const c_void) -> *const c_void;
+        fn CGImageSourceCreateWithURL(url: *const c_void, options: *const c_void) -> *const c_void;
+        fn CGImageSourceGetType(source: *const c_void) -> *const c_void;
         fn CGImageSourceGetCount(source: *const c_void) -> usize;
         fn CGImageSourceCopyPropertiesAtIndex(
             source: *const c_void,
@@ -1026,9 +1061,6 @@ mod imageio {
         }
         Ok(Cf(ptr))
     }
-    fn data(bytes: &[u8]) -> Result<Cf> {
-        owned(unsafe { CFDataCreate(ptr::null(), bytes.as_ptr(), bytes.len() as isize) })
-    }
     fn string(text: &str) -> Result<Cf> {
         owned(unsafe {
             CFStringCreateWithBytes(
@@ -1070,12 +1102,42 @@ mod imageio {
     }
 
     // 長い辺がPREVIEW_EDGEを超える画像だけを縮小し、そのほかは元のバイト列のまま返す
-    pub fn preview(bytes: Vec<u8>) -> Result<Vec<u8>> {
-        let encoded = data(&bytes)?;
-        let source = owned(unsafe { CGImageSourceCreateWithData(encoded.0, ptr::null()) })?;
+    pub fn preview(file: File) -> Result<Vec<u8>> {
+        // 待っている間の書き換えも考慮し、実際にImageIOが読むサイズと形式・寸法を確かめる
+        if file.metadata()?.len() > IMAGE_LIMIT as u64 {
+            return Err(Error::new("LIMIT", "ファイルサイズが上限を超えています。"));
+        }
+        // 検証済みのファイル記述子を使い、元画像をVecとCFDataへ丸ごとコピーしない
+        let path = format!("/dev/fd/{}", file.as_raw_fd());
+        let url = owned(unsafe {
+            CFURLCreateFromFileSystemRepresentation(
+                ptr::null(),
+                path.as_ptr(),
+                path.len() as isize,
+                false,
+            )
+        })?;
+        let source = owned(unsafe { CGImageSourceCreateWithURL(url.0, ptr::null()) })?;
+        let source_type = unsafe { CGImageSourceGetType(source.0) };
+        if source_type.is_null() {
+            return Err(failed());
+        }
+        let mut supported = false;
+        for format in [
+            "public.png",
+            "public.jpeg",
+            "com.compuserve.gif",
+            "org.webmproject.webp",
+        ] {
+            let format = string(format)?;
+            supported |= unsafe { CFEqual(source_type, format.0) };
+        }
+        if !supported {
+            return Err(Error::new("UNSUPPORTED", "非対応の画像形式です。"));
+        }
         // 2枚以上のフレームがあるアニメーションは、1枚にすると動かなくなるため元のまま返す
         if unsafe { CGImageSourceGetCount(source.0) } > 1 {
-            return Ok(bytes);
+            return Ok(read_image_file(file)?.data);
         }
         let properties =
             owned(unsafe { CGImageSourceCopyPropertiesAtIndex(source.0, 0, ptr::null()) })?;
@@ -1087,8 +1149,16 @@ mod imageio {
         ) else {
             return Err(failed());
         };
+        if width <= 0
+            || height <= 0
+            || width
+                .checked_mul(height)
+                .is_none_or(|pixels| pixels > PIXEL_LIMIT as i64)
+        {
+            return Err(Error::new("LIMIT", "画像の上限は1,600万画素です。"));
+        }
         if width.max(height) <= i64::from(PREVIEW_EDGE) {
-            return Ok(bytes);
+            return Ok(read_image_file(file)?.data);
         }
 
         // EXIFの向きを反映し、長い辺をPREVIEW_EDGEにした画像を作る。展開は縮小した大きさだけ
@@ -1973,6 +2043,67 @@ mod tests {
     // 読み込みと縮小をまとめて行う(実際にはワークスペースのロックの中と外に分かれる)
     fn preview_of(path: &Path, cache: &Mutex<PreviewCache>) -> Result<Vec<u8>> {
         PreviewSource::read(path)?.preview(cache)
+    }
+    #[cfg(unix)]
+    #[test]
+    fn preview_keeps_the_open_file_when_its_path_is_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("original.png");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([255, 0, 0]))
+            .save(&path)
+            .unwrap();
+        let original = fs::read(&path).unwrap();
+        let source = PreviewSource::read(&path).unwrap();
+        let moved = directory.path().join("moved.png");
+        fs::rename(&path, &moved).unwrap();
+        // ロックの外でパスがリンクに差し替わっても、検証済みの元画像だけを読む
+        std::os::unix::fs::symlink("missing.png", &path).unwrap();
+        let cache = Mutex::new(PreviewCache::default());
+        assert_eq!(source.preview(&cache).unwrap(), original);
+        assert_eq!(fs::read(moved).unwrap(), original);
+        assert_eq!(PreviewSource::read(&path).err().unwrap().code, "INVALID");
+    }
+    #[test]
+    fn preview_checks_format_size_and_dimensions_before_processing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid.png");
+        fs::write(&path, b"invalid").unwrap();
+        assert_eq!(PreviewSource::read(&path).err().unwrap().code, "IMAGE");
+        fs::write(&path, b"BM invalid").unwrap();
+        assert_eq!(PreviewSource::read(&path).err().unwrap().code, "UNSUPPORTED");
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(IMAGE_LIMIT as u64 + 1)
+            .unwrap();
+        assert_eq!(PreviewSource::read(&path).err().unwrap().code, "LIMIT");
+        image::RgbImage::new(4001, 4000).save(&path).unwrap();
+        assert_eq!(PreviewSource::read(&path).err().unwrap().code, "LIMIT");
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preview_rechecks_dimensions_if_the_open_file_is_overwritten() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("changed.png");
+        image::RgbImage::new(16, 16).save(&path).unwrap();
+        let source = PreviewSource::read(&path).unwrap();
+        image::RgbImage::new(4001, 4000).save(&path).unwrap();
+        assert_eq!(
+            source
+                .preview(&Mutex::new(PreviewCache::default()))
+                .err()
+                .unwrap()
+                .code,
+            "LIMIT"
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn preview_accepts_webp_from_the_file_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("photo.webp");
+        image::RgbImage::new(2000, 1000).save(&path).unwrap();
+        let result = preview_of(&path, &Mutex::new(PreviewCache::default())).unwrap();
+        assert_eq!(image::load_from_memory(&result).unwrap().width(), PREVIEW_EDGE);
     }
     // 表示用の画像の寸法と形式を、ヘッダーだけ読んで確かめる
     #[cfg(target_os = "macos")]
