@@ -1,6 +1,6 @@
 import { SIDEBAR, OUTLINE, EDITOR_WIDTH, storedPaneWidth } from './paneWidths.ts';
 import { OPENED_LIMIT } from './noteLists.ts';
-export type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark';
 // 'system'はmacOSの外観に従うことを表す。保存した値は変えず、表示する時に決める
 // starredはワークスペースのルートの絶対パスをキーに、スターを付けた記事の相対パスを新しい順に持つ
 export type Settings = {
@@ -14,7 +14,7 @@ export type Settings = {
   // オンの時、本文の幅はウィンドウの空きに合わせて決める。editorWidthは手動の値として残す
   autoEditorWidth: boolean;
 };
-export type FontFamily = 'sans' | 'serif';
+type FontFamily = 'sans' | 'serif';
 export type TrashRetentionDays = 7 | 14 | 30 | 60 | 90 | null;
 export const TRASH_RETENTION_OPTIONS: TrashRetentionDays[] = [7, 14, 30, 60, 90, null];
 export const RANGES = {

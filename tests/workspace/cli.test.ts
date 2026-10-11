@@ -58,7 +58,6 @@ test('nagori forwards canonical folder/file paths safely through native open', (
   }
 });
 
-
 test('CLI link installer is idempotent and preserves unrelated and concurrently created commands', () => {
   const root = mkdtempSync(join(tmpdir(), 'nagori installer '));
   try {

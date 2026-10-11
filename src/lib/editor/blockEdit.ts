@@ -2,7 +2,7 @@ import type { Tree } from '@lezer/common';
 import { frontMatter, markdownParser, walk, type Span } from './markdown.ts';
 
 export type BlockKind = 'heading1' | 'heading2' | 'heading3' | 'bullet' | 'ordered' | 'task' | 'quote' | 'table' | 'rule';
-export type BlockPlan = { changes: { from: number; to: number; insert: string }[]; selection: Span };
+type BlockPlan = { changes: { from: number; to: number; insert: string }[]; selection: Span };
 type Line = Span & { text: string; end: number };
 
 function lines(text: string): Line[] {

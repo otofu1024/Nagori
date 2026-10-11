@@ -13,7 +13,7 @@ export type TrashItem = {
 
 export type NoteItem = Entry & { parent: string };
 
-export const RECENT_NOTE_LIMIT = 30;
+const RECENT_NOTE_LIMIT = 30;
 
 // 同じ名前の記事が他にあれば、親フォルダの相対パスを添える。直下の記事には「プロジェクト直下」と添える
 export function withParentLabels<T extends Entry>(items: T[]): Array<T & { parent: string }> {

@@ -31,7 +31,7 @@ mathjax.asyncLoad = (path: string) => {
   if (typeof window === 'undefined' && /^@mathjax\/mathjax-newcm-font\/js\/chtml\/dynamic\/[a-z0-9-]+\.js$/.test(path)) return import(/* @vite-ignore */ path);
   return Promise.reject(new Error('未許可の数式フォントデータです'));
 };
-export type MathResult = { html?: string; error?: string };
+type MathResult = { html?: string; error?: string };
 export type MathRender = { expressions: Map<number, MathResult>; css: string };
 let queue: Promise<void> = Promise.resolve();
 

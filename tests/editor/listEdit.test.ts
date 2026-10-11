@@ -10,7 +10,6 @@ import { markdownParser, markdownExtensions, walk } from '../../src/lib/editor/m
 import { bulletGlyph, listDepth } from '../../src/lib/editor/previewLists.ts';
 import { buildPreview } from '../../src/lib/editor/previewDecorations.ts';
 
-
 function edit(text: string, from: number, to = from, outdent = false) {
   let state = EditorState.create({ doc: text, selection: { anchor: from, head: to }, extensions: history() });
   const handled = moveList({ state, dispatch: transaction => { state = transaction.state; } }, outdent);
@@ -98,7 +97,6 @@ test('Markdownの構文木を再利用し、字下げのたびに全文を解析
   } finally { markdownParser.parse = parse; }
 });
 
-
 // Editor.svelte と同じ言語設定で、カーソル位置の Enter を実行する。
 function enter(text: string, at = text.length) {
   let state = EditorState.create({ doc: text, selection: { anchor: at }, extensions: markdown({ base: commonmarkLanguage, extensions: markdownExtensions }) });
@@ -167,7 +165,6 @@ test('閉じのないFront Matterは本文として扱い、空の項目も抜�
   assert.equal(enter(unclosed).text, '---\n\n- a\n');
   assert.equal(enter('---\n\n- a\n- a').text, '---\n\n- a\n- a\n- ');
 });
-
 
 // 行の装飾と、記号の範囲を集める。カーソルは末尾の空行に置き、すべての項目を表示用に変える。
 function preview(text: string) {

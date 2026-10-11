@@ -207,7 +207,6 @@ test('重なる一致は全置換で重複させず、plainの状態でも置換
   assert.equal(view.state.doc.toString(), 'Xba');
 });
 
-
 test('正規表現でも未選択のカーソル位置から一致を選べる', () => {
   const { view } = editor('cat cat', { search: 'cat', regexp: true, replace: 'dog' });
   navigateMatch(view);
@@ -221,7 +220,6 @@ test('空の一致を1件置換して次の行へ進む', () => {
   assert.equal(view.state.doc.toString(), '>a\nb\nc');
   assert.equal(view.state.selection.main.from, 3);
 });
-
 
 test('本文を読み直した直後も保存中の置換を無効にする', () => {
   const { view } = editor('cat cat', { search: 'cat', replace: 'dog' });

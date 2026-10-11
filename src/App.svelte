@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
   import { createSettingsDialog } from './lib/workspace/settingsDialog.ts';
   import { createFontZoom } from './lib/workspace/fontZoom.ts';
   import { createFileActions } from './lib/workspace/fileActions.ts';
@@ -285,7 +286,7 @@
     isComposing: () => composing,
     cancelSave,
     settleComposition,
-    showProblem,
+    showProblem: () => showProblem(),
     openDocument: (path) => invoke<OpenedDocument>('document_open', { path }),
     replaceText: (text) => editor?.replaceText(text),
     notify,
@@ -580,145 +581,24 @@
       notify(failure(error).message);
     }
   }
-  async function showProblem() {
-    const target = session;
-    if (!target?.issue) return;
-    issue = target.issue;
-    disk = null;
-    diskLabel = '';
-    if (issue.code === 'CONFLICT') {
-      try {
-        const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-        if (session !== target || !target.issue) return;
-        disk = fresh;
-        diskLabel = fresh.text.slice(0, 500);
-      } catch {}
-    }
-    await tick();
-    if (session !== target || !target.issue) return;
-    if (!errorDialog?.open) errorDialog?.showModal();
-  }
-  async function reloadDisk() {
-    const target = session;
-    if (!target) return;
-    try {
-      if (
-        !(await confirm('編集中の内容を破棄して、最新のディスク内容を採用します。Undo履歴もリセットされます。', {
-          title: 'ディスク内容を採用',
-          kind: 'warning',
-          okLabel: '採用する',
-          cancelLabel: 'キャンセル',
-        }))
-      )
-        return;
-      const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-      if (session !== target) return;
-      target.reload(fresh);
-      editor?.replaceText(fresh.text);
-      errorDialog?.close();
-    } catch (error) {
-      if (session === target) target.block(error);
-    }
-  }
-  async function overwriteDisk() {
-    const target = session,
-      expected = disk?.baseline;
-    if (!target || !expected) return;
-    if (
-      !(await confirm('ディスク側の変更を失います。編集中の内容で上書きしますか？', {
-        title: '編集内容で上書き',
-        kind: 'warning',
-        okLabel: '上書きする',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    try {
-      const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-      if (session !== target) return;
-      if (fresh.baseline !== expected) {
-        disk = fresh;
-        diskLabel = fresh.text.slice(0, 500);
-        notify('ディスクが再変更されました。最新内容を確認し、もう一度選択してください。');
-        return;
-      }
-      session.baseline = fresh.baseline;
-      session.retry();
-      errorDialog?.close();
-      if (!(await flush())) await showProblem();
-    } catch (error) {
-      if (session === target) target.block(error);
-    }
-  }
-  async function retrySave() {
-    if (!session) return;
-    session.retry();
-    errorDialog?.close();
-    await flush();
-  }
-  async function beginSaveAs() {
-    if (!session) return;
-    saveAsPath = session.path.replace(/\.(md|markdown)$/i, '-copy.md');
-    saveAsError = '';
-    saveAsDialog?.showModal();
-    saveAsInput?.focus();
-    saveAsInput?.select();
-  }
-  async function commitSaveAs() {
-    if (!session || busy) return;
-    await settleComposition();
-    if (!session || busy) return;
-    busy = true;
-    try {
-      const text = session.text,
-        gen = session.generation;
-      const opened = await invoke<OpenedDocument>('document_save_as', { sourcePath: session.path, path: saveAsPath, text });
-      session.path = opened.path;
-      session.baseline = opened.baseline;
-      session.savedGeneration = gen;
-      session.issue = null;
-      session.readonly = opened.readonly;
-      current = { path: opened.path, name: opened.path.split('/').at(-1)!, kind: 'markdown' };
-      selected = opened.path;
-      releaseImages();
-      editor?.refreshImages();
-      settings.lastFile = opened.path;
-      settings.recentFiles = [opened.path, ...settings.recentFiles.filter((path) => path !== opened.path)].slice(0, 30);
-      settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, opened.path);
-      syncSession();
-      saveAsDialog?.close();
-      errorDialog?.close();
-      await refreshTree();
-      await refreshIndex();
-      void persist();
-      if (session.dirty) scheduleSave();
-      notify('別名で保存しました。');
-    } catch (error) {
-      saveAsError = failure(error).message;
-    } finally {
-      busy = false;
-      if (openRequestsQueued) void drainOpenRequests();
-    }
-  }
-  async function discardAndClose() {
-    const target = session;
-    if (!target) return;
-    if (
-      target.dirty &&
-      !(await confirm('未保存の編集内容を破棄して閉じます。', {
-        title: '未保存内容を破棄',
-        kind: 'warning',
-        okLabel: '破棄して閉じる',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    if (session !== target) return;
-    clearDocument();
-    settings.lastFile = null;
-    errorDialog?.close();
-    void persist();
-  }
+  const { showProblem, reloadDisk, overwriteDisk, retrySave, beginSaveAs, commitSaveAs, discardAndClose } = createDocumentDialogs({
+    get session() { return session; },
+    get issue() { return issue; }, set issue(value) { issue = value; },
+    get disk() { return disk; }, set disk(value) { disk = value; },
+    get diskLabel() { return diskLabel; }, set diskLabel(value) { diskLabel = value; },
+    get errorDialog() { return errorDialog; },
+    get saveAsDialog() { return saveAsDialog; },
+    get saveAsInput() { return saveAsInput; },
+    get saveAsPath() { return saveAsPath; }, set saveAsPath(value) { saveAsPath = value; },
+    get saveAsError() { return saveAsError; }, set saveAsError(value) { saveAsError = value; },
+    get busy() { return busy; }, set busy(value) { busy = value; },
+    get current() { return current; }, set current(value) { current = value; },
+    get selected() { return selected; }, set selected(value) { selected = value; },
+    get settings() { return settings; },
+    get editor() { return editor; },
+    get openRequestsQueued() { return openRequestsQueued; },
+    settleComposition, flush, releaseImages, syncSession, refreshTree, refreshIndex, persist, scheduleSave, notify, drainOpenRequests, clearDocument,
+  });
   function checkExternal() {
     return flow.checkExternal();
   }

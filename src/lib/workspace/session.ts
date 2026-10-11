@@ -5,7 +5,7 @@ export function failure(error: unknown): Failure {
   if (typeof error === 'string') { try { return failure(JSON.parse(error)); } catch {} }
   return {code:'ERROR', message:String(error)};
 }
-export type SaveStatus = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'missing';
+type SaveStatus = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict' | 'missing';
 export class EditSession {
   path: string;
   text: string;

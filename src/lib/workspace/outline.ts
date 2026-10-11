@@ -6,7 +6,7 @@ import { codeDisplay, decodeMarkdown, inlineContent } from '../editor/markdownIn
 export type OutlineHeading = { from: number; lineEnd: number; level: number; text: string };
 
 // 記号だけを除き、コードと数式の中の文字はそのまま残す。
-export function headingText(node: SyntaxNode, doc: Text): string {
+function headingText(node: SyntaxNode, doc: Text): string {
   const content = inlineContent(node);
   if (node.name === 'InlineCode') return codeDisplay(doc.sliceString(content.from, content.to));
   if (node.name === 'Autolink') return doc.sliceString(node.from + 1, node.to - 1);

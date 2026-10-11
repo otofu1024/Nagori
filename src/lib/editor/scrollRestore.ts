@@ -1,5 +1,5 @@
 // 表示モード切り替え前のスクロール状態。
-export type ScrollMetrics = { scrollTop: number; clientHeight: number; scrollHeight: number };
+type ScrollMetrics = { scrollTop: number; clientHeight: number; scrollHeight: number };
 
 // 末尾付近とみなす許容差（px）。小数のscrollTopによる丸め誤差を吸収する。
 const BOTTOM_TOLERANCE = 2;

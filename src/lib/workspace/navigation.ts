@@ -1,6 +1,6 @@
 // modifiedはファイルの更新日時（Unixのミリ秒）。取れない時は持たない
 export type Entry={path:string;name:string;kind:'directory'|'markdown'|'image'|'other'|'symlink';modified?:number};
-export function fuzzyScore(path:string, query:string):number|null {
+function fuzzyScore(path:string, query:string):number|null {
   const target=path.toLocaleLowerCase(), needle=query.toLocaleLowerCase().trim();
   let at=0, score=0, previous=-2;
   for(const char of needle) {const found=target.indexOf(char,at);if(found<0)return null;score+=found===previous+1?8:0;score+=found===0||'/ _-'.includes(target[found-1])?5:0;score-=found-at;previous=found;at=found+1;}

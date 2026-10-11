@@ -1,5 +1,5 @@
 // 数式描画の計測用カウンタ。globalThis.__NAGORI_MATH_STATS__ が true の時だけ有効で、通常利用では何も記録しない。
-export type MathStats = { renderStarts: number; discards: number };
+type MathStats = { renderStarts: number; discards: number };
 const stats: MathStats = { renderStarts: 0, discards: 0 };
 const enabled = () => (globalThis as { __NAGORI_MATH_STATS__?: unknown }).__NAGORI_MATH_STATS__ === true;
 

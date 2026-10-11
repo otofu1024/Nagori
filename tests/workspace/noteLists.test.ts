@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -21,27 +22,49 @@ const dir = (path: string): Entry => ({ path, name: path.split('/').at(-1)!, kin
 
 test('すべてのノートはMarkdownの記事だけを名前の順に並べ、大文字小文字を同一視する', () => {
   const entries: Entry[] = [
-    md('b.md'), dir('草稿'), { path: '画像.png', name: '画像.png', kind: 'image' },
-    md('A.md'), md('10.md'), md('2.md'),
+    md('b.md'),
+    dir('草稿'),
+    { path: '画像.png', name: '画像.png', kind: 'image' },
+    md('A.md'),
+    md('10.md'),
+    md('2.md'),
   ];
   // 数字は文字より前、数字の並びは数の大きさで比べる
-  assert.deepEqual(allNotes(entries).map(note => note.path), ['2.md', '10.md', 'A.md', 'b.md']);
+  assert.deepEqual(
+    allNotes(entries).map((note) => note.path),
+    ['2.md', '10.md', 'A.md', 'b.md'],
+  );
   // 同じ名前の並びはパスで確定する
-  assert.deepEqual(allNotes([md('z/a.md'), md('a/a.md')]).map(note => note.path), ['a/a.md', 'z/a.md']);
+  assert.deepEqual(
+    allNotes([md('z/a.md'), md('a/a.md')]).map((note) => note.path),
+    ['a/a.md', 'z/a.md'],
+  );
 });
 
 test('同じ名前の記事は親フォルダを添え、直下の記事には「プロジェクト直下」と添える', () => {
   const notes = allNotes([md('記事.md'), md('草稿/記事.md'), md('公開/草稿/記事.md'), md('別.md')]);
   // 並びはパスの順（日本語の読み順）で確定する
-  assert.deepEqual(notes.map(note => [note.path, note.parent]), [
-    ['記事.md', 'プロジェクト直下'], ['公開/草稿/記事.md', '公開/草稿'], ['草稿/記事.md', '草稿'], ['別.md', ''],
-  ]);
-  assert.deepEqual(withParentLabels([md('一.md')]).map(note => note.parent), ['']);
+  assert.deepEqual(
+    notes.map((note) => [note.path, note.parent]),
+    [
+      ['記事.md', 'プロジェクト直下'],
+      ['公開/草稿/記事.md', '公開/草稿'],
+      ['草稿/記事.md', '草稿'],
+      ['別.md', ''],
+    ],
+  );
+  assert.deepEqual(
+    withParentLabels([md('一.md')]).map((note) => note.parent),
+    [''],
+  );
 });
 
 test('最近見たノートは更新日時の新しい順に並べ、日時のない記事は外し、最大30件にする', () => {
   const entries: Entry[] = [md('古い.md', 100), md('新しい.md', 300), md('日時なし.md'), dir('フォルダ'), md('中.md', 200)];
-  assert.deepEqual(recentlyEdited(entries).map(note => note.path), ['新しい.md', '中.md', '古い.md']);
+  assert.deepEqual(
+    recentlyEdited(entries).map((note) => note.path),
+    ['新しい.md', '中.md', '古い.md'],
+  );
   const many = Array.from({ length: 35 }, (_, index) => md(`${index}.md`, index));
   const latest = recentlyEdited(many);
   assert.equal(latest.length, 30);
@@ -53,7 +76,10 @@ test('最近見たノートは更新日時の新しい順に並べ、日時の�
 test('スター付きは保存した順（新しい順）を保ち、今の索引にない記事や記事以外は出さない', () => {
   const entries: Entry[] = [md('a.md'), md('b.md'), dir('b.md'), md('草稿/c.md')];
   const notes = starredNotes(['草稿/c.md', 'gone.md', 'a.md', 'a.md', 'b.md'], entries);
-  assert.deepEqual(notes.map(note => note.path), ['草稿/c.md', 'a.md', 'b.md']);
+  assert.deepEqual(
+    notes.map((note) => note.path),
+    ['草稿/c.md', 'a.md', 'b.md'],
+  );
   assert.deepEqual(starredNotes([], entries), []);
   assert.deepEqual(starredNotes(['b.md'], [dir('b.md')]), []);
 });
@@ -97,9 +123,15 @@ test('最近見たノートは、更新日時と最後に開いた時刻の新�
   ];
   const opened = { '開いた.md': 4000, '開いただけ.md': 2000, '古い.md': 100, '索引にない.md': 9999 };
   const notes = recentlyEdited(entries, opened);
-  assert.deepEqual(notes.map(note => [note.path, note.modified]), [
-    ['開いた.md', 4000], ['更新.md', 3000], ['開いただけ.md', 2000], ['古い.md', 500],
-  ]);
+  assert.deepEqual(
+    notes.map((note) => [note.path, note.modified]),
+    [
+      ['開いた.md', 4000],
+      ['更新.md', 3000],
+      ['開いただけ.md', 2000],
+      ['古い.md', 500],
+    ],
+  );
   assert.equal(recentlyEdited(entries, opened, 2).length, 2);
 });
 
@@ -117,4 +149,24 @@ test('名前変更は開いた時刻の記録のパスに追従し、削除で�
   const opened = { '草稿/記事.md': 1, '草稿/深い/a.md': 2, '草稿2.md': 3, '別.md': 4 };
   assert.deepEqual(renameOpened(opened, '草稿', '公開'), { '公開/記事.md': 1, '公開/深い/a.md': 2, '草稿2.md': 3, '別.md': 4 });
   assert.deepEqual(removeOpened(opened, '草稿'), { '草稿2.md': 3, '別.md': 4 });
+});
+
+// 画面の文言を「最近見たノート」に統一したことを確かめる。設定の項目名は保存との互換のため変えない
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+test('サイドバーとノート一覧の表示は「最近見たノート」で、古い「最近編集」の文言は残らない', () => {
+  for (const path of [
+    '../../src/App.svelte',
+    '../../src/lib/components/SidebarNav.svelte',
+    '../../src/lib/components/SettingsDialog.svelte',
+  ]) {
+    const source = read(path);
+    assert.equal(source.includes('最近編集'), false, `${path} に古い文言が残っている`);
+  }
+  assert.match(read('../../src/lib/components/SidebarNav.svelte'), /label: '最近見たノート'/);
+  assert.match(read('../../src/lib/components/SettingsDialog.svelte'), /最近見たノートの件数/);
+});
+
+test('設定の項目名recentEditedCountは変えず、保存した設定との互換を保つ', () => {
+  assert.match(read('../../src/lib/workspace/settings.ts'), /recentEditedCount/);
 });
