@@ -373,7 +373,7 @@ async fn image_read(
         .await
         .map(|image| tauri::ipc::Response::new(image.data));
     }
-    // 記事中の表示は縮小版を使う。ワークスペースのロックの中では読み込みだけをし、
+    // 記事中の表示は縮小版を使う。ワークスペースのロックの中ではファイルを開いてヘッダーを読み、
     // 縮小とキャッシュはロックの外で行う
     let source = work(&state, move |w| {
         files::PreviewSource::read(&files::image_path(
