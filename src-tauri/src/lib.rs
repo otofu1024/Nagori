@@ -1,9 +1,11 @@
 mod cli;
 mod files;
+mod image;
 mod search;
 mod settings;
 mod trash;
-use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved};
+use files::{Entry, Error, OpenedDocument, Result, Saved};
+use image::InsertedImage;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use settings::Settings;
 use std::{
@@ -33,11 +35,11 @@ impl Workspace {
 }
 #[derive(Clone, Default)]
 struct Backend {
-    // ponytail: one lock serializes project operations; split read locks only if measured UI throughput requires it.
+    // shortcut: ワークスペースの操作は1つのロックで直列化する。画面の処理量を測って必要になった時だけ、読み取り用のロックを分ける。
     workspace: Arc<Mutex<Workspace>>,
     allow_exit: Arc<AtomicBool>,
     open_requests: Arc<Mutex<VecDeque<Result<OpenRequest>>>>,
-    previews: Arc<Mutex<files::PreviewCache>>,
+    previews: Arc<Mutex<image::PreviewCache>>,
 }
 #[derive(Debug, serde::Serialize)]
 struct OpenRequest {
@@ -366,7 +368,7 @@ async fn image_read(
     // JSONの数値配列にせず、バイナリのままWebViewへ渡す
     if !preview.unwrap_or(false) {
         return work(&state, move |w| {
-            files::read_image(&files::image_path(
+            image::read_image(&image::image_path(
                 w.root()?,
                 &path,
                 document_path.as_deref(),
@@ -378,7 +380,7 @@ async fn image_read(
     // 記事中の表示は縮小版を使う。ワークスペースのロックの中ではファイルを開いてヘッダーを読み、
     // 縮小とキャッシュはロックの外で行う
     let source = work(&state, move |w| {
-        files::PreviewSource::read(&files::image_path(
+        image::PreviewSource::read(&image::image_path(
             w.root()?,
             &path,
             document_path.as_deref(),
@@ -405,7 +407,7 @@ async fn image_insert(
         ));
     }
     work(&state, move |w| {
-        files::insert_image(w.root()?, &source_path, &document_path)
+        image::insert_image(w.root()?, &source_path, &document_path)
     })
     .await
 }
@@ -431,7 +433,7 @@ async fn image_paste(
         .ok_or_else(|| Error::new("INVALID", "貼り付け先の記事が分かりません。"))?;
     let data = data.clone();
     work(&state, move |w| {
-        files::paste_image(w.root()?, &document_path, data)
+        image::paste_image(w.root()?, &document_path, data)
     })
     .await
 }
