@@ -83,3 +83,28 @@ Nodeの保持量で見える範囲では、100KiBの記事で増えるのはほ�
 WebKitで見た`livePreview`の約9.5MiBとの差は、DOMや画像、MathJaxの描画を作る部分と見ている。ただし内訳は未確認で、WebKitの削減量はここからは言えない。Nodeの測定では実装変更の効果を確認していないので、src/とtests/は変えていない。
 
 測定用のスクリプトは作業用の場所に置き、リポジトリには入れていない。
+
+## 2026-10-12のKaTeX試験
+
+MathJax 4.1.3からKaTeX 0.19.0へ置き換えた。比較元は`main`の`c09b1d7`。Release版の専用QAアプリを3つビルドし、作業用の場所に保存した。実アプリやユーザーのブログのワークスペースは使っていない。
+
+| 比較対象 | 識別子 | 出力 |
+|---|---|---|
+| Nagori QA MathJax | `app.nagori.editor.qamathjax` | CHTMLとAssistive MathML |
+| Nagori QA KaTeX | `app.nagori.editor.qakatex` | HTMLとMathML |
+| Nagori QA KaTeX HTML | `app.nagori.editor.qakatexhtml` | HTMLのみ |
+
+試験記事は`/private/tmp/nagori-katex/workspace/math-heavy.md`に作った。UTF-8で5,350バイト、インライン数式80個とディスプレイ数式80個を含む。`aligned`、`cases`、`matrix`、`equation`、自動式番号、手動タグを使う。切り替え先は同じ場所の`plain.md`。
+
+測定は、専用QAアプリと専用WebContentを含む`footprint`の合計で行った。各場面で30秒待ち、5秒間隔で6回測った中央値を記入した。ワークスペースは上の2つの記事だけなので、1,000ファイルで測った2026-10-09の値とは比べられない。
+
+| 場面 | MathJax MiB | KaTeX HTMLとMathML MiB | KaTeX HTMLのみ MiB |
+|---|---:|---:|---:|
+| 空の画面 | 69.6 | 69.5 | 69.6 |
+| 数式160個の記事 | 177.4 | 122.1 | 123.0 |
+
+数式160個の記事では、KaTeXにするとMathJaxより約55MiB少なかった。空の画面では差がない。読み上げ用のMathMLを外しても減らなかったので、MathMLは残す。
+
+数式記事から通常の記事へ移った場面は、画面の操作が要るため測っていない。合成のクリックはユーザーの他のアプリに届くおそれがあるので使わなかった。
+
+試験記事には、KaTeXが対応していない`multlined`、`\label`、`\ref`、`\eqref`を含めていない。KaTeX版でも160個すべてが数式として描かれる記事で比べた。

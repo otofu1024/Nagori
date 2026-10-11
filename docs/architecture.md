@@ -35,7 +35,7 @@ Rust backend (src-tauri/src/lib.rs)
 | [livePreview.ts](../src/lib/editor/livePreview.ts)、[previewState.ts](../src/lib/editor/previewState.ts)、[previewContext.ts](../src/lib/editor/previewContext.ts) | Previewの拡張、表示とIMEの状態、解析結果の再利用 |
 | [previewDecorations.ts](../src/lib/editor/previewDecorations.ts)、[previewBlocks.ts](../src/lib/editor/previewBlocks.ts)、[previewLists.ts](../src/lib/editor/previewLists.ts) | 装飾の組み立て、見出し・コード・引用・リストの表示 |
 | [previewText.ts](../src/lib/editor/previewText.ts)、[previewTable.ts](../src/lib/editor/previewTable.ts)、[previewImage.ts](../src/lib/editor/previewImage.ts)、[previewMath.ts](../src/lib/editor/previewMath.ts) | 文字・区切り線・表・画像・数式のWidget |
-| [markdownMath.ts](../src/lib/editor/markdownMath.ts)、[mathjax.ts](../src/lib/editor/mathjax.ts) | 数式の抽出、表示処理、MathJaxの読み込み |
+| [markdownMath.ts](../src/lib/editor/markdownMath.ts)、[katex.ts](../src/lib/editor/katex.ts) | 数式の抽出、表示処理、KaTeXの遅延読み込み |
 | [findPanel.ts](../src/lib/editor/findPanel.ts) | 記事内検索・置換のCodeMirror拡張 |
 | [typingFormat.ts](../src/lib/editor/typingFormat.ts) | 太字・斜体の入力時処理と空記法の整理 |
 | [focusMode.ts](../src/lib/editor/focusMode.ts) | 集中モードとタイプライター表示 |
@@ -75,6 +75,18 @@ Rust backend (src-tauri/src/lib.rs)
 ### ワークスペース機能
 
 AppはRustからファイル一覧を読み込み、`SidebarNav.svelte`の選択に応じてFile Tree、ノート一覧、ゴミ箱を表示する。本文検索は`WorkspaceSearch.svelte`から`workspace_search`コマンドを呼び、Rustの`search.rs`が対象ファイルを走査する。削除、復元、完全削除はRustの`trash.rs`が処理する。
+
+### 数式の試験実装
+
+数式はKaTeX 0.19.0で描画する。数式Widgetを初めて表示する時にエンジンとCSSを読み込み、フォントもVite経由で同梱する。数式のためのCDNや外部通信は使わない。読み込み済みのモジュールとCSSはアプリ終了まで残る。
+
+文書の本文が変わるたびにマクロを作り直す。`globalGroup`を有効にし、`\newcommand`を文書内の後続の数式で使えるようにする。式番号は全文の順序で固定し、表示範囲によって番号が変わることを防ぐ。設定は[KaTeXのOptions](https://katex.org/docs/options)を参照できる。
+
+`trust: false`、`maxSize: 20`、`maxExpand: 1000`を指定する。数式ごとの例外を受け止め、ソースと「（数式エラー）」を表示する。HTML属性やリンク、外部画像を扱うコマンドはKaTeXが拒否し、赤いコマンド名として表示する。指定寸法が20emを超えた場合はKaTeXの上限で表示する。
+
+`aligned`、`cases`、`matrix`、`\underbracket`、`\tag`、自動式番号はテストで確認した。`multlined`、`\label`、`\ref`、`\eqref`は未対応で、前方参照も解決しない。環境内の手動タグはHTMLに表示されるが、KaTeXのMathMLには出ない。自動番号と手動タグが混じる環境では、誤った番号を避けるためMathMLの番号も省く。
+
+出力は読み上げ用のMathMLを含む。HTMLのみとの差をmacOSの実メモリで測ってから出力方式を決めるため、現在はMathMLを残している。試験の進捗と未計測の項目は[メモリ測定](performance/memory.md)に記録する。KaTeXの採用はユーザーが比較結果を見て判断する。
 
 ## テストの配置
 
