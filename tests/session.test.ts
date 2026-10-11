@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EditSession } from '../src/lib/session.ts';
-import { candidates, localLink, renamedPath } from '../src/lib/navigation.ts';
+import { EditSession } from '../src/lib/workspace/session.ts';
+import { candidates, localLink, renamedPath } from '../src/lib/workspace/navigation.ts';
 test('save serializes generations and never acknowledges edits made during a write',async()=>{
  const releases:Array<()=>void>=[],writes:string[]=[];
  const session=new EditSession({path:'a.md',text:'a',baseline:'0',readonly:false},async(_path,text,baseline)=>{writes.push(text+baseline);await new Promise<void>(resolve=>releases.push(resolve));return {baseline:String(writes.length)};},()=>{});

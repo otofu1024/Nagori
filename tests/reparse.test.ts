@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChangeSet } from '@codemirror/state';
-import { formatPlan, markdownParser, reparse } from '../src/lib/markdown.ts';
+import { formatPlan, markdownParser, reparse } from '../src/lib/editor/markdown.ts';
 
 const kinds = ['bold', 'italic', 'strike', 'code', 'link'] as const;
 

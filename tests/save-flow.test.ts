@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EditSession, failure } from '../src/lib/session.ts';
+import { EditSession, failure } from '../src/lib/workspace/session.ts';
 
 // 書き込み関数を差し替えて保存の経路を再現する補助
 function make(write: (path: string, text: string, baseline: string) => Promise<{ baseline: string }>, text = 'original') {

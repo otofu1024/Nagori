@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityScrollbar } from '../src/lib/activityScrollbar.ts';
+import { activityScrollbar } from '../src/lib/editor/activityScrollbar.ts';
 
 test('領域上の動きとスクロールで表示し、最後の動きから1秒で隠す', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

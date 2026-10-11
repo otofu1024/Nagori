@@ -20,22 +20,22 @@ Rust backend (src-tauri/src/lib.rs)
 | ファイル | 担当 |
 |---|---|
 | [App.svelte](../src/App.svelte) | 起動、ワークスペースと選択中のファイル、保存状態、アプリイベント、ダイアログを管理 |
-| [Editor.svelte](../src/lib/Editor.svelte) | CodeMirrorの生成と破棄、編集拡張、IME、ツールバー、目次との連携 |
-| [markdown.ts](../src/lib/markdown.ts) | Markdown構文木の解析と範囲の走査 |
-| [livePreview.ts](../src/lib/livePreview.ts) | Markdownの装飾、表・画像・数式のWidget、Preview専用表示 |
-| [markdownMath.ts](../src/lib/markdownMath.ts)、[mathjax.ts](../src/lib/mathjax.ts) | 数式の抽出、表示処理、MathJaxの読み込み |
-| [findPanel.ts](../src/lib/findPanel.ts) | 記事内検索・置換のCodeMirror拡張 |
-| [typingFormat.ts](../src/lib/typingFormat.ts) | 太字・斜体の入力時処理と空記法の整理 |
-| [focusMode.ts](../src/lib/focusMode.ts) | 集中モードとタイプライター表示 |
-| [QuickOpen.svelte](../src/lib/QuickOpen.svelte)、[navigation.ts](../src/lib/navigation.ts) | ファイル名・パス検索とQuick Openの候補 |
-| [WorkspaceSearch.svelte](../src/lib/WorkspaceSearch.svelte)、[workspaceSearch.ts](../src/lib/workspaceSearch.ts) | ワークスペース本文検索の画面と検索処理 |
-| [SidebarNav.svelte](../src/lib/SidebarNav.svelte)、[NoteList.svelte](../src/lib/NoteList.svelte)、[TrashList.svelte](../src/lib/TrashList.svelte) | サイドバーのナビ、ノート一覧、ゴミ箱一覧 |
-| [noteLists.ts](../src/lib/noteLists.ts) | ノート一覧の並び、スター、閲覧記録 |
-| [FileTree.svelte](../src/lib/FileTree.svelte)、[fileDrag.ts](../src/lib/fileDrag.ts) | ファイルツリー、名前変更、ワークスペース内移動 |
-| [SettingsDialog.svelte](../src/lib/SettingsDialog.svelte)、[settings.ts](../src/lib/settings.ts) | 設定画面、値の初期値と読み込み時の検証 |
-| [Outline.svelte](../src/lib/Outline.svelte)、[outline.ts](../src/lib/outline.ts) | 見出し一覧、現在位置、本文内の移動 |
-| [appFlow.ts](../src/lib/appFlow.ts)、[session.ts](../src/lib/session.ts) | 切り替え・終了前の保存確認、文書の保存世代と競合状態 |
-| [image.ts](../src/lib/image.ts)、[imageDrop.ts](../src/lib/imageDrop.ts) | 画像の検証、挿入、貼り付け・ドロップ |
+| [Editor.svelte](../src/lib/editor/Editor.svelte) | CodeMirrorの生成と破棄、編集拡張、IME、ツールバー、目次との連携 |
+| [markdown.ts](../src/lib/editor/markdown.ts) | Markdown構文木の解析と範囲の走査 |
+| [livePreview.ts](../src/lib/editor/livePreview.ts) | Markdownの装飾、表・画像・数式のWidget、Preview専用表示 |
+| [markdownMath.ts](../src/lib/editor/markdownMath.ts)、[mathjax.ts](../src/lib/editor/mathjax.ts) | 数式の抽出、表示処理、MathJaxの読み込み |
+| [findPanel.ts](../src/lib/editor/findPanel.ts) | 記事内検索・置換のCodeMirror拡張 |
+| [typingFormat.ts](../src/lib/editor/typingFormat.ts) | 太字・斜体の入力時処理と空記法の整理 |
+| [focusMode.ts](../src/lib/editor/focusMode.ts) | 集中モードとタイプライター表示 |
+| [QuickOpen.svelte](../src/lib/components/QuickOpen.svelte)、[navigation.ts](../src/lib/workspace/navigation.ts) | ファイル名・パス検索とQuick Openの候補 |
+| [WorkspaceSearch.svelte](../src/lib/components/WorkspaceSearch.svelte)、[workspaceSearch.ts](../src/lib/workspace/workspaceSearch.ts) | ワークスペース本文検索の画面と検索処理 |
+| [SidebarNav.svelte](../src/lib/components/SidebarNav.svelte)、[NoteList.svelte](../src/lib/components/NoteList.svelte)、[TrashList.svelte](../src/lib/components/TrashList.svelte) | サイドバーのナビ、ノート一覧、ゴミ箱一覧 |
+| [noteLists.ts](../src/lib/workspace/noteLists.ts) | ノート一覧の並び、スター、閲覧記録 |
+| [FileTree.svelte](../src/lib/components/FileTree.svelte)、[fileDrag.ts](../src/lib/workspace/fileDrag.ts) | ファイルツリー、名前変更、ワークスペース内移動 |
+| [SettingsDialog.svelte](../src/lib/components/SettingsDialog.svelte)、[settings.ts](../src/lib/workspace/settings.ts) | 設定画面、値の初期値と読み込み時の検証 |
+| [Outline.svelte](../src/lib/components/Outline.svelte)、[outline.ts](../src/lib/workspace/outline.ts) | 見出し一覧、現在位置、本文内の移動 |
+| [appFlow.ts](../src/lib/workspace/appFlow.ts)、[session.ts](../src/lib/workspace/session.ts) | 切り替え・終了前の保存確認、文書の保存世代と競合状態 |
+| [image.ts](../src/lib/workspace/image.ts)、[imageDrop.ts](../src/lib/workspace/imageDrop.ts) | 画像の検証、挿入、貼り付け・ドロップ |
 | [lib.rs](../src-tauri/src/lib.rs) | Tauriコマンドの登録、ネイティブメニュー、アプリの起動とイベント |
 | [files.rs](../src-tauri/src/files.rs) | ファイル入出力、一覧、設定、画像の検証と取り込み |
 | [search.rs](../src-tauri/src/search.rs) | ワークスペース全体の本文検索 |

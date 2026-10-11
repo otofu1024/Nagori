@@ -4,8 +4,8 @@ import { EditorState, EditorSelection, type Transaction } from '@codemirror/stat
 import { history, undo, redo } from '@codemirror/commands';
 import { markdown, insertNewlineContinueMarkup } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { moveList } from '../src/lib/listEdit.ts';
-import { markdownParser, markdownExtensions, walk } from '../src/lib/markdown.ts';
+import { moveList } from '../src/lib/editor/listEdit.ts';
+import { markdownParser, markdownExtensions, walk } from '../src/lib/editor/markdown.ts';
 
 function edit(text: string, from: number, to = from, outdent = false) {
   let state = EditorState.create({ doc: text, selection: { anchor: from, head: to }, extensions: history() });

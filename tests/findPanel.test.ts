@@ -4,7 +4,7 @@ import { EditorState, StateEffect, Transaction } from '@codemirror/state';
 import { EditorView, showPanel, type ViewUpdate } from '@codemirror/view';
 import { history, undo, redo } from '@codemirror/commands';
 import { SearchQuery, setSearchQuery, getSearchQuery, openSearchPanel } from '@codemirror/search';
-import { findExtension, findReplaceBlocked, searchSummary, navigateMatch, replaceMatches } from '../src/lib/findPanel.ts';
+import { findExtension, findReplaceBlocked, searchSummary, navigateMatch, replaceMatches } from '../src/lib/editor/findPanel.ts';
 
 function editor(text: string, query: { search: string; replace?: string; regexp?: boolean; caseSensitive?: boolean }) {
   let state = EditorState.create({ doc: text, extensions: [history(), findExtension(() => false)] });

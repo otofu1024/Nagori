@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from './settings.ts';
-  import { rangeFill } from './rangeFill.ts';
+  import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from '../workspace/settings.ts';
+  import { rangeFill } from '../workspace/rangeFill.ts';
 
   let {
     dialog = $bindable(),

@@ -4,8 +4,8 @@ import { EditorState } from '@codemirror/state';
 import { Decoration, type DecorationSet } from '@codemirror/view';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { bulletGlyph, buildPreview, listDepth } from '../src/lib/livePreview.ts';
-import { markdownExtensions, walk } from '../src/lib/markdown.ts';
+import { bulletGlyph, buildPreview, listDepth } from '../src/lib/editor/livePreview.ts';
+import { markdownExtensions, walk } from '../src/lib/editor/markdown.ts';
 
 // 行の装飾と、記号の範囲を集める。カーソルは末尾の空行に置き、すべての項目を表示用に変える。
 function preview(text: string) {

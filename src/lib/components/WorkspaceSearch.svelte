@@ -2,10 +2,10 @@
   import { tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Icon from './Icon.svelte';
-  import { failure } from './session.ts';
-  import { parentPath } from './navigation.ts';
-  import { compositionGate } from './composition.ts';
-  import { DEBOUNCE_MS, FILE_LIMIT, groupMatches, hitOf, latestOnly, matchCount, segments, shouldSearch, type SearchHit, type SearchMatch, type SearchResponse } from './workspaceSearch.ts';
+  import { failure } from '../workspace/session.ts';
+  import { parentPath } from '../workspace/navigation.ts';
+  import { compositionGate } from '../editor/composition.ts';
+  import { DEBOUNCE_MS, FILE_LIMIT, groupMatches, hitOf, latestOnly, matchCount, segments, shouldSearch, type SearchHit, type SearchMatch, type SearchResponse } from '../workspace/workspaceSearch.ts';
 
   let {
     open = $bindable(false),

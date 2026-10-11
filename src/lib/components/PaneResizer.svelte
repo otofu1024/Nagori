@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { resizePane } from './paneWidths.ts';
+  import { resizePane } from '../workspace/paneWidths.ts';
 
   let {
     label,

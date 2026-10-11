@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, WHEEL_STEP, type Settings } from '../src/lib/settings.ts';
+import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, WHEEL_STEP, type Settings } from '../src/lib/workspace/settings.ts';
 
 test('集中モードとタイプライター表示は旧設定でオフになり、独立して保存・復元できる', () => {
   const { focusMode: _, typewriterMode: __, ...legacy } = defaults;

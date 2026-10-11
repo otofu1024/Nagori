@@ -13,8 +13,8 @@ import {
   setStarred,
   starredNotes,
   withParentLabels,
-} from '../src/lib/noteLists.ts';
-import type { Entry } from '../src/lib/navigation.ts';
+} from '../src/lib/workspace/noteLists.ts';
+import type { Entry } from '../src/lib/workspace/navigation.ts';
 
 const md = (path: string, modified?: number): Entry => ({ path, name: path.split('/').at(-1)!, kind: 'markdown', modified });
 const dir = (path: string): Entry => ({ path, name: path.split('/').at(-1)!, kind: 'directory' });

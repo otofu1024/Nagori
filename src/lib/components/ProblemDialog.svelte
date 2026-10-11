@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Failure } from './session.ts';
+  import type { Failure } from '../workspace/session.ts';
 
   let {
     dialog = $bindable(),

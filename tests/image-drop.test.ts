@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { history, undo, isolateHistory } from '@codemirror/commands';
-import { imageDropReason, importDroppedImages, validateDroppedImages, preventFileNavigation, type ImageDropState } from '../src/lib/imageDrop.ts';
+import { imageDropReason, importDroppedImages, validateDroppedImages, preventFileNavigation, type ImageDropState } from '../src/lib/workspace/imageDrop.ts';
 
 const editable: ImageDropState = { plain: false, readonly: false, busy: false, saving: false, composing: false, previewOnly: false, saved: true };
 

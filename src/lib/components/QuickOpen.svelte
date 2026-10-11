@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Icon from './Icon.svelte';
-  import { candidates, type Entry } from './navigation.ts';
+  import { candidates, type Entry } from '../workspace/navigation.ts';
 
   let {
     entries,

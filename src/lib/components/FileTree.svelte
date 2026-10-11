@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { activityScrollbar } from './activityScrollbar.ts';
-  import type { Entry, Naming } from './navigation.ts';
-  import { beginDrag, dragSource, endDrag, HOLD_OPEN_MS, isInternalDrag, moveBlock } from './fileDrag.ts';
+  import { activityScrollbar } from '../editor/activityScrollbar.ts';
+  import type { Entry, Naming } from '../workspace/navigation.ts';
+  import { beginDrag, dragSource, endDrag, HOLD_OPEN_MS, isInternalDrag, moveBlock } from '../workspace/fileDrag.ts';
 
   type Row = Entry & { depth: number };
   type Drop = { path: string; row?: Row };

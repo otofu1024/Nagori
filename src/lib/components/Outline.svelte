@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { activityScrollbar } from './activityScrollbar.ts';
-  import type { OutlineHeading } from './outline.ts';
+  import { activityScrollbar } from '../editor/activityScrollbar.ts';
+  import type { OutlineHeading } from '../workspace/outline.ts';
   let {
     headings,
     active,

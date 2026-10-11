@@ -1,7 +1,7 @@
 import { isolateHistory } from '@codemirror/commands';
 import type { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { clipboardImage } from './image.ts';
+import { clipboardImage } from '../workspace/image.ts';
 import { frontMatter, intersects, markdownParser, walk } from './markdown.ts';
 
 export function linkPaste(state: EditorState, clipboard: string) {

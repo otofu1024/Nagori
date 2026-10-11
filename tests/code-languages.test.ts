@@ -4,7 +4,7 @@ import { EditorState } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { highlightingFor, syntaxTree } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
-import { codeLanguages, codeLanguage, codeHighlighting } from '../src/lib/codeLanguages.ts';
+import { codeLanguages, codeLanguage, codeHighlighting } from '../src/lib/editor/codeLanguages.ts';
 
 test('指定した言語と別名だけを選び、定義は初期状態では読み込まない', () => {
   assert.ok(codeLanguages.every(language => !language.support));

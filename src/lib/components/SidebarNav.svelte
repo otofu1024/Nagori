@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import type { Entry } from './navigation.ts';
-  import { canTrash, dragSource, endDrag, isInternalDrag } from './fileDrag.ts';
+  import type { Entry } from '../workspace/navigation.ts';
+  import { canTrash, dragSource, endDrag, isInternalDrag } from '../workspace/fileDrag.ts';
 
   // treeはフォルダ（File Tree）の表示。ほかは一覧に切り替える
   export type SidebarView = 'tree' | 'all' | 'starred' | 'recent' | 'trash';

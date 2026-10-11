@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
-import { continueList } from '../src/lib/listEdit.ts';
-import { markdownExtensions } from '../src/lib/markdown.ts';
+import { continueList } from '../src/lib/editor/listEdit.ts';
+import { markdownExtensions } from '../src/lib/editor/markdown.ts';
 
 // Editor.svelte と同じ言語設定で、カーソル位置の Enter を実行する。
 function enter(text: string, at = text.length) {

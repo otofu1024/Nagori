@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../components/Icon.svelte';
   import { Compartment, EditorState, Prec, Transaction, EditorSelection, type ChangeSet } from '@codemirror/state';
   import type { Tree } from '@lezer/common';
   import { EditorView, keymap, highlightActiveLine, layer, RectangleMarker } from '@codemirror/view';
   import { history, historyKeymap, defaultKeymap, isolateHistory } from '@codemirror/commands';
   import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree, syntaxTreeAvailable, forceParsing } from '@codemirror/language';
-  import { extractHeadings, currentHeading, type OutlineHeading } from './outline.ts';
+  import { extractHeadings, currentHeading, type OutlineHeading } from '../workspace/outline.ts';
   import { openSearchPanel, closeSearchPanel } from '@codemirror/search';
   import { findExtension, findReplaceBlocked } from './findPanel.ts';
   import { restoredScrollTop } from './scrollRestore.ts';
@@ -19,13 +19,13 @@
   import { formatPlan, linkMarkdown, markdownExtensions, markdownParser, reparse, type FormatPlan } from './markdown.ts';
   import type { EditorApi, FormatKind, EditorContextState, EditorContextMenu } from './editor.ts';
   import { blockAvailability, blockEdit, listPlan, type BlockKind, type ListKind } from './blockEdit.ts';
-  import { imageDrop } from './imageDrop.ts';
+  import { imageDrop } from '../workspace/imageDrop.ts';
   import { codeLanguage, codeHighlighting } from './codeLanguages.ts';
   import { moveList, continueList } from './listEdit.ts';
   import { moveTable } from './tableEdit.ts';
   import { pasteMarkdown } from './linkPaste.ts';
   import { typingFormat, typingFormatPlan, typingCleanup } from './typingFormat.ts';
-  import { matchSpan } from './workspaceSearch.ts';
+  import { matchSpan } from '../workspace/workspaceSearch.ts';
 
   let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;

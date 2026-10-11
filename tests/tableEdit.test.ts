@@ -4,8 +4,8 @@ import { EditorState, type Transaction } from '@codemirror/state';
 import { history, undo, redo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { markdownParser, markdownExtensions } from '../src/lib/markdown.ts';
-import { moveTable, tableCellWidth } from '../src/lib/tableEdit.ts';
+import { markdownParser, markdownExtensions } from '../src/lib/editor/markdown.ts';
+import { moveTable, tableCellWidth } from '../src/lib/editor/tableEdit.ts';
 
 function edit(text: string, anchor: number, direction: Parameters<typeof moveTable>[1]) {
   let state = EditorState.create({ doc: text, selection: { anchor }, extensions: history() });

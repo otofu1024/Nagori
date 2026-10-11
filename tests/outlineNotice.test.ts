@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { outlineNoticeVisible } from '../src/lib/outlineNotice.ts';
-import { paneLayout } from '../src/lib/paneWidths.ts';
+import { outlineNoticeVisible } from '../src/lib/workspace/outlineNotice.ts';
+import { paneLayout } from '../src/lib/workspace/paneWidths.ts';
 
 const shown = { plain: false, previewOnly: false, outlineVisible: true, headingCount: 3, showOutline: false };
 

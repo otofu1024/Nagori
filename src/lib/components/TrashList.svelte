@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { activityScrollbar } from './activityScrollbar.ts';
-  import { formatNoteDate, type TrashItem } from './noteLists.ts';
-  import { parentPath } from './navigation.ts';
+  import { activityScrollbar } from '../editor/activityScrollbar.ts';
+  import { formatNoteDate, type TrashItem } from '../workspace/noteLists.ts';
+  import { parentPath } from '../workspace/navigation.ts';
 
   // アプリ内のゴミ箱の一覧。項目は開かず、戻す・完全に削除するだけ。空にするボタンは見出しの行に置く
   let { items, busy, onRestore, onDelete, onContextMenu }: {

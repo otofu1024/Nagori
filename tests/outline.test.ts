@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { markdownExtensions, markdownParser } from '../src/lib/markdown.ts';
-import { extractHeadings, currentHeading } from '../src/lib/outline.ts';
-import { restoredScrollTop } from '../src/lib/scrollRestore.ts';
+import { markdownExtensions, markdownParser } from '../src/lib/editor/markdown.ts';
+import { extractHeadings, currentHeading } from '../src/lib/workspace/outline.ts';
+import { restoredScrollTop } from '../src/lib/editor/scrollRestore.ts';
 
 function headings(text: string) {
   return extractHeadings(markdownParser.parse(text), EditorState.create({ doc: text }).doc);

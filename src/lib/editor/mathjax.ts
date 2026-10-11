@@ -21,8 +21,8 @@ const adaptor = liteAdaptor({ fontSize: 16 });
 AssistiveMmlHandler(RegisterHTMLHandler(adaptor));
 const output = new CHTML<LiteElement, LiteText, LiteDocument>({ fontURL: 'nagori-mathjax-font', dynamicPrefix: '@mathjax/mathjax-newcm-font/js/chtml/dynamic', adaptiveCSS: true });
 // Vite emits local hashed font/data assets. No CDN, autoload, require, menu or speech workers.
-const fontData = typeof window !== 'undefined' ? import.meta.glob('../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/*.js') : {};
-const fontURLs = typeof window !== 'undefined' ? import.meta.glob<string>('../../node_modules/@mathjax/mathjax-newcm-font/chtml/woff2/*.woff2', { query: '?url&no-inline', import: 'default', eager: true }) : {};
+const fontData = typeof window !== 'undefined' ? import.meta.glob('../../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/*.js') : {};
+const fontURLs = typeof window !== 'undefined' ? import.meta.glob<string>('../../../node_modules/@mathjax/mathjax-newcm-font/chtml/woff2/*.woff2', { query: '?url&no-inline', import: 'default', eager: true }) : {};
 mathjax.asyncLoad = (path: string) => {
   const name = path.split('/').at(-1)!;
   const load = fontData[`../../node_modules/@mathjax/mathjax-newcm-font/mjs/chtml/dynamic/${name}`];
