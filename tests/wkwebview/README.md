@@ -19,6 +19,7 @@ IME以外の確認はURLを指定します。
 ```sh
 swift tests/wkwebview/probe.swift /private/tmp/nagori-typing-check http://127.0.0.1:1438/tests/wkwebview/typing.html
 swift tests/wkwebview/probe.swift /private/tmp/nagori-inline-code-check http://127.0.0.1:1438/tests/wkwebview/inline-code.html
+swift tests/wkwebview/probe.swift /private/tmp/nagori-math-check http://127.0.0.1:1438/tests/wkwebview/math.html
 ```
 
 出力先には`results.json`、WebViewの`view.png`、ウィンドウの`window.png`が作られます。`results.json`の`pass`が`true`で、各`checks`もすべて成功なら通過です。失敗時は`checks`と`error.txt`を確認してください。
