@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "format": "prettier --write src/App.svelte \"src/lib/**/*.svelte\" \"src/lib/**/*.ts\" \"src/lib/**/*.css\" \"tests/editor/*.test.ts\" \"tests/workspace/*.test.ts\"",
+    "format": "prettier --write src/App.svelte \"src/lib/**/*.svelte\" \"src/lib/**/*.ts\" \"src/lib/**/*.css\" \"tests/editor/*.ts\" \"tests/workspace/*.ts\"",
     "test": "node --experimental-strip-types --test tests/editor/*.test.ts tests/workspace/*.test.ts",
     "tauri": "tauri",
     "release:sign": "sh scripts/release-sign.sh",

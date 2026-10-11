@@ -17,12 +17,18 @@ Rust backend (src-tauri/src/lib.rs)
 
 ## 主なファイル
 
+`src/lib/editor/`にCodeMirrorとMarkdownの処理、`src/lib/workspace/`にファイル・保存・検索・設定の処理を置く。画面部品は`src/lib/components/`、採用したブランド画像は`src/lib/assets/`に置く。
+
 | ファイル | 担当 |
 |---|---|
-| [App.svelte](../src/App.svelte) | 起動、ワークスペースと選択中のファイル、保存状態、アプリイベント、ダイアログを管理 |
-| [Editor.svelte](../src/lib/editor/Editor.svelte) | CodeMirrorの生成と破棄、編集拡張、IME、ツールバー、目次との連携 |
-| [markdown.ts](../src/lib/editor/markdown.ts) | Markdown構文木の解析と範囲の走査 |
-| [livePreview.ts](../src/lib/editor/livePreview.ts) | Markdownの装飾、表・画像・数式のWidget、Preview専用表示 |
+| [App.svelte](../src/App.svelte) | 起動、画面の組み立て、各処理と状態の接続 |
+| [Editor.svelte](../src/lib/editor/Editor.svelte) | CodeMirrorの生成と破棄、編集拡張、IME、目次とツールバーの接続 |
+| [keymap.ts](../src/lib/editor/keymap.ts)、[toolbar.svelte.ts](../src/lib/editor/toolbar.svelte.ts)、[editor.css](../src/lib/editor/editor.css) | キー操作、装飾とリンク編集の状態、Editorのスタイル |
+| [markdown.ts](../src/lib/editor/markdown.ts) | Markdown構文木の解析、差分解析、範囲の走査 |
+| [markdownInline.ts](../src/lib/editor/markdownInline.ts)、[markdownFormat.ts](../src/lib/editor/markdownFormat.ts) | インライン記法と参照リンク、装飾の変更計画 |
+| [livePreview.ts](../src/lib/editor/livePreview.ts)、[previewState.ts](../src/lib/editor/previewState.ts)、[previewContext.ts](../src/lib/editor/previewContext.ts) | Previewの拡張、表示とIMEの状態、解析結果の再利用 |
+| [previewDecorations.ts](../src/lib/editor/previewDecorations.ts)、[previewBlocks.ts](../src/lib/editor/previewBlocks.ts)、[previewLists.ts](../src/lib/editor/previewLists.ts) | 装飾の組み立て、見出し・コード・引用・リストの表示 |
+| [previewText.ts](../src/lib/editor/previewText.ts)、[previewTable.ts](../src/lib/editor/previewTable.ts)、[previewImage.ts](../src/lib/editor/previewImage.ts)、[previewMath.ts](../src/lib/editor/previewMath.ts) | 文字・区切り線・表・画像・数式のWidget |
 | [markdownMath.ts](../src/lib/editor/markdownMath.ts)、[mathjax.ts](../src/lib/editor/mathjax.ts) | 数式の抽出、表示処理、MathJaxの読み込み |
 | [findPanel.ts](../src/lib/editor/findPanel.ts) | 記事内検索・置換のCodeMirror拡張 |
 | [typingFormat.ts](../src/lib/editor/typingFormat.ts) | 太字・斜体の入力時処理と空記法の整理 |
@@ -35,7 +41,10 @@ Rust backend (src-tauri/src/lib.rs)
 | [SettingsDialog.svelte](../src/lib/components/SettingsDialog.svelte)、[settings.ts](../src/lib/workspace/settings.ts) | 設定画面、値の初期値と読み込み時の検証 |
 | [Outline.svelte](../src/lib/components/Outline.svelte)、[outline.ts](../src/lib/workspace/outline.ts) | 見出し一覧、現在位置、本文内の移動 |
 | [appFlow.ts](../src/lib/workspace/appFlow.ts)、[session.ts](../src/lib/workspace/session.ts) | 切り替え・終了前の保存確認、文書の保存世代と競合状態 |
-| [image.ts](../src/lib/workspace/image.ts)、[imageDrop.ts](../src/lib/workspace/imageDrop.ts) | 画像の検証、挿入、貼り付け・ドロップ |
+| [fileActions.ts](../src/lib/workspace/fileActions.ts)、[documentDialogs.ts](../src/lib/workspace/documentDialogs.ts) | 作成・名前変更・移動・ゴミ箱、保存問題と別名保存のダイアログ |
+| [menus.ts](../src/lib/workspace/menus.ts) | メニューバーと右クリックメニューの処理 |
+| [fontZoom.ts](../src/lib/workspace/fontZoom.ts)、[settingsDialog.ts](../src/lib/workspace/settingsDialog.ts) | 文字サイズの変更と保存の待ち時間、設定ダイアログの開閉とフォーカス復帰 |
+| [image.ts](../src/lib/workspace/image.ts)、[imageDrop.ts](../src/lib/workspace/imageDrop.ts)、[imageLoader.ts](../src/lib/workspace/imageLoader.ts) | 画像の検証、挿入、貼り付け・ドロップ、URLと読み込み待ちの管理 |
 | [lib.rs](../src-tauri/src/lib.rs) | Tauriコマンドの登録、ネイティブメニュー、アプリの起動とイベント |
 | [files.rs](../src-tauri/src/files.rs) | ファイル入出力、一覧、設定、画像の検証と取り込み |
 | [search.rs](../src-tauri/src/search.rs) | ワークスペース全体の本文検索 |
@@ -50,7 +59,7 @@ Rust backend (src-tauri/src/lib.rs)
 
 ### Previewと編集拡張
 
-`Editor.svelte`がCodeMirrorの拡張を組み合わせる。`markdown.ts`の構文木を`livePreview.ts`が装飾へ変換する。Previewは同じEditorViewを使い、読み取り専用として編集を止める。記事内検索は`findPanel.ts`、入力中の太字・斜体処理は`typingFormat.ts`、集中表示は`focusMode.ts`が担当する。
+`Editor.svelte`がCodeMirrorの拡張を組み合わせる。`markdown.ts`の構文木を`previewDecorations.ts`が装飾へ変換し、種類ごとのモジュールが表示を組み立てる。`livePreview.ts`は本文・選択・IMEの変化に合わせて装飾を更新する。Previewは同じEditorViewを使い、読み取り専用として編集を止める。記事内検索は`findPanel.ts`、入力中の太字・斜体処理は`typingFormat.ts`、集中表示は`focusMode.ts`が担当する。
 
 ### ワークスペース機能
 
@@ -58,4 +67,6 @@ AppはRustからファイル一覧を読み込み、`SidebarNav.svelte`の選択
 
 ## テストの配置
 
-`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`はNode標準のテストランナーで動き、`npm test`が実行する。WKWebView上のIME、入力装飾、インラインコード確認は[`tests/wkwebview`](../tests/wkwebview/README.md)で手動実行する。WKWebView用の`.js`と`.html`は`npm test`の対象に含まれない。Rustの単体テストは各Rustモジュールに置き、`cd src-tauri && cargo test`で実行する。
+`tests/editor/`はMarkdownの解析・装飾・キー操作・IME・表示拡張を、`tests/workspace/`は保存・ファイル操作・一覧・検索・設定を確かめる。ファイル名はソースと同じcamelCaseにそろえる。リストの字下げ・継続・記号は`listEdit.test.ts`、保存世代と失敗時の処理は`session.test.ts`へまとめる。Previewの共通設定は`previewFixture.ts`に置く。
+
+`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`はNode標準のテストランナーで動き、`npm test`が全件実行する。WKWebView上のIME、入力装飾、インラインコード確認は[`tests/wkwebview`](../tests/wkwebview/README.md)で手動実行する。WKWebView用の`.js`と`.html`は`npm test`の対象に含まれない。Rustの単体テストは各Rustモジュールに置き、`cd src-tauri && cargo test`で実行する。
