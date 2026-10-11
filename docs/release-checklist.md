@@ -11,7 +11,7 @@ npm test
 npm run build
 ```
 
-`npm test`は`tests/*.test.ts`が対象です。WKWebViewの確認には[専用手順](../tests/wkwebview/README.md)を使います。記載の手順でサーバーを起動し、Swiftの確認アプリを実行してください。
+`npm test`は`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`が対象です。WKWebViewの確認には[専用手順](../tests/wkwebview/README.md)を使います。記載の手順でサーバーを起動し、Swiftの確認アプリを実行してください。
 
 ## Macアプリでの確認
 

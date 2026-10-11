@@ -7,8 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "format": "prettier --write src/App.svelte src/lib/QuickOpen.svelte src/lib/FileTree.svelte src/lib/ProblemDialog.svelte src/lib/SaveAsDialog.svelte src/lib/Outline.svelte src/lib/PaneResizer.svelte",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "format": "prettier --write src/App.svelte \"src/lib/**/*.svelte\" \"src/lib/**/*.ts\" \"src/lib/**/*.css\" \"tests/editor/*.ts\" \"tests/workspace/*.ts\"",
+    "test": "node --experimental-strip-types --test tests/editor/*.test.ts tests/workspace/*.test.ts",
     "tauri": "tauri",
     "release:sign": "sh scripts/release-sign.sh",
     "release:sign:check": "sh scripts/release-sign.sh --check"

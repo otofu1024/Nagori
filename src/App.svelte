@@ -2,51 +2,51 @@
   import { onMount, tick } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import { Menu, type MenuOptions } from '@tauri-apps/api/menu';
-  import { LogicalPosition } from '@tauri-apps/api/dpi';
+  import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
+  import { createSettingsDialog } from './lib/workspace/settingsDialog.ts';
+  import { createFontZoom } from './lib/workspace/fontZoom.ts';
+  import { createFileActions } from './lib/workspace/fileActions.ts';
+  import { createMenus } from './lib/workspace/menus.ts';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
-  import Editor from './lib/Editor.svelte';
-  import Outline from './lib/Outline.svelte';
-  import OutlineNotice from './lib/OutlineNotice.svelte';
-  import { outlineNoticeVisible } from './lib/outlineNotice.ts';
-  import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/composition.ts';
-  import PaneResizer from './lib/PaneResizer.svelte';
-  import { SIDEBAR, OUTLINE, paneLayout } from './lib/paneWidths.ts';
-  import type { OutlineHeading } from './lib/outline.ts';
-  import Icon from './lib/Icon.svelte';
-  import QuickOpen from './lib/QuickOpen.svelte';
-  import WorkspaceSearch from './lib/WorkspaceSearch.svelte';
-  import type { SearchHit } from './lib/workspaceSearch.ts';
-  import FileTree from './lib/FileTree.svelte';
-  import SidebarNav, { type SidebarView } from './lib/SidebarNav.svelte';
-  import NoteList from './lib/NoteList.svelte';
-  import TrashList from './lib/TrashList.svelte';
-  import { endDrag, rootDrop } from './lib/fileDrag.ts';
-  import { allNotes, recentlyEdited, starredNotes, setStarred, renameStarred, removeStarred, recordOpened, renameOpened, removeOpened, type NoteItem, type TrashItem } from './lib/noteLists.ts';
-  import ProblemDialog from './lib/ProblemDialog.svelte';
-  import SaveAsDialog from './lib/SaveAsDialog.svelte';
+  import Editor from './lib/editor/Editor.svelte';
+  import Outline from './lib/components/Outline.svelte';
+  import OutlineNotice from './lib/components/OutlineNotice.svelte';
+  import { outlineNoticeVisible } from './lib/workspace/outlineNotice.ts';
+  import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/editor/composition.ts';
+  import PaneResizer from './lib/components/PaneResizer.svelte';
+  import { SIDEBAR, OUTLINE, paneLayout } from './lib/workspace/paneWidths.ts';
+  import type { OutlineHeading } from './lib/workspace/outline.ts';
+  import Icon from './lib/components/Icon.svelte';
+  import QuickOpen from './lib/components/QuickOpen.svelte';
+  import WorkspaceSearch from './lib/components/WorkspaceSearch.svelte';
+  import type { SearchHit } from './lib/workspace/workspaceSearch.ts';
+  import FileTree from './lib/components/FileTree.svelte';
+  import SidebarNav, { type SidebarView } from './lib/components/SidebarNav.svelte';
+  import NoteList from './lib/components/NoteList.svelte';
+  import TrashList from './lib/components/TrashList.svelte';
+  import { endDrag, rootDrop } from './lib/workspace/fileDrag.ts';
+  import { allNotes, recentlyEdited, starredNotes, recordOpened, type NoteItem, type TrashItem } from './lib/workspace/noteLists.ts';
+  import ProblemDialog from './lib/components/ProblemDialog.svelte';
+  import SaveAsDialog from './lib/components/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
   import nagoriWordmark from './lib/assets/nagori-wordmark.png';
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
-  import type { EditorApi, EditorContextMenu } from './lib/editor';
-  import type { BlockKind } from './lib/blockEdit';
-  import { EditSession, failure, type OpenedDocument } from './lib/session';
-  import { AppFlow } from './lib/appFlow';
-  import { containsPath, renamedPath, parentPath, localLink, type Entry, type Naming } from './lib/navigation';
-  import { imageMime } from './lib/image';
-  import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/imageDrop';
+  import type { EditorApi } from './lib/editor/editor';
+  import { EditSession, failure, type OpenedDocument } from './lib/workspace/session';
+  import { AppFlow } from './lib/workspace/appFlow';
+  import { parentPath, localLink, type Entry, type Naming } from './lib/workspace/navigation';
+  import { createImageLoader } from './lib/workspace/imageLoader.ts';
+  import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/workspace/imageDrop';
 
-  import SettingsDialog from './lib/SettingsDialog.svelte';
-  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, type Settings } from './lib/settings';
+  import SettingsDialog from './lib/components/SettingsDialog.svelte';
+  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, type Settings } from './lib/workspace/settings';
   type OpenRequest = { workspace: string; path: string | null };
-  type CliStatus = { message: string };
   let settings = $state<Settings>({ ...defaults, theme: 'light' });
   let settingsLoaded = $state(false);
   // macOSの外観。theme が 'system' の時だけ使う
   let systemDark = $state(false),
     settingsOpen = $state(false),
     settingsDialog = $state<HTMLDialogElement>();
-  let settingsReturn: HTMLElement | null = null;
   const theme = $derived(resolvedTheme(settings.theme, systemDark));
   let project = $state(''),
     current = $state<Entry | null>(null),
@@ -95,10 +95,9 @@
   let fsTimer: ReturnType<typeof setTimeout> | undefined, noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let openRequestsQueued = false,
     openingRequest = false;
-  const imageUrls = new Set<string>();
-  const imageCache = new Map<string, Promise<string>>();
-  let imageEpoch = 0,
-    treeQueued = false,
+  const images = createImageLoader(() => current?.path);
+  const { blobImage, resolveImage } = images;
+  let treeQueued = false,
     imagesQueued = false;
   let quick = $state(false),
     quickPanel: QuickOpen;
@@ -268,8 +267,7 @@
           key = documentKey;
         const url = await blobImage(target.path);
         if (current !== target || documentKey !== key) {
-          URL.revokeObjectURL(url);
-          imageUrls.delete(url);
+          images.discard(url);
         } else {
           if (imageUrl) URL.revokeObjectURL(imageUrl);
           imageUrl = url;
@@ -288,7 +286,7 @@
     isComposing: () => composing,
     cancelSave,
     settleComposition,
-    showProblem,
+    showProblem: () => showProblem(),
     openDocument: (path) => invoke<OpenedDocument>('document_open', { path }),
     replaceText: (text) => editor?.replaceText(text),
     notify,
@@ -367,10 +365,7 @@
     }
   }
   function releaseImages() {
-    imageEpoch++;
-    imageCache.clear();
-    for (const url of imageUrls) URL.revokeObjectURL(url);
-    imageUrls.clear();
+    images.releaseImages();
     imageUrl = '';
     imageDimensions = '';
   }
@@ -390,36 +385,6 @@
     contentError = '';
     documentKey++;
     releaseImages();
-  }
-  // 記事中の表示(preview)は縮小版を、画像そのものを開く時は元のバイト列を使う
-  async function blobImage(path: string, documentPath?: string, preview = false) {
-    const bytes = new Uint8Array(await invoke<ArrayBuffer>('image_read', { path, documentPath, preview }));
-    const url = URL.createObjectURL(new Blob([bytes], { type: imageMime(bytes) }));
-    imageUrls.add(url);
-    return url;
-  }
-  async function resolveImage(ref: string) {
-    const epoch = imageEpoch,
-      path = current?.path;
-    if (!path) throw new Error('記事を開いてください。');
-    const key = path + '\0' + ref,
-      cached = imageCache.get(key);
-    if (cached) return cached;
-    const promise = blobImage(ref, path, true).then((url) => {
-      if (epoch !== imageEpoch || path !== current?.path) {
-        URL.revokeObjectURL(url);
-        imageUrls.delete(url);
-        throw new Error('記事が切り替わりました。');
-      }
-      return url;
-    });
-    imageCache.set(key, promise);
-    try {
-      return await promise;
-    } catch (error) {
-      if (imageCache.get(key) === promise) imageCache.delete(key);
-      throw error;
-    }
   }
   // 保存した記事の更新日時を今にして、最近見たノートの一覧へ反映する
   async function saveDocument(path: string, text: string, baseline: string) {
@@ -531,109 +496,24 @@
     await tick();
     editor?.revealRange(hit.line, hit.column, hit.length);
   }
-  // nagoriコマンドの登録と解除。結果と失敗理由は通知で示す
-  async function runCli(id: 'cli_install' | 'cli_uninstall') {
-    if (busy || composing) return;
-    await operation(async () => {
-      try {
-        notify((await invoke<CliStatus>(id)).message);
-      } catch (error) {
-        const problem = failure(error);
-        notify(problem.code === 'CANCELLED' ? '操作をキャンセルしました。' : problem.message);
-      }
-    }, false);
-  }
-  function selectedFolder() {
-    const entry = rows.find((item) => item.path === selected);
-    return entry?.kind === 'directory' ? entry.path : parentPath(selected);
-  }
-  async function startName(kind: 'markdown' | 'directory' | 'rename', entry?: Entry) {
-    if (busy) return;
-    // 作成と名前変更は File Tree で行うので、フォルダの表示に戻す
-    view = 'tree';
-    const parent = kind === 'rename' ? parentPath(entry!.path) : selectedFolder();
-    if (parent && !expanded.includes(parent)) {
-      await list(parent);
-      expanded = [...expanded, parent];
-    }
-    naming = {
-      kind,
-      parent,
-      entry,
-      value: kind === 'rename' ? entry!.name : kind === 'markdown' ? 'untitled.md' : '新しいフォルダ',
-      error: '',
-    };
-    await tick();
-    renameInput?.focus();
-    renameInput?.select();
-  }
-  async function commitName() {
-    if (!naming || busy) return;
-    const request = naming;
-    if (!request.value.trim() || /[\/\0]/.test(request.value) || ['.', '..'].includes(request.value)) {
-      naming = { ...request, error: '有効な名前を入力してください。' };
-      return;
-    }
-    await operation(async () => {
-      try {
-        if (request.kind === 'rename') {
-          const old = request.entry!.path;
-          const entry = await invoke<Entry>('file_rename', { path: old, newName: request.value });
-          await followMove(old, entry);
-          notify('名前を変更しました。リンク・画像の参照は自動更新されません。');
-        } else {
-          let name = request.value;
-          if (request.kind === 'markdown' && !/\.(md|markdown)$/i.test(name)) name += '.md';
-          const path = request.parent ? request.parent + '/' + name : name;
-          const entry = await invoke<Entry>('file_create', { path, kind: request.kind });
-          selected = entry.path;
-          if (entry.kind === 'markdown') await loadEntry(entry);
-        }
-        naming = null;
-        await refreshTree();
-        await refreshIndex();
-        void persist();
-      } catch (error) {
-        naming = { ...request, error: failure(error).message };
-      }
-    });
-  }
-  // 名前の変更と移動の後、開いている記事・最近開いたファイル・スター・開いているフォルダのパスを更新する
-  async function followMove(old: string, entry: Entry) {
-    if (current?.path === old && entry.kind !== current.kind) await loadEntry(entry);
-    else if (current && containsPath(old, current.path)) {
-      current = {
-        ...current,
-        path: renamedPath(current.path, old, entry.path),
-        name: current.path === old ? entry.name : current.name,
-      };
-      if (session) session.path = current.path;
-      settings.lastFile = current.path;
-      releaseImages();
-      if (session) editor?.refreshImages();
-      else if (current.kind === 'image') imageUrl = await blobImage(current.path);
-    }
-    settings.recentFiles = settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
-    settings.recentOpenedAt = renameOpened(settings.recentOpenedAt, old, entry.path);
-    if (project) settings.starred = renameStarred(settings.starred, project, old, entry.path);
-    expanded = expanded.map((path) => renamedPath(path, old, entry.path));
-    selected = entry.path;
-  }
-  // ドラッグで項目を別のフォルダへ移す。一番上へ移す時はtoDirectoryを空にする。同じ名前があれば移さない
-  async function move(entry: Entry, toDirectory: string) {
-    await operation(async () => {
-      const moved = await invoke<Entry>('file_move', { path: entry.path, toDirectory });
-      await followMove(entry.path, moved);
-      if (toDirectory && !expanded.includes(toDirectory)) {
-        await list(toDirectory);
-        expanded = [...expanded, toDirectory];
-      }
-      await refreshTree();
-      await refreshIndex();
-      void persist();
-      notify(`「${moved.name}」を移動しました。`);
-    });
-  }
+  const { runCli, startName, commitName, move, trash, restoreTrash, deleteTrash, emptyTrash, toggleStar, reveal } = createFileActions({
+    get busy() { return busy; },
+    get composing() { return composing; },
+    get project() { return project; },
+    get view() { return view; }, set view(value) { view = value; },
+    get expanded() { return expanded; }, set expanded(value) { expanded = value; },
+    get selected() { return selected; }, set selected(value) { selected = value; },
+    get naming() { return naming; }, set naming(value) { naming = value; },
+    get renameInput() { return renameInput; },
+    get current() { return current; }, set current(value) { current = value; },
+    get session() { return session; }, set session(value) { session = value; },
+    get settings() { return settings; }, set settings(value) { settings = value; },
+    get trashItems() { return trashItems; },
+    get rows() { return rows; },
+    get editor() { return editor; },
+    get imageUrl() { return imageUrl; }, set imageUrl(value) { imageUrl = value; },
+    operation, notify, list, loadEntry, refreshTree, refreshIndex, persist, releaseImages, blobImage, clearDocument, loadTrash,
+  });
   // ワークスペースの名前へ離すと、一番上へ移す
   function rootDragOver(event: DragEvent) {
     rootHot = rootDrop(event) !== null;
@@ -648,201 +528,6 @@
     if (!entry) return;
     event.preventDefault();
     void move(entry, '');
-  }
-  // アプリ内のゴミ箱へ移す。復元はゴミ箱の一覧から行える
-  async function trash(entry: Entry) {
-    await operation(async () => {
-      await invoke('file_trash', { path: entry.path });
-      if (current && containsPath(entry.path, current.path)) {
-        clearDocument();
-        settings.lastFile = null;
-      }
-      settings.recentFiles = settings.recentFiles.filter((path) => !containsPath(entry.path, path));
-      settings.recentOpenedAt = removeOpened(settings.recentOpenedAt, entry.path);
-      if (project) settings.starred = removeStarred(settings.starred, project, entry.path);
-      expanded = expanded.filter((path) => !containsPath(entry.path, path));
-      selected = '';
-      await refreshTree();
-      await refreshIndex();
-      void loadTrash();
-      void persist();
-      notify(`「${entry.name}」をゴミ箱に移動しました。ゴミ箱から元に戻せます`);
-    });
-  }
-  // ゴミ箱の項目を元の場所へ戻す。戻せない時はoperationが理由を通知する
-  async function restoreTrash(item: TrashItem) {
-    await operation(async () => {
-      const entry = await invoke<Entry>('trash_restore', { id: item.id });
-      await refreshTree();
-      await refreshIndex();
-      await loadTrash();
-      notify(`「${entry.name}」を元の場所に戻しました。`);
-    });
-  }
-  // ゴミ箱の項目をmacOSのゴミ箱へ送る。アプリのゴミ箱からは外れる
-  async function deleteTrash(item: TrashItem) {
-    if (busy) return;
-    if (
-      !(await confirm(`「${item.name}」をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
-        title: '完全に削除',
-        kind: 'warning',
-        okLabel: '完全に削除',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    await operation(async () => {
-      await invoke('trash_delete', { id: item.id });
-      await loadTrash();
-      notify(`「${item.name}」をmacOSのゴミ箱へ移しました。`);
-    });
-  }
-  // 今のワークスペースのゴミ箱の項目をすべて、macOSのゴミ箱へ送る
-  async function emptyTrash() {
-    if (busy || !trashItems.length) return;
-    const count = trashItems.length;
-    if (
-      !(await confirm(`ゴミ箱の${count}件をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
-        title: 'ゴミ箱を空にする',
-        kind: 'warning',
-        okLabel: 'ゴミ箱を空にする',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    await operation(async () => {
-      await invoke('trash_empty');
-      await loadTrash();
-      notify(`ゴミ箱の${count}件をmacOSのゴミ箱へ移しました。`);
-    });
-  }
-  // スターの付け外し。ワークスペースのルートごとに、記事の相対パスを保存する
-  function toggleStar(path: string) {
-    if (!project) return;
-    const on = !(settings.starred[project] ?? []).includes(path);
-    settings.starred = setStarred(settings.starred, project, path, on);
-    void persist();
-  }
-  async function reveal(entry?: Entry) {
-    try {
-      await invoke('workspace_reveal', { path: entry?.path ?? '' });
-    } catch (error) {
-      notify(failure(error).message);
-    }
-  }
-  // 開いているコンテキストメニュー。項目を選んだ知らせはpopupが戻った後に届くため、
-  // 閉じるのは次のメニューを出す時と終了時に限る
-  let openedMenu: Menu | undefined;
-  // 右クリックメニューの項目の処理。Tauri 2.12のmacOSでは、項目ごとのaction(Channel)が呼ばれないことを確かめたため、
-  // 項目のidをアプリ全体のメニューの知らせ(nagori:menu)で受け、ここから処理を呼ぶ。新しいメニューを出すたびに入れ替える
-  let contextActions = new Map<string, () => void>();
-  type ContextItems = NonNullable<MenuOptions['items']>;
-  function contextItems(items: ContextItems): ContextItems {
-    contextActions = new Map();
-    const strip = (list: ContextItems): ContextItems =>
-      list.map((entry) => {
-        if (!entry || typeof entry !== 'object' || 'rid' in entry) return entry;
-        const item = entry as { id?: string; action?: () => void; items?: ContextItems };
-        if (item.items) return { ...item, items: strip(item.items) } as (typeof list)[number];
-        if (!item.action) return entry;
-        const id = `context:${contextActions.size}:${item.id ?? ''}`;
-        contextActions.set(id, item.action);
-        const { action: _action, ...rest } = item;
-        return { ...rest, id } as (typeof list)[number];
-      });
-    return strip(items);
-  }
-  async function popupMenu(menu: Menu, at?: LogicalPosition) {
-    const previous = openedMenu;
-    openedMenu = menu;
-    await previous?.close().catch(() => undefined);
-    await menu.popup(at);
-  }
-  async function contextMenu(event: MouseEvent, entry: Entry) {
-    event.preventDefault();
-    selected = entry.path;
-    const menu = await Menu.new({
-      items: contextItems([
-        { id: 'reveal', text: 'Finderで表示', action: () => void reveal(entry) },
-        ...(entry.kind === 'markdown'
-          ? [{ id: 'star', text: starredPaths.includes(entry.path) ? 'スターを外す' : 'スターを付ける', action: () => toggleStar(entry.path) }]
-          : []),
-        {
-          id: 'rename',
-          text: '名前を変更（参照は更新しません）',
-          enabled: entry.kind !== 'symlink',
-          action: () => void startName('rename', entry),
-        },
-        {
-          id: 'trash',
-          text: entry.kind === 'directory' ? 'フォルダと配下をゴミ箱に移動' : 'ゴミ箱に移動',
-          enabled: entry.kind !== 'symlink',
-          action: () => void trash(entry),
-        },
-      ]),
-    });
-    await popupMenu(menu);
-  }
-  async function trashContextMenu(event: MouseEvent, item: TrashItem) {
-    event.preventDefault();
-    const menu = await Menu.new({
-      items: contextItems([
-        { id: 'restore', text: '元に戻す', action: () => void restoreTrash(item) },
-        { id: 'delete', text: '完全に削除', action: () => void deleteTrash(item) },
-      ]),
-    });
-    await popupMenu(menu);
-  }
-  async function editorContextMenu(context: EditorContextMenu) {
-    if (!isTauri() || !editor) return;
-    const source = editor,
-      key = documentKey;
-    const active = () => source === editor && key === documentKey && source.contextState().revision === context.revision;
-    const item = (kind: BlockKind, text: string, enabled = context.block) => ({
-      id: `editor-${kind}`,
-      text,
-      enabled,
-      action: () => {
-        if (active()) source.block(kind, context.revision, context.position);
-      },
-    });
-    const items: NonNullable<MenuOptions['items']> = [
-      context.editable ? { item: 'Cut', text: '切り取り' } : { id: 'editor-cut-disabled', text: '切り取り', enabled: false },
-      { item: 'Copy', text: 'コピー' },
-      context.editable ? { item: 'Paste', text: '貼り付け' } : { id: 'editor-paste-disabled', text: '貼り付け', enabled: false },
-      { item: 'SelectAll', text: 'すべてを選択' },
-    ];
-    if (!context.plain)
-      items.push(
-        { item: 'Separator' },
-        {
-          text: '見出し',
-          items: [
-            item('heading1', '見出し1', context.heading),
-            item('heading2', '見出し2', context.heading),
-            item('heading3', '見出し3', context.heading),
-          ],
-        },
-        { text: 'リスト', items: [item('bullet', '箇条書き'), item('ordered', '番号付きリスト'), item('task', 'タスクリスト')] },
-        item('quote', '引用'),
-        item('table', '表を挿入'),
-        item('rule', '区切り線を挿入'),
-        { item: 'Separator' },
-        {
-          id: 'editor-image',
-          text: '画像を挿入…',
-          enabled: context.editable,
-          action: () => {
-            if (active() && source.contextState().editable) void insertImage();
-          },
-        },
-      );
-    try {
-      const menu = await Menu.new({ items: contextItems(items) });
-      if (active()) await popupMenu(menu, new LogicalPosition(context.x, context.y));
-    } catch (error) {
-      notify(failure(error).message);
-    }
   }
   async function insertImage() {
     if (!session || session.readonly || previewOnly || current?.kind !== 'markdown') return;
@@ -896,145 +581,24 @@
       notify(failure(error).message);
     }
   }
-  async function showProblem() {
-    const target = session;
-    if (!target?.issue) return;
-    issue = target.issue;
-    disk = null;
-    diskLabel = '';
-    if (issue.code === 'CONFLICT') {
-      try {
-        const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-        if (session !== target || !target.issue) return;
-        disk = fresh;
-        diskLabel = fresh.text.slice(0, 500);
-      } catch {}
-    }
-    await tick();
-    if (session !== target || !target.issue) return;
-    if (!errorDialog?.open) errorDialog?.showModal();
-  }
-  async function reloadDisk() {
-    const target = session;
-    if (!target) return;
-    try {
-      if (
-        !(await confirm('編集中の内容を破棄して、最新のディスク内容を採用します。Undo履歴もリセットされます。', {
-          title: 'ディスク内容を採用',
-          kind: 'warning',
-          okLabel: '採用する',
-          cancelLabel: 'キャンセル',
-        }))
-      )
-        return;
-      const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-      if (session !== target) return;
-      target.reload(fresh);
-      editor?.replaceText(fresh.text);
-      errorDialog?.close();
-    } catch (error) {
-      if (session === target) target.block(error);
-    }
-  }
-  async function overwriteDisk() {
-    const target = session,
-      expected = disk?.baseline;
-    if (!target || !expected) return;
-    if (
-      !(await confirm('ディスク側の変更を失います。編集中の内容で上書きしますか？', {
-        title: '編集内容で上書き',
-        kind: 'warning',
-        okLabel: '上書きする',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    try {
-      const fresh = await invoke<OpenedDocument>('document_open', { path: target.path });
-      if (session !== target) return;
-      if (fresh.baseline !== expected) {
-        disk = fresh;
-        diskLabel = fresh.text.slice(0, 500);
-        notify('ディスクが再変更されました。最新内容を確認し、もう一度選択してください。');
-        return;
-      }
-      session.baseline = fresh.baseline;
-      session.retry();
-      errorDialog?.close();
-      if (!(await flush())) await showProblem();
-    } catch (error) {
-      if (session === target) target.block(error);
-    }
-  }
-  async function retrySave() {
-    if (!session) return;
-    session.retry();
-    errorDialog?.close();
-    await flush();
-  }
-  async function beginSaveAs() {
-    if (!session) return;
-    saveAsPath = session.path.replace(/\.(md|markdown)$/i, '-copy.md');
-    saveAsError = '';
-    saveAsDialog?.showModal();
-    saveAsInput?.focus();
-    saveAsInput?.select();
-  }
-  async function commitSaveAs() {
-    if (!session || busy) return;
-    await settleComposition();
-    if (!session || busy) return;
-    busy = true;
-    try {
-      const text = session.text,
-        gen = session.generation;
-      const opened = await invoke<OpenedDocument>('document_save_as', { sourcePath: session.path, path: saveAsPath, text });
-      session.path = opened.path;
-      session.baseline = opened.baseline;
-      session.savedGeneration = gen;
-      session.issue = null;
-      session.readonly = opened.readonly;
-      current = { path: opened.path, name: opened.path.split('/').at(-1)!, kind: 'markdown' };
-      selected = opened.path;
-      releaseImages();
-      editor?.refreshImages();
-      settings.lastFile = opened.path;
-      settings.recentFiles = [opened.path, ...settings.recentFiles.filter((path) => path !== opened.path)].slice(0, 30);
-      settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, opened.path);
-      syncSession();
-      saveAsDialog?.close();
-      errorDialog?.close();
-      await refreshTree();
-      await refreshIndex();
-      void persist();
-      if (session.dirty) scheduleSave();
-      notify('別名で保存しました。');
-    } catch (error) {
-      saveAsError = failure(error).message;
-    } finally {
-      busy = false;
-      if (openRequestsQueued) void drainOpenRequests();
-    }
-  }
-  async function discardAndClose() {
-    const target = session;
-    if (!target) return;
-    if (
-      target.dirty &&
-      !(await confirm('未保存の編集内容を破棄して閉じます。', {
-        title: '未保存内容を破棄',
-        kind: 'warning',
-        okLabel: '破棄して閉じる',
-        cancelLabel: 'キャンセル',
-      }))
-    )
-      return;
-    if (session !== target) return;
-    clearDocument();
-    settings.lastFile = null;
-    errorDialog?.close();
-    void persist();
-  }
+  const { showProblem, reloadDisk, overwriteDisk, retrySave, beginSaveAs, commitSaveAs, discardAndClose } = createDocumentDialogs({
+    get session() { return session; },
+    get issue() { return issue; }, set issue(value) { issue = value; },
+    get disk() { return disk; }, set disk(value) { disk = value; },
+    get diskLabel() { return diskLabel; }, set diskLabel(value) { diskLabel = value; },
+    get errorDialog() { return errorDialog; },
+    get saveAsDialog() { return saveAsDialog; },
+    get saveAsInput() { return saveAsInput; },
+    get saveAsPath() { return saveAsPath; }, set saveAsPath(value) { saveAsPath = value; },
+    get saveAsError() { return saveAsError; }, set saveAsError(value) { saveAsError = value; },
+    get busy() { return busy; }, set busy(value) { busy = value; },
+    get current() { return current; }, set current(value) { current = value; },
+    get selected() { return selected; }, set selected(value) { selected = value; },
+    get settings() { return settings; },
+    get editor() { return editor; },
+    get openRequestsQueued() { return openRequestsQueued; },
+    settleComposition, flush, releaseImages, syncSession, refreshTree, refreshIndex, persist, scheduleSave, notify, drainOpenRequests, clearDocument,
+  });
   function checkExternal() {
     return flow.checkExternal();
   }
@@ -1079,41 +643,17 @@
   function zoomAvailable() {
     return settings.zoomFontSize && settingsLoaded && !starting && !composing && !editor?.isComposing() && !quick && !searchOpen && !errorDialog?.open && !saveAsDialog?.open;
   }
-  let fontSizeSaveTimer: ReturnType<typeof setTimeout> | undefined;
-  // ピンチとホイールは連続して届くので、止まってから保存する
-  function changeFontSize(size: number, deferSave = false) {
-    if (size === settings.fontSize) return;
-    settings.fontSize = size;
-    clearTimeout(fontSizeSaveTimer);
-    if (deferSave) fontSizeSaveTimer = setTimeout(() => void persist(), 300);
-    else void persist();
-  }
-  function zoomFont(kind: 'in' | 'out' | 'reset') {
-    if (!zoomAvailable()) return;
-    changeFontSize(kind === 'reset' ? defaults.fontSize : stepFontSize(settings.fontSize, kind === 'in' ? 1 : -1));
-  }
+  const fontZoom = createFontZoom(() => settings, zoomAvailable, persist);
+  function zoomFont(kind: 'in' | 'out' | 'reset') { fontZoom.zoomFont(kind); }
   function toggleWritingMode(key: 'focusMode' | 'typewriterMode') {
     if (starting || !settingsLoaded || composing || editor?.isComposing()) return;
     settings[key] = !settings[key];
     void persist();
   }
-  // 設定画面を開く。閉じた時に、開く前にフォーカスのあった要素へ戻す
-  async function openSettings() {
-    if (settingsOpen || !settingsLoaded || !settingsDialog) return;
-    settingsReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    settingsOpen = true;
-    settingsDialog.showModal();
-  }
-  function closeSettings() {
-    settingsDialog?.close();
-  }
-  function settingsClosed() {
-    settingsOpen = false;
-    const target = settingsReturn;
-    settingsReturn = null;
-    if (target?.isConnected) target.focus();
-    else editor?.focus();
-  }
+  const { openSettings, closeSettings, settingsClosed } = createSettingsDialog({
+    get settingsOpen() { return settingsOpen; }, set settingsOpen(value) { settingsOpen = value; },
+    get settingsLoaded() { return settingsLoaded; }, get settingsDialog() { return settingsDialog; }, get editor() { return editor; },
+  });
   function applySettings() {
     if (starting || !settingsLoaded) return;
     void persist();
@@ -1137,63 +677,18 @@
     settings.outlineVisible = !settings.outlineVisible;
     void persist();
   }
-  async function menuAction(action: string) {
-    const contextAction = contextActions.get(action);
-    if (contextAction) {
-      contextAction();
-      return;
-    }
-    if (errorDialog?.open || saveAsDialog?.open || quick || searchOpen) return;
-    if (action === 'cli-install') await runCli('cli_install');
-    else if (action === 'cli-uninstall') await runCli('cli_uninstall');
-    else if (action === 'open-project') await chooseProject();
-    else if (action === 'new-markdown') await startName('markdown');
-    else if (action === 'new-folder') await startName('directory');
-    else if (action === 'image-insert') await insertImage();
-    else if (action === 'quick-open') await quickOpen();
-    else if (action === 'save') await flush();
-    else if (action === 'find') editor?.find();
-    else if (action === 'workspace-search') await workspaceSearchOpen();
-    else if (action === 'preview-toggle') togglePreview();
-    else if (action === 'outline-toggle') toggleOutline();
-    else if (action === 'focus-toggle') toggleWritingMode('focusMode');
-    else if (action === 'typewriter-toggle') toggleWritingMode('typewriterMode');
-    else if (action === 'settings-open') await openSettings();
-    else if (action === 'font-larger') zoomFont('in');
-    else if (action === 'font-smaller') zoomFont('out');
-    else if (action === 'font-reset') zoomFont('reset');
-    else if (['bold', 'italic', 'strike', 'code', 'link'].includes(action))
-      editor?.format(action as 'bold' | 'italic' | 'strike' | 'code' | 'link');
-  }
+  const { contextMenu, trashContextMenu, editorContextMenu, menuAction, close: closeMenus } = createMenus({
+    get selected() { return selected; }, set selected(value) { selected = value; },
+    get starredPaths() { return starredPaths; }, get editor() { return editor; }, get documentKey() { return documentKey; },
+    get blocked() { return !!(errorDialog?.open || saveAsDialog?.open || quick || searchOpen); },
+    notify, reveal, toggleStar, startName, trash, restoreTrash, deleteTrash, insertImage, runCli, chooseProject, quickOpen,
+    flush, workspaceSearchOpen, togglePreview, toggleOutline, toggleWritingMode, openSettings, zoomFont,
+  });
   onMount(() => {
     const unlisteners: Array<() => void> = [];
     const focused = () => void checkExternal();
     window.addEventListener('focus', focused);
-    // ピンチはWebKitのgesture*で届き、ctrl付きのwheelとしても届く。設定がオフの時は何もせず、標準の動きに任せる
-    let pinchBase = settings.fontSize;
-    let wheelPending = 0;
-    const gestureStart = (event: Event) => {
-      if (!settings.zoomFontSize) return;
-      event.preventDefault();
-      pinchBase = settings.fontSize;
-    };
-    const gestureChange = (event: Event) => {
-      if (!settings.zoomFontSize) return;
-      event.preventDefault();
-      if (!zoomAvailable()) return;
-      changeFontSize(pinchFontSize(settings.fontSize, pinchBase, (event as Event & { scale: number }).scale), true);
-    };
-    const wheel = (event: WheelEvent) => {
-      if (!event.ctrlKey || !settings.zoomFontSize) return;
-      event.preventDefault();
-      if (!zoomAvailable()) return;
-      const next = wheelFontSize(settings.fontSize, wheelPending, event.deltaY);
-      wheelPending = next.pending;
-      changeFontSize(next.size, true);
-    };
-    window.addEventListener('gesturestart', gestureStart);
-    window.addEventListener('gesturechange', gestureChange);
-    window.addEventListener('wheel', wheel, { passive: false });
+    const releaseZoom = fontZoom.mount();
     void (async () => {
       if (!isTauri()) {
         starting = false;
@@ -1254,17 +749,11 @@
     media.addEventListener('change', followSystem);
     return () => {
       media.removeEventListener('change', followSystem);
-      void openedMenu?.close().catch(() => undefined);
+      void closeMenus();
       quickPanel?.forgetFocus();
       unlisteners.forEach((unlisten) => unlisten());
       window.removeEventListener('focus', focused);
-      window.removeEventListener('gesturestart', gestureStart);
-      window.removeEventListener('gesturechange', gestureChange);
-      window.removeEventListener('wheel', wheel);
-      if (fontSizeSaveTimer !== undefined) {
-        clearTimeout(fontSizeSaveTimer);
-        void persist();
-      }
+      releaseZoom();
       cancelSave();
       clearTimeout(fsTimer);
       releaseImages();
