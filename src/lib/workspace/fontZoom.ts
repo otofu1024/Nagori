@@ -18,7 +18,6 @@ export function createFontZoom(settings: () => Settings, zoomAvailable: () => bo
   function mount() {
     // ピンチはWebKitのgesture*で届き、ctrl付きのwheelとしても届く。設定がオフの時は何もせず、標準の動きに任せる
     let pinchBase = settings().fontSize;
-    let wheelPending = 0;
     const gestureStart = (event: Event) => {
       if (!settings().zoomFontSize) return;
       event.preventDefault();
@@ -30,6 +29,20 @@ export function createFontZoom(settings: () => Settings, zoomAvailable: () => bo
       if (!zoomAvailable()) return;
       changeFontSize(pinchFontSize(settings().fontSize, pinchBase, (event as Event & { scale: number }).scale), true);
     };
+    window.addEventListener('gesturestart', gestureStart);
+    window.addEventListener('gesturechange', gestureChange);
+
+    return () => {
+      window.removeEventListener('gesturestart', gestureStart);
+      window.removeEventListener('gesturechange', gestureChange);
+      if (fontSizeSaveTimer !== undefined) {
+        clearTimeout(fontSizeSaveTimer);
+        void persist();
+      }
+    };
+  }
+  function mountWheel() {
+    let wheelPending = 0;
     const wheel = (event: WheelEvent) => {
       if (!event.ctrlKey || !settings().zoomFontSize) return;
       event.preventDefault();
@@ -38,19 +51,8 @@ export function createFontZoom(settings: () => Settings, zoomAvailable: () => bo
       wheelPending = next.pending;
       changeFontSize(next.size, true);
     };
-    window.addEventListener('gesturestart', gestureStart);
-    window.addEventListener('gesturechange', gestureChange);
     window.addEventListener('wheel', wheel, { passive: false });
-
-    return () => {
-      window.removeEventListener('gesturestart', gestureStart);
-      window.removeEventListener('gesturechange', gestureChange);
-      window.removeEventListener('wheel', wheel);
-      if (fontSizeSaveTimer !== undefined) {
-        clearTimeout(fontSizeSaveTimer);
-        void persist();
-      }
-    };
+    return () => window.removeEventListener('wheel', wheel);
   }
-  return { zoomFont, mount };
+  return { zoomFont, mount, mountWheel };
 }
