@@ -1,5 +1,5 @@
 import { EditorView, layer, RectangleMarker } from '@codemirror/view';
-import { previewOnlyField } from './livePreview.ts';
+import { previewOnlyField } from './previewState.ts';
 
 // 選択の塗りを、文字の高さだけに収めて本文の下へ描くレイヤー。
 // 標準の::selectionは行ボックス全体を塗るため、行間が広いと色が上下へ伸びて見える。

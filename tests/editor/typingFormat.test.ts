@@ -5,7 +5,7 @@ import { EditorState, Transaction } from '@codemirror/state';
 import { history, undo, redo, undoDepth } from '@codemirror/commands';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { markdownExtensions, markdownParser, walk } from '../../src/lib/editor/markdown.ts';
-import { buildPreview } from '../../src/lib/editor/livePreview.ts';
+import { buildPreview } from '../../src/lib/editor/previewDecorations.ts';
 import { typingFormat, typingFormatPlan, discardEmptyTypingFormat } from '../../src/lib/editor/typingFormat.ts';
 
 const create = (doc: string, anchor: number) => EditorState.create({ doc, selection: { anchor }, extensions: [history(), typingFormat(), markdown({ base: commonmarkLanguage, extensions: markdownExtensions })] });

@@ -14,7 +14,8 @@
   import { restoredScrollTop } from './scrollRestore.ts';
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
-  import { livePreview, previewOnlyMode, compositionMode, refreshImagesEffect } from './livePreview.ts';
+  import { livePreview } from './livePreview.ts';
+import { previewOnlyMode, compositionMode, refreshImagesEffect } from './previewState.ts';
   import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
   import { selectionTextLayer } from './selectionLayer.ts';
   import { markdownExtensions } from './markdown.ts';

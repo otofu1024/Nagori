@@ -1,6 +1,7 @@
 import type { Text } from '@codemirror/state';
 import type { SyntaxNode, Tree } from '@lezer/common';
-import { children, codeDisplay, decodeMarkdown, inlineContent } from '../editor/markdown.ts';
+import { children } from '../editor/markdown.ts';
+import { codeDisplay, decodeMarkdown, inlineContent } from '../editor/markdownInline.ts';
 
 export type OutlineHeading = { from: number; lineEnd: number; level: number; text: string };
 

@@ -7,7 +7,8 @@ import { ensureSyntaxTree } from '@codemirror/language';
 import { Decoration, type DecorationSet } from '@codemirror/view';
 import { moveList, continueList } from '../../src/lib/editor/listEdit.ts';
 import { markdownParser, markdownExtensions, walk } from '../../src/lib/editor/markdown.ts';
-import { bulletGlyph, buildPreview, listDepth } from '../../src/lib/editor/livePreview.ts';
+import { bulletGlyph, listDepth } from '../../src/lib/editor/previewLists.ts';
+import { buildPreview } from '../../src/lib/editor/previewDecorations.ts';
 
 
 function edit(text: string, from: number, to = from, outdent = false) {

@@ -2,7 +2,8 @@ import { Annotation, ChangeSet, StateEffect, StateField, Transaction, type Chang
 import { invertedEffects, isolateHistory } from '@codemirror/commands';
 import { ViewPlugin, type EditorView } from '@codemirror/view';
 import type { SyntaxNode } from '@lezer/common';
-import { frontMatter, inlineContent, markdownParser, walk } from './markdown.ts';
+import { frontMatter, markdownParser, walk } from './markdown.ts';
+import { inlineContent } from './markdownInline.ts';
 
 type Kind = 'bold' | 'italic';
 type EmptyFormat = { from: number; to: number; mark: string; kind: Kind };

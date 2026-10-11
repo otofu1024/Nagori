@@ -1,7 +1,7 @@
 import { type EditorState, type Extension, type Transaction, type Range } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { Decoration, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
-import { compositionMode } from './livePreview.ts';
+import { compositionMode } from './previewState.ts';
 
 type Span = { from: number; to: number };
 
