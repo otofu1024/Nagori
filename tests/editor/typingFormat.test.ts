@@ -185,10 +185,11 @@ test('Live Previewは空の記号を隠さず、入力後は太字を付けて�
 
 test('Editorの共通入口はplain・Preview・IME・処理中を止め、ヘッダーの記事メニューを置かない', () => {
   const editor = readFileSync(new URL('../../src/lib/editor/Editor.svelte', import.meta.url), 'utf8');
-  assert.match(editor, /function apply\(kind: FormatKind\) \{\s+if \(plain\) return;/);
-  assert.match(editor, /readonly \|\| busy \|\| previewOnly \|\| composition \|\| view\.composing \|\| view\.compositionStarted/);
-  assert.match(editor, /format: apply/);
-  assert.match(editor, /onclick=\{\(\) => apply\(kind\)\}/);
+  const toolbar = readFileSync(new URL('../../src/lib/editor/toolbar.svelte.ts', import.meta.url), 'utf8');
+  assert.match(toolbar, /function apply\(kind: FormatKind\) \{\s+if \(deps\.plain\) return;/);
+  assert.match(toolbar, /deps\.readonly\s*\|\|\s*deps\.busy\s*\|\|\s*deps\.previewOnly\s*\|\|\s*deps\.composition\s*\|\|\s*deps\.view\.composing\s*\|\|\s*deps\.view\.compositionStarted/);
+  assert.match(editor, /format: formatting\.apply/);
+  assert.match(editor, /onclick=\{\(\) => formatting\.apply\(kind\)\}/);
   const app = readFileSync(new URL('../../src/App.svelte', import.meta.url), 'utf8');
   assert.ok(!app.includes('document-menu') && !app.includes('記事の操作'));
 });
