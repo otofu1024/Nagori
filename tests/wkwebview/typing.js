@@ -1,8 +1,8 @@
 import { mount, unmount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { undo, redo, undoDepth } from '@codemirror/commands';
-import Editor from '../../src/lib/Editor.svelte';
-import { markdownParser, walk } from '../src/lib/markdown.ts';
+import Editor from '../../src/lib/editor/Editor.svelte';
+import { markdownParser, walk } from '../../src/lib/editor/markdown.ts';
 import '../../src/app.css';
 
 const pause = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms));

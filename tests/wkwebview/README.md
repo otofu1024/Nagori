@@ -23,4 +23,4 @@ swift tests/wkwebview/probe.swift /private/tmp/nagori-inline-code-check http://1
 
 出力先には`results.json`、WebViewの`view.png`、ウィンドウの`window.png`が作られます。`results.json`の`pass`が`true`で、各`checks`もすべて成功なら通過です。失敗時は`checks`と`error.txt`を確認してください。
 
-この確認は`npm test`の対象外です。`npm test`は`tests/*.test.ts`だけを実行します。
+この確認は`npm test`の対象外です。`npm test`は`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`だけを実行します。
