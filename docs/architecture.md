@@ -9,10 +9,16 @@ Svelte UI (src/App.svelte, src/lib/)
        │ Tauri invoke / app events
        ▼
 Rust backend (src-tauri/src/lib.rs)
-       ├── files.rs   ワークスペース、文書、画像、設定
-       ├── search.rs  ワークスペース本文検索
-       ├── trash.rs   アプリ内ゴミ箱と保存期限
-       └── cli.rs     nagoriコマンドの登録と起動引数
+       ├── commands.rs   Tauriコマンドとワークスペースの状態
+       ├── menu.rs       ネイティブメニューの組み立て
+       ├── apple_quit.rs macOSの終了要求と保存待ち
+       ├── files.rs      ワークスペース、文書、ファイル操作
+       ├── image.rs      画像の検証、取り込み、表示用の縮小とキャッシュ
+       │   └── image/imageio.rs macOSのImageIO
+       ├── settings.rs   設定の型、検証、読み書き
+       ├── search.rs     ワークスペース本文検索
+       ├── trash.rs      アプリ内ゴミ箱と保存期限
+       └── cli.rs        nagoriコマンドの登録と起動引数
 ```
 
 ## 主なファイル
@@ -36,8 +42,13 @@ Rust backend (src-tauri/src/lib.rs)
 | [Outline.svelte](../src/lib/Outline.svelte)、[outline.ts](../src/lib/outline.ts) | 見出し一覧、現在位置、本文内の移動 |
 | [appFlow.ts](../src/lib/appFlow.ts)、[session.ts](../src/lib/session.ts) | 切り替え・終了前の保存確認、文書の保存世代と競合状態 |
 | [image.ts](../src/lib/image.ts)、[imageDrop.ts](../src/lib/imageDrop.ts) | 画像の検証、挿入、貼り付け・ドロップ |
-| [lib.rs](../src-tauri/src/lib.rs) | Tauriコマンドの登録、ネイティブメニュー、アプリの起動とイベント |
-| [files.rs](../src-tauri/src/files.rs) | ファイル入出力、一覧、設定、画像の検証と取り込み |
+| [lib.rs](../src-tauri/src/lib.rs) | モジュールとTauriコマンドの登録、アプリの起動とイベント |
+| [commands.rs](../src-tauri/src/commands.rs) | Tauriコマンド、ワークスペースの状態、ファイル監視、起動要求 |
+| [menu.rs](../src-tauri/src/menu.rs) | ネイティブメニューの組み立て |
+| [apple_quit.rs](../src-tauri/src/apple_quit.rs) | macOSの終了要求を受け、保存が済むまで終了を待つ処理 |
+| [files.rs](../src-tauri/src/files.rs) | 文書の読み書き、一覧、ファイル操作、パスとサイズの検証 |
+| [image.rs](../src-tauri/src/image.rs)、[imageio.rs](../src-tauri/src/image/imageio.rs) | 画像の検証、取り込み、貼り付け、表示用の縮小とキャッシュ |
+| [settings.rs](../src-tauri/src/settings.rs) | 設定の型、値の検証、設定ファイルの読み書き |
 | [search.rs](../src-tauri/src/search.rs) | ワークスペース全体の本文検索 |
 | [trash.rs](../src-tauri/src/trash.rs) | アプリ内ゴミ箱、復元、完全削除、期限切れ項目の処理 |
 | [cli.rs](../src-tauri/src/cli.rs) | 起動引数の解釈とnagoriコマンドの登録処理 |
