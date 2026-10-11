@@ -1,10 +1,11 @@
 mod cli;
 mod files;
 mod search;
+mod settings;
 mod trash;
-use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved, Settings};
-use trash::TrashItem;
+use files::{Entry, Error, InsertedImage, OpenedDocument, Result, Saved};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use settings::Settings;
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
@@ -16,6 +17,7 @@ use std::{
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_fs::FsExt;
 use tauri_plugin_opener::OpenerExt;
+use trash::TrashItem;
 
 #[derive(Default)]
 struct Workspace {
@@ -198,7 +200,9 @@ async fn workspace_open(
 ) -> Result<String> {
     let trash_base = trash_base(&app).ok();
     // 設定が読めない時は既定の30日で整理する
-    let retention_days = read_settings(&app).unwrap_or_default().trash_retention_days;
+    let retention_days = settings::read(&app)
+        .unwrap_or_default()
+        .trash_retention_days;
     work(&state, move |workspace| {
         let root = std::fs::canonicalize(&path)?;
         if !root.is_dir() {
@@ -269,11 +273,9 @@ async fn workspace_search(
             .map_err(|_| Error::new("INTERNAL", "ファイル処理のロックに失敗しました。"))?;
         workspace.root()?.to_path_buf()
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        search::run(&root, &query, case_sensitive, regexp)
-    })
-    .await
-    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || search::run(&root, &query, case_sensitive, regexp))
+        .await
+        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
 #[tauri::command]
 async fn document_open(state: State<'_, Backend>, path: String) -> Result<OpenedDocument> {
@@ -459,53 +461,18 @@ fn external_open(app: tauri::AppHandle, url: String) -> Result<()> {
         .open_url(parsed.as_str(), None::<&str>)
         .map_err(|e| Error::new("OPENER", e.to_string()))
 }
-// 保存された設定を読む。ファイルがなければ初期値を返す
-fn read_settings(app: &tauri::AppHandle) -> Result<Settings> {
-    let path = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| Error::new("SETTINGS", e.to_string()))?
-        .join("settings.json");
-    if !path.exists() {
-        return Ok(Settings::default());
-    }
-    let bytes = files::read_limited(&path, 64 * 1024)?;
-    let settings: Settings =
-        serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-    settings.validate()?;
-    Ok(settings)
-}
 #[tauri::command]
 async fn settings_get(app: tauri::AppHandle) -> Result<Settings> {
-    tauri::async_runtime::spawn_blocking(move || read_settings(&app))
+    tauri::async_runtime::spawn_blocking(move || settings::read(&app))
         .await
         .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
 #[tauri::command]
 async fn settings_save(app: tauri::AppHandle, settings: Settings) -> Result<()> {
     settings.validate()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        use std::io::Write;
-        let directory = app
-            .path()
-            .app_config_dir()
-            .map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-        std::fs::create_dir_all(&directory)?;
-        let bytes = serde_json::to_vec_pretty(&settings)
-            .map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-        if bytes.len() > 64 * 1024 {
-            return Err(Error::new("LIMIT", "設定サイズの上限を超えています。"));
-        }
-        let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
-        temporary.write_all(&bytes)?;
-        temporary.flush()?;
-        temporary
-            .persist(directory.join("settings.json"))
-            .map_err(|e| Error::from(e.error))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || settings::save(app, settings))
+        .await
+        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
 #[tauri::command]
 fn app_exit(app: tauri::AppHandle, state: State<'_, Backend>) {
