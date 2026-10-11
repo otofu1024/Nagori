@@ -1,6 +1,6 @@
 import { WidgetType, type EditorView } from '@codemirror/view';
 import type { MathExpression } from './markdownMath.ts';
-import type { MathRender } from './mathjax.ts';
+import type { MathRender } from './katex.ts';
 import { countDiscard } from './mathStats.ts';
 import { selectSource } from './previewState.ts';
 
@@ -74,7 +74,10 @@ export class MathWidget extends WidgetType {
     mathMounts.set(element, context);
     const epoch = context.epoch,
       active = () => context.epoch === epoch && [...context.mounts].some((node) => node.isConnected);
-    context.result ??= import('./mathjax.ts').then((engine) => engine.renderMath(context.expressions, active));
+    context.result ??= Promise.all([
+      import('./katex.ts'),
+      typeof window === 'undefined' ? Promise.resolve() : import('katex/dist/katex.min.css'),
+    ]).then(([engine]) => engine.renderMath(context.expressions, active));
     context.result
       .then((rendered) => {
         if (!rendered || context.epoch !== epoch || !element.isConnected || mathMounts.get(element) !== context) return;
@@ -84,14 +87,7 @@ export class MathWidget extends WidgetType {
           view.requestMeasure();
           return;
         }
-        let style = document.getElementById('nagori-mathjax-style');
-        if (!style) {
-          style = document.createElement('style');
-          style.id = 'nagori-mathjax-style';
-          document.head.append(style);
-        }
-        if (style.textContent !== rendered.css) style.textContent = rendered.css;
-        // Only MathJax-generated CHTML from the fixed TeX package set enters the DOM.
+        // trustを無効にしたKaTeXの出力だけをDOMへ入れる。
         const template = document.createElement('template');
         template.innerHTML = result.html;
         element.replaceChildren(template.content);
