@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { EditorState, Transaction } from '@codemirror/state';
 import { history, undo, redo, undoDepth } from '@codemirror/commands';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
-import { markdownExtensions, markdownParser, walk } from '../src/lib/editor/markdown.ts';
-import { buildPreview } from '../src/lib/editor/livePreview.ts';
-import { typingFormat, typingFormatPlan, discardEmptyTypingFormat } from '../src/lib/editor/typingFormat.ts';
+import { markdownExtensions, markdownParser, walk } from '../../src/lib/editor/markdown.ts';
+import { buildPreview } from '../../src/lib/editor/livePreview.ts';
+import { typingFormat, typingFormatPlan, discardEmptyTypingFormat } from '../../src/lib/editor/typingFormat.ts';
 
 const create = (doc: string, anchor: number) => EditorState.create({ doc, selection: { anchor }, extensions: [history(), typingFormat(), markdown({ base: commonmarkLanguage, extensions: markdownExtensions })] });
 const apply = (state: EditorState, kind: 'bold' | 'italic') => {
@@ -184,11 +184,11 @@ test('Live Previewは空の記号を隠さず、入力後は太字を付けて�
 });
 
 test('Editorの共通入口はplain・Preview・IME・処理中を止め、ヘッダーの記事メニューを置かない', () => {
-  const editor = readFileSync(new URL('../src/lib/editor/Editor.svelte', import.meta.url), 'utf8');
+  const editor = readFileSync(new URL('../../src/lib/editor/Editor.svelte', import.meta.url), 'utf8');
   assert.match(editor, /function apply\(kind: FormatKind\) \{\s+if \(plain\) return;/);
   assert.match(editor, /readonly \|\| busy \|\| previewOnly \|\| composition \|\| view\.composing \|\| view\.compositionStarted/);
   assert.match(editor, /format: apply/);
   assert.match(editor, /onclick=\{\(\) => apply\(kind\)\}/);
-  const app = readFileSync(new URL('../src/App.svelte', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../../src/App.svelte', import.meta.url), 'utf8');
   assert.ok(!app.includes('document-menu') && !app.includes('記事の操作'));
 });

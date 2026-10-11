@@ -13,7 +13,7 @@ test('nagori forwards canonical folder/file paths safely through native open', (
     for (const path of [app, scripts, bin, workspace]) mkdirSync(path, { recursive: true });
     const launcher = join(scripts, 'nagori'), command = join(bin, 'nagori'), output = join(root, 'args');
     // Substitute only the temporary fixture's native-open path; production always uses /usr/bin/open.
-    writeFileSync(launcher, readFileSync(new URL('../scripts/nagori', import.meta.url), 'utf8').replaceAll('/usr/bin/open', `"${join(bin, 'open')}"`));
+    writeFileSync(launcher, readFileSync(new URL('../../scripts/nagori', import.meta.url), 'utf8').replaceAll('/usr/bin/open', `"${join(bin, 'open')}"`));
     chmodSync(launcher, 0o755);
     symlinkSync('../scripts/nagori', command);
     writeFileSync(join(bin, 'open'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$NAGORI_TEST_ARGS"\n', { mode: 0o755 });
@@ -65,7 +65,7 @@ test('CLI link installer is idempotent and preserves unrelated and concurrently 
     const source = join(root, "日本語 ' app/nagori"), destination = join(root, 'bin/nagori');
     mkdirSync(join(root, "日本語 ' app"), { recursive: true });
     writeFileSync(source, '#!/bin/sh\n', { mode: 0o755 });
-    const helper = new URL('../scripts/cli-link.sh', import.meta.url).pathname;
+    const helper = new URL('../../scripts/cli-link.sh', import.meta.url).pathname;
     const run = (action: string, script = helper) => spawnSync('/bin/sh', [script, action, source, destination], { encoding: 'utf8' });
     assert.equal(run('install').status, 0);
     assert.equal(run('install').status, 0);

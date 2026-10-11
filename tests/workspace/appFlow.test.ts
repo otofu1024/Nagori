@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AppFlow, type AppFlowDeps } from '../src/lib/workspace/appFlow.ts';
-import { EditSession, type OpenedDocument } from '../src/lib/workspace/session.ts';
+import { AppFlow, type AppFlowDeps } from '../../src/lib/workspace/appFlow.ts';
+import { EditSession, type OpenedDocument } from '../../src/lib/workspace/session.ts';
 
 // IPCとDOMを記録用の関数へ差し替えて、呼び出し順を確認する補助
 function setup(write: (path: string, text: string, baseline: string) => Promise<{ baseline: string }> = async () => ({ baseline: 'saved' }), disk: OpenedDocument = { path: 'a.md', text: 'original', baseline: 'loaded', readonly: false }) {

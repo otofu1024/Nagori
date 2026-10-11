@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rangeFill, THUMB_SIZE } from '../src/lib/workspace/rangeFill.ts';
+import { rangeFill, THUMB_SIZE } from '../../src/lib/workspace/rangeFill.ts';
 
 test('色の端は、最小と最大でつまみの中心の位置に止まる', () => {
   const range = { min: 300, max: 5000 };

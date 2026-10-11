@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isAtBottom, restoredScrollTop } from '../src/lib/editor/scrollRestore.ts';
+import { isAtBottom, restoredScrollTop } from '../../src/lib/editor/scrollRestore.ts';
 
 test('末尾にいる場合は高さが縮んでも伸びても新しい末尾へ合わせる', () => {
   const before = { scrollTop: 1000, clientHeight: 500, scrollHeight: 1500 };

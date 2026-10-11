@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIDEBAR, OUTLINE, EDITOR_SPACE, EDITOR_WIDTH, editorSpace, storedPaneWidth, resizePane, paneLayout } from '../src/lib/workspace/paneWidths.ts';
-import { defaults, startupSettings } from '../src/lib/workspace/settings.ts';
+import { SIDEBAR, OUTLINE, EDITOR_SPACE, EDITOR_WIDTH, editorSpace, storedPaneWidth, resizePane, paneLayout } from '../../src/lib/workspace/paneWidths.ts';
+import { defaults, startupSettings } from '../../src/lib/workspace/settings.ts';
 
 test('保存した幅の範囲、初期値、古い設定を読み込む', () => {
   for (const range of [SIDEBAR, OUTLINE]) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compositionGate, createBlurFailsafe, inputEndsComposition, keyEndsComposition } from '../src/lib/editor/composition.ts';
+import { compositionGate, createBlurFailsafe, inputEndsComposition, keyEndsComposition } from '../../src/lib/editor/composition.ts';
 
 test('変換中のinputでは処理せず、確定のcompositionendで処理する', () => {
   let calls = 0;

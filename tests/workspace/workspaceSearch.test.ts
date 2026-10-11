@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
-import { DEBOUNCE_MS, FILE_LIMIT, groupMatches, hitOf, latestOnly, matchCount, matchSpan, segments, shouldSearch, type SearchFile } from '../src/lib/workspace/workspaceSearch.ts';
+import { DEBOUNCE_MS, FILE_LIMIT, groupMatches, hitOf, latestOnly, matchCount, matchSpan, segments, shouldSearch, type SearchFile } from '../../src/lib/workspace/workspaceSearch.ts';
 
 const files: SearchFile[] = [
   { path: 'a/one.md', name: 'one.md', matches: [{ line: 1, column: 0, preview: 'note', ranges: [[0, 4]] }, { line: 3, column: 2, preview: 'x note', ranges: [[2, 6]] }] },

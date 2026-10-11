@@ -58,4 +58,4 @@ AppはRustからファイル一覧を読み込み、`SidebarNav.svelte`の選択
 
 ## テストの配置
 
-`tests/*.test.ts`はNode標準のテストランナーで動き、`npm test`が実行する。WKWebView上のIME、入力装飾、インラインコード確認は[`tests/wkwebview`](../tests/wkwebview/README.md)で手動実行する。WKWebView用の`.js`と`.html`は`npm test`の対象に含まれない。Rustの単体テストは各Rustモジュールに置き、`cd src-tauri && cargo test`で実行する。
+`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`はNode標準のテストランナーで動き、`npm test`が実行する。WKWebView上のIME、入力装飾、インラインコード確認は[`tests/wkwebview`](../tests/wkwebview/README.md)で手動実行する。WKWebView用の`.js`と`.html`は`npm test`の対象に含まれない。Rustの単体テストは各Rustモジュールに置き、`cd src-tauri && cargo test`で実行する。

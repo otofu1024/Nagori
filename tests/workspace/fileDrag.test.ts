@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { beginDrag, canTrash, DRAG_TYPE, dragSource, endDrag, isInternalDrag, moveBlock, rootDrop } from '../src/lib/workspace/fileDrag.ts';
-import type { Entry } from '../src/lib/workspace/navigation.ts';
+import { beginDrag, canTrash, DRAG_TYPE, dragSource, endDrag, isInternalDrag, moveBlock, rootDrop } from '../../src/lib/workspace/fileDrag.ts';
+import type { Entry } from '../../src/lib/workspace/navigation.ts';
 
 const folder = (path: string): Entry => ({ path, name: path.split('/').at(-1)!, kind: 'directory' });
 const note = (path: string): Entry => ({ path, name: path.split('/').at(-1)!, kind: 'markdown' });

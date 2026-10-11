@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageMime } from '../src/lib/workspace/image.ts';
+import { imageMime } from '../../src/lib/workspace/image.ts';
 
 test('先頭のバイト列から画像のMIMEタイプを決める', () => {
   assert.equal(imageMime(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])), 'image/png');
@@ -12,7 +12,7 @@ test('先頭のバイト列から画像のMIMEタイプを決める', () => {
 });
 
 test('画像だけをコピーしていた時だけ、貼り付ける画像を選ぶ', async () => {
-  const { clipboardImage } = await import('../src/lib/workspace/image.ts');
+  const { clipboardImage } = await import('../../src/lib/workspace/image.ts');
   const file = { name: 'image.png' } as unknown as File;
   const item = (kind: string, type: string) => ({ kind, type, getAsFile: () => file });
   const data = (text: string, items: ReturnType<typeof item>[]) => ({ getData: (format: string) => (format === 'text/plain' ? text : ''), items });

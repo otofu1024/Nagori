@@ -5,9 +5,9 @@ import { EditorView } from '@codemirror/view';
 import { markdown, commonmarkLanguage } from '@codemirror/lang-markdown';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
-import { markdownExtensions } from '../src/lib/editor/markdown.ts';
-import { compositionMode } from '../src/lib/editor/livePreview.ts';
-import { focusBlock, focusSpans, focusMode, followsTyping, centeredScrollTop } from '../src/lib/editor/focusMode.ts';
+import { markdownExtensions } from '../../src/lib/editor/markdown.ts';
+import { compositionMode } from '../../src/lib/editor/livePreview.ts';
+import { focusBlock, focusSpans, focusMode, followsTyping, centeredScrollTop } from '../../src/lib/editor/focusMode.ts';
 
 const editor = (doc: string, head = 0) => EditorState.create({ doc, selection: { anchor: head }, extensions: [markdown({ base: commonmarkLanguage, extensions: markdownExtensions })] });
 

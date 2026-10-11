@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { history, undo, isolateHistory } from '@codemirror/commands';
-import { blockEdit, blockAvailability, listPlan, type BlockKind, type ListKind } from '../src/lib/editor/blockEdit.ts';
-import { markdownParser, walk } from '../src/lib/editor/markdown.ts';
+import { blockEdit, blockAvailability, listPlan, type BlockKind, type ListKind } from '../../src/lib/editor/blockEdit.ts';
+import { markdownParser, walk } from '../../src/lib/editor/markdown.ts';
 
 // 右クリック位置に記号を入れた結果と、入れた後のカーソルが指す文字を返す
 function apply(text: string, kind: BlockKind, position: number) {

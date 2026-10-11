@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState, type Transaction, type TransactionSpec } from '@codemirror/state';
 import { history, undo, redo } from '@codemirror/commands';
-import { linkPaste, pasteMarkdown } from '../src/lib/editor/linkPaste.ts';
-import { markdownParser, walk } from '../src/lib/editor/markdown.ts';
+import { linkPaste, pasteMarkdown } from '../../src/lib/editor/linkPaste.ts';
+import { markdownParser, walk } from '../../src/lib/editor/markdown.ts';
 import type { EditorView } from '@codemirror/view';
 
 function plan(text: string, url: string, from = 0, to = text.length) {
