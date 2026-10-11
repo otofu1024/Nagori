@@ -644,6 +644,7 @@
     return settings.zoomFontSize && settingsLoaded && !starting && !composing && !editor?.isComposing() && !quick && !searchOpen && !errorDialog?.open && !saveAsDialog?.open;
   }
   const fontZoom = createFontZoom(() => settings, zoomAvailable, persist);
+  $effect(() => { if (settings.zoomFontSize) return fontZoom.mountWheel(); });
   function zoomFont(kind: 'in' | 'out' | 'reset') { fontZoom.zoomFont(kind); }
   function toggleWritingMode(key: 'focusMode' | 'typewriterMode') {
     if (starting || !settingsLoaded || composing || editor?.isComposing()) return;
