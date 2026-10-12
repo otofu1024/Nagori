@@ -3,6 +3,7 @@
 | 内容 | 文書 |
 |---|---|
 | 現在の機能と制限 | [仕様書](specification.md) |
+| ブログのモードと今後の機能 | [ブログのモード](blog-app.md) |
 | ファイル構成と処理の担当 | [アーキテクチャ](architecture.md) |
 | 自動確認とMacアプリのリリース前確認 | [リリースチェックリスト](release-checklist.md) |
 | メモリ測定の要点 | [メモリ調査](performance/memory.md) |

@@ -117,7 +117,7 @@ window.run = async () => {
           return;
         }
         if (command === 'open_request_take') return null;
-        if (command === 'workspace_open') return root;
+        if (command === 'workspace_open') return { root, blogMode: false };
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return entries();
         if (command === 'trash_list') return [];
@@ -224,6 +224,14 @@ window.run = async () => {
     await pause(100);
     check(
       'もう一度行を押すと本文が保たれたまま戻る',
+      !document.querySelector('.graph-view:not([hidden])') && editor.state.doc.toString() === edited,
+    );
+    nav().click();
+    await pause(600);
+    document.querySelector('.graph-view:not([hidden]) .graph-back').click();
+    await pause(300);
+    check(
+      '右上の戻るボタンで本文が保たれたまま戻る',
       !document.querySelector('.graph-view:not([hidden])') && editor.state.doc.toString() === edited,
     );
     nav().click();

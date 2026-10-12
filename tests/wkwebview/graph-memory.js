@@ -66,7 +66,7 @@ window.__TAURI_INTERNALS__ = {
       return;
     }
     if (command === 'open_request_take') return null;
-    if (command === 'workspace_open') return root;
+    if (command === 'workspace_open') return { root, blogMode: false };
     if (command === 'workspace_list') return listing(args.path);
     if (command === 'workspace_index') return entries;
     if (command === 'trash_list') return [];

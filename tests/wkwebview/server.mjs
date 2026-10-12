@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 
-await promisify(execFile)('cargo', ['build', '--manifest-path', 'src-tauri/Cargo.toml', '--example', 'graph-extract']);
+await promisify(execFile)('cargo', ['build', '--manifest-path', 'src-tauri/Cargo.toml', '--examples']);
 const extract = (documents) =>
   new Promise((resolve, reject) => {
     const child = execFile('src-tauri/target/debug/examples/graph-extract', { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
@@ -46,6 +46,16 @@ const server = await createServer({
     {
       name: 'ime-check',
       configureServer(server) {
+        server.middlewares.use('/tests/wkwebview/blog-data', async (_request, response) => {
+          response.setHeader('Content-Type', 'application/json');
+          try {
+            const { stdout } = await promisify(execFile)('src-tauri/target/debug/examples/blog-workspace', ['/private/tmp/nagori-stage2-blog'], { maxBuffer: 8 * 1024 * 1024 });
+            response.end(stdout);
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(JSON.stringify({ error: String(error) }));
+          }
+        });
         server.middlewares.use('/tests/wkwebview/graph-extract', async (request, response) => {
           response.setHeader('Content-Type', 'application/json');
           try {

@@ -289,3 +289,15 @@ fn recent_opened_times_drop_bad_entries_and_keep_the_newest_200() {
     // 配列など、対応しない型は読み込みを失敗させる
     assert!(serde_json::from_str::<Settings>(r#"{"recentOpenedAt":[]}"#).is_err());
 }
+
+#[test]
+fn blog_features_default_on_and_persist_off() {
+    let settings: Settings = serde_json::from_str("{}").unwrap();
+    assert!(settings.blog_features);
+    let settings: Settings = serde_json::from_str(r#"{"blogFeatures":false}"#).unwrap();
+    assert!(!settings.blog_features);
+    assert_eq!(
+        serde_json::to_value(settings).unwrap()["blogFeatures"],
+        false
+    );
+}

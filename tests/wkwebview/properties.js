@@ -78,7 +78,7 @@ window.run = async () => {
   const listInput = input('tagsに追加');
   check('追加欄は行にカーソルがない時だけ隠す', getComputedStyle(listInput).opacity === (tagsRow.matches(':hover') ? '1' : '0'));
   listInput.focus(); check('入力中は追加欄を表示', getComputedStyle(listInput).opacity === '1'); listInput.blur();
-  check('日付の値の前にカレンダー', document.querySelector('[data-key="publishedAt"] .nagori-property-value').firstElementChild.tagName.toLowerCase() === 'svg');
+  check('日付の値の前にカレンダーを出さない', !document.querySelector('[data-key="publishedAt"] .nagori-property-value svg'));
   check('読み取り専用の入れ子', document.querySelector('[data-key="other"] .nagori-property-value').textContent.includes('nested') && !document.querySelector('[data-key="other"] input'));
   check('nullは読み取り専用の文字', !document.querySelector('[data-key="nullValue"] input') && document.querySelector('[data-key="nullValue"] .nagori-property-value').textContent === 'null');
   edit('title', '新タイトル'); edit('description', '新しい説明'); edit('category', 'memo'); edit('publishedAt', '2026-10-12'); edit('count', '-2.75'); edit('time', '2026-10-13'); input('draft').click();
@@ -132,7 +132,7 @@ window.run = async () => {
   await create(original, { plain: true }); check('テキストファイルはYAMLを表示', !document.querySelector('.nagori-properties') && view.contentDOM.textContent.includes('title: はじめて'));
   await create(original, { previewOnly: true }); check('Previewは同じ見た目で読み取り専用', document.querySelector('.nagori-properties') && !document.querySelector('.nagori-properties input:not(:disabled)') && !document.querySelector('.nagori-property-add') && !document.querySelector('.nagori-property-chip button'));
   check('Previewでも直後の見出しと目次を表示', view.contentDOM.querySelector('.nagori-heading.nagori-h2')?.textContent.includes('Markdownを楽に編集したい') && headings[0]?.text === 'Markdownを楽に編集したい');
-  check('Previewでも日付のカレンダーを表示', document.querySelector('[data-key="publishedAt"] .nagori-property-value svg'));
+  check('Previewでも日付の値の前にカレンダーを出さない', !document.querySelector('[data-key="publishedAt"] .nagori-property-value svg'));
   await create('## 普通のノート\n\n本文'); check('Front Matterがないノートは今までどおり', !document.querySelector('.nagori-properties') && view.contentDOM.querySelector('.nagori-heading.nagori-h2'));
   await create(); check('JavaScriptのエラーなし', !errors.length);
   return JSON.stringify({ pass: checks.every(check => check.pass), checks, errors, realIME: !!window.webkit?.messageHandlers?.ime });

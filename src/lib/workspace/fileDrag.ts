@@ -38,7 +38,7 @@ export function canTrash(entry: Entry): boolean {
 }
 
 // ワークスペースの名前の上へ離した項目を、一番上へ移せるか。移せなければnull
-export function rootDrop(event: DragEvent): Entry | null {
+export function rootDrop(event: DragEvent, directory = ''): Entry | null {
   const entry = dragSource();
-  return entry && isInternalDrag(event) && !moveBlock(entry, '') ? entry : null;
+  return entry && isInternalDrag(event) && !moveBlock(entry, directory) ? entry : null;
 }

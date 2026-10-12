@@ -31,3 +31,12 @@ swift tests/wkwebview/probe.swift /private/tmp/nagori-graph-check http://127.0.0
 グラフの確認ページは、配信開始時に`/private/tmp`へ作る小さなワークスペースを使います。既存のノートやブログのコピーは不要です。本文の抽出には本番と同じRustのコードを使います。
 
 メモリの確認には`graph-memory.html?phase=before`、`graph-memory.html?phase=open`、`graph-memory.html?phase=closed`を使います。300個の長い文書から抽出したデータで確認し、`sourceBytes`と`payloadBytes`、Canvasの描画領域を記録します。`hold=30`を付けると計測用に30秒待ちます。確認用ウィンドウは閉じるボタン、Esc、Command+Qで止められます。
+
+ブログのモードの確認には、テンプレートのコピーを使います。コピーがなければ、配信を始める前に用意します。
+
+```sh
+test -d /private/tmp/nagori-stage2-blog || cp -R ~/nagori_template /private/tmp/nagori-stage2-blog
+swift tests/wkwebview/probe.swift /private/tmp/nagori-blog-check http://127.0.0.1:1438/tests/wkwebview/blog.html
+```
+
+`blog.html`はコピーをRustのファイル処理で読み、ブログの判定、記事だけの一覧と検索、テンプレートの候補、グラフのブログ内リンク、設定のオンとオフを確認します。画面内の編集はメモリ上で行います。

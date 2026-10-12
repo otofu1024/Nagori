@@ -671,3 +671,25 @@ fn move_entry_stays_inside_the_workspace() {
     assert!(directory.path().join("outside-dir").is_dir());
     assert!(no_staging_files(&root));
 }
+
+#[test]
+fn blog_detection_requires_the_template_and_rejects_symlinks() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    assert!(validate_blog(root).is_err());
+    fs::create_dir_all(root.join(BLOG_DIRECTORY)).unwrap();
+    fs::create_dir_all(root.join("src/theme")).unwrap();
+    fs::write(root.join("src/theme/theme.css"), "").unwrap();
+    assert!(validate_blog(root).is_err());
+    fs::write(root.join("src/config.ts"), "").unwrap();
+    assert!(validate_blog(root).is_ok());
+    assert!(blog_mode(root, true));
+    assert!(!blog_mode(root, false));
+    #[cfg(unix)]
+    {
+        fs::remove_file(root.join("src/config.ts")).unwrap();
+        fs::write(root.join("config.ts"), "").unwrap();
+        std::os::unix::fs::symlink(root.join("config.ts"), root.join("src/config.ts")).unwrap();
+        assert!(validate_blog(root).is_err());
+    }
+}

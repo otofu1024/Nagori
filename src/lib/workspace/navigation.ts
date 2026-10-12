@@ -1,3 +1,4 @@
+export const BLOG_DIRECTORY = 'src/content/blog';
 // modifiedはファイルの更新日時（Unixのミリ秒）。取れない時は持たない
 export type Entry={path:string;name:string;kind:'directory'|'markdown'|'image'|'other'|'symlink';modified?:number};
 function fuzzyScore(path:string, query:string):number|null {

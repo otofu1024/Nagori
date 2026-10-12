@@ -1,8 +1,8 @@
-# NagoriEditor
+# Nagori
 
-NagoriEditorは、macOS向けのMarkdownエディタ兼プレビューアです。ローカルのノートをLive Previewで編集し、Markdownのまま保存できます。
+Nagoriは、macOS向けのMarkdownエディタ兼プレビューアです。ローカルのノートをLive Previewで編集し、Markdownのまま保存できます。
 
-2026年10月12日にブログ専用アプリがNagoriの名前を引き継ぎ、この汎用エディタはNagoriEditorに改名しました。
+ブログのフォルダを開くと、記事一覧、検索、プロパティの候補、グラフのブログ内リンクを自動で切り替えます。設定の「ブログの機能」をオフにすると、どのフォルダも汎用のエディタとして開きます。詳しくは[ブログのモード](docs/blog-app.md)を参照してください。
 
 ## ビルドして起動する
 
@@ -19,7 +19,7 @@ npm run tauri dev
 
 ```sh
 npm run tauri build
-open src-tauri/target/release/bundle/macos/NagoriEditor.app
+open src-tauri/target/release/bundle/macos/Nagori.app
 ```
 
 ## 主な機能
@@ -60,16 +60,14 @@ open src-tauri/target/release/bundle/macos/NagoriEditor.app
 
 ## ターミナルから開く
 
-NagoriEditor.appを`/Applications`または`~/Applications`へ移動して一度起動し、アプリメニューから「nagori-editorコマンドを登録…」を選びます。
+Nagori.appを`/Applications`または`~/Applications`へ移動して一度起動し、アプリメニューから「nagoriコマンドを登録…」を選びます。
 
 ```sh
-nagori-editor .
-nagori-editor article.md
-nagori-editor "drafts/article.md"
-nagori-editor --help
+nagori .
+nagori article.md
+nagori "drafts/article.md"
+nagori --help
 ```
-
-登録先は`/usr/local/bin/nagori-editor`です。既存の`nagori`コマンドは変更しません。
 
 引数なしは現在のフォルダを開きます。記事のパスを指定すると、その記事を選択します。
 
