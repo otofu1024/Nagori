@@ -8,11 +8,13 @@ test('canvas settles, retains positions, handles drag and cursor zoom, and relea
   let sequence = 0,
     time = 0;
   const fonts = new Set<string>();
+  let bounds = { width: 800, height: 600, left: 0, top: 0 };
+  let transform: number[] = [];
   const context = {
     set font(value: string) {
       fonts.add(value);
     },
-    setTransform() {},
+    setTransform(...values: number[]) { transform = values; },
     clearRect() {},
     translate() {},
     scale() {},
@@ -37,7 +39,7 @@ test('canvas settles, retains positions, handles drag and cursor zoom, and relea
     }
     setAttribute() {}
     getBoundingClientRect() {
-      return { width: 800, height: 600, left: 0, top: 0 };
+      return bounds;
     }
     focus() {}
     setPointerCapture() {}
@@ -160,6 +162,22 @@ test('canvas settles, retains positions, handles drag and cursor zoom, and relea
     dispatch('pointerup', { pointerId: 1 });
     step(500);
     assert.equal(graph.inspect().running, false);
+    const beforeResize = graph.inspect();
+    bounds = { width: 3000, height: 2000, left: 0, top: 0 };
+    window.dispatchEvent(new Event('resize'));
+    step(500);
+    assert.ok(canvas.width * canvas.height <= 4_000_000);
+    assert.ok(canvas.width * canvas.height > 3_990_000);
+    assert.ok(transform[0] < 1);
+    assert.equal(transform[0], transform[3]);
+    assert.equal(graph.inspect().scale, beforeResize.scale);
+    assert.ok(Math.abs(graph.inspect().nodes[0].screenX - beforeResize.nodes[0].screenX - 1100) < 0.01);
+    assert.ok(Math.abs(graph.inspect().nodes[0].screenY - beforeResize.nodes[0].screenY - 700) < 0.01);
+    bounds = { width: 800, height: 600, left: 0, top: 0 };
+    window.dispatchEvent(new Event('resize'));
+    step(500);
+    assert.equal(canvas.width, 1600);
+    assert.equal(canvas.height, 1200);
     graph.show(false);
     assert.equal(canvas.width, 0);
     assert.equal(canvas.height, 0);

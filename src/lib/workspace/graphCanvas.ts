@@ -76,9 +76,9 @@ export function graphCanvas(canvas: HTMLCanvasElement, open: (path: string) => v
     const bounds = canvas.getBoundingClientRect();
     width = bounds.width;
     height = bounds.height;
-    ratio = window.devicePixelRatio || 1;
-    const pixelWidth = active ? Math.round(width * ratio) : 0;
-    const pixelHeight = active ? Math.round(height * ratio) : 0;
+    ratio = Math.min(window.devicePixelRatio || 1, Math.sqrt(4_000_000 / (width * height)));
+    const pixelWidth = active ? Math.floor(width * ratio) : 0;
+    const pixelHeight = active ? Math.floor(height * ratio) : 0;
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     wake();
