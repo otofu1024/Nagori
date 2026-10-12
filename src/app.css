@@ -79,6 +79,8 @@
 .nagori-code-line .nagori-syntax-function { color: var(--syntax-function); }
 .nagori-code-line .nagori-syntax-type { color: var(--syntax-type); }
 .nagori-code-line .nagori-syntax-property { color: var(--syntax-property); }
+/* 画面全体は動かさない。端までスクロールした時の跳ね返りも、各欄の中だけにとどめる */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { margin: 0; color: var(--text); background: var(--surface); }
 button, input, select { font: inherit; }
 button {
