@@ -37,7 +37,7 @@
 
 <div class="graph-view" hidden={!active} aria-busy={loading}>
   <canvas bind:this={canvas} tabindex="0" aria-label="ノートとタグのグラフ"></canvas>
-  <button class="graph-back" type="button" aria-label="記事に戻る" title="記事に戻る" onclick={onBack}><Icon name="back" size={16} /></button>
+  <button class="graph-back" type="button" aria-label="記事に戻る" title="記事に戻る" onclick={onBack}><Icon name="forward" size={20} /></button>
 </div>
 
 <style>
@@ -56,12 +56,16 @@
     right: 16px;
     display: grid;
     place-items: center;
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: var(--surface);
     color: var(--muted);
+  }
+  .graph-back :global(svg) {
+    display: block;
   }
   .graph-back:hover {
     color: var(--text);
