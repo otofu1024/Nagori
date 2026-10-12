@@ -84,3 +84,28 @@
   .link-form input { font: inherit; color: inherit; background: var(--surface); padding: 9px; border: 1px solid var(--border); border-radius: 8px; }
   .link-form > div { display: flex; justify-content: flex-end; gap: 8px; } .link-form p { color: var(--danger); font-size: 13px; }
   @media (max-width: 760px) { .editor-host :global(.cm-content) { padding: 25px 28px 80px; } }
+
+  .editor-host :global(.nagori-properties) { padding: 0 0 2.5em; font-size: calc(var(--editor-font-size) * .85); line-height: 1.5; }
+  .editor-host :global(.nagori-properties button) { font: inherit; color: var(--muted); background: transparent; border: none; border-radius: 4px; cursor: pointer; padding: 0; }
+  .editor-host :global(.nagori-properties-heading) { display: block; color: var(--muted); font-size: 1.1em !important; margin-bottom: .7em; }
+  .editor-host :global(.nagori-property-row) { display: grid; grid-template-columns: .95em minmax(6em, 8.5em) minmax(0, 1fr); gap: .4em; align-items: start; min-height: 1.85em; }
+  .editor-host :global(.nagori-property-row svg) { flex-shrink: 0; width: .95em; height: .95em; margin-top: .3em; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .editor-host :global(.nagori-property-name) { color: var(--muted); padding: .12em 0; overflow-wrap: anywhere; }
+  .editor-host :global(.nagori-property-value) { min-width: 0; display: flex; gap: .35em; align-items: center; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .editor-host :global(.nagori-property-value svg) { margin-top: 0; }
+  .editor-host :global(.nagori-property-value input:not([type='checkbox'])) { box-sizing: border-box; font: inherit; color: inherit; width: 100%; min-width: 0; padding: .1em .25em; line-height: inherit; background: transparent; border: 1px solid transparent; border-radius: 4px; caret-color: var(--text); }
+  .editor-host :global(.nagori-property-value input:not([type='checkbox']):hover), .editor-host :global(.nagori-property-value input:not([type='checkbox']):focus) { border-color: var(--border); outline: none; }
+  .editor-host :global(.nagori-properties input::selection) { background: var(--selection); }
+  .editor-host :global(.nagori-property-value input[type='date']) { flex: 1; width: 0; }
+  .editor-host :global(.nagori-property-value input[type='checkbox']) { margin: .35em 0 0; width: .95em; height: .95em; }
+  .editor-host :global(.nagori-property-chips) { display: flex; flex-wrap: wrap; gap: .35em; min-width: 0; }
+  .editor-host :global(.nagori-property-chip) { display: inline-flex; align-items: center; gap: .25em; }
+  .editor-host :global(.nagori-property-row:is([data-key='tags'], [data-key='tag'], [data-key='aliases']) .nagori-property-chips) { flex-wrap: nowrap; overflow-x: auto; }
+  .editor-host :global(.nagori-property-row:is([data-key='tags'], [data-key='tag'], [data-key='aliases']) .nagori-property-chip) { flex-shrink: 0; white-space: nowrap; border-radius: 1em; padding: 0 .45em; background: var(--accent-soft); color: var(--accent); }
+  .editor-host :global(.nagori-property-row:is([data-key='tags'], [data-key='tag'], [data-key='aliases']) .nagori-property-chip button) { color: inherit; }
+  .editor-host :global(.nagori-property-chip button) { line-height: 1; padding: .2em 0; }
+  .editor-host :global(input.nagori-property-list-input) { flex: 1; width: 3em !important; min-width: 3em !important; opacity: 0; pointer-events: none; }
+  .editor-host :global(.nagori-property-row:hover input.nagori-property-list-input), .editor-host :global(.nagori-property-row:focus-within input.nagori-property-list-input), .editor-host :global(input.nagori-property-list-input:not(:placeholder-shown)) { opacity: 1; pointer-events: auto; }
+  .editor-host :global(.nagori-property-add) { margin-top: .35em; }
+  .editor-host :global(.nagori-property-key-input) { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); margin-left: .5em; max-width: 100%; border-radius: 4px; }
+  .editor-host :global(.nagori-property-error) { color: var(--danger); font-size: .8em; }
