@@ -28,9 +28,9 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   import { typingFormat, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from '../workspace/workspaceSearch.ts';
 
-  let { initialText, documentKey, readonly = false, busy = false, saving = false, plain = false, properties = true, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
+    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -294,7 +294,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) formatting.toolbar = null; });
 </script>
 
-<div class="editor-root" class:preview-only={previewOnly} class:plain class:no-heading-rule={!headingRule} onfocusout={() => queueMicrotask(formatting.updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px;${editorStyle}`} data-document={documentKey}>
+<div {hidden} class="editor-root" class:preview-only={previewOnly} class:plain class:no-heading-rule={!headingRule} onfocusout={() => queueMicrotask(formatting.updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px;${editorStyle}`} data-document={documentKey}>
   <div class="editor-host" bind:this={host}></div>
   {#if formatting.toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${formatting.toolbar.top}px;left:${formatting.toolbar.left}px`} onmousedown={event => event.preventDefault()}>

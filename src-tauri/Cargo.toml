@@ -26,3 +26,5 @@ tempfile = "3"
 libc = "0.2"
 url = "2"
 regex = "1"
+pulldown-cmark = { version = "0.13", default-features = false }
+serde_yaml_ng = "0.10"

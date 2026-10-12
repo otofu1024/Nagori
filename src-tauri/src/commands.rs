@@ -189,6 +189,36 @@ pub(crate) async fn workspace_list(state: State<'_, Backend>, path: String) -> R
 pub(crate) async fn workspace_index(state: State<'_, Backend>) -> Result<Vec<Entry>> {
     work(&state, move |w| files::index(w.root()?)).await
 }
+#[derive(serde::Deserialize)]
+pub(crate) struct GraphDraft {
+    path: String,
+    text: String,
+}
+
+#[tauri::command]
+pub(crate) async fn workspace_graph_documents(
+    state: State<'_, Backend>,
+    draft: Option<GraphDraft>,
+) -> Result<Vec<crate::graph::GraphArticle>> {
+    work(&state, move |w| {
+        let root = w.root()?;
+        files::index(root)?
+            .into_iter()
+            .filter(|entry| {
+                entry.kind == "markdown" && entry.path.to_ascii_lowercase().ends_with(".md")
+            })
+            .map(|entry| {
+                let document = files::open(root, &entry.path)?;
+                let text = draft
+                    .as_ref()
+                    .filter(|draft| draft.path == document.path)
+                    .map_or(document.text.as_str(), |draft| draft.text.as_str());
+                Ok(crate::graph::extract(document.path, text))
+            })
+            .collect()
+    })
+    .await
+}
 // 検索は時間がかかるため、ワークスペースのロックを持たずに別のスレッドで動かす。保存などの処理を待たせない
 #[tauri::command]
 pub(crate) async fn workspace_search(

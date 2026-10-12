@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
@@ -9,6 +9,8 @@
   import { createMenus } from './lib/workspace/menus.ts';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/editor/Editor.svelte';
+  import GraphView from './lib/components/GraphView.svelte';
+  import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
   import OutlineNotice from './lib/components/OutlineNotice.svelte';
   import { outlineNoticeVisible } from './lib/workspace/outlineNotice.ts';
@@ -73,6 +75,41 @@
     notice = $state(''),
     contentError = $state('');
   let sidebarVisible = $state(true);
+  let graphOpen = $state(false), graphLoading = $state(false);
+  let graphData = $state.raw<GraphData>({ nodes: [], edges: [] });
+  let graphRequest = 0;
+  $effect(() => {
+    project; index;
+    if (graphOpen) void refreshGraph();
+    else {
+      graphRequest++;
+      graphData = { nodes: [], edges: [] };
+      graphLoading = false;
+    }
+  });
+  async function refreshGraph() {
+    const root = project, request = ++graphRequest;
+    graphLoading = true;
+    try {
+      const draft = untrack(() => session?.dirty ? { path: session.path, text: session.text } : null);
+      const documents = await invoke<GraphArticle[]>('workspace_graph_documents', { draft });
+      if (!graphOpen || root !== project || request !== graphRequest) return;
+      graphData = buildGraph(documents);
+    } catch (error) {
+      if (root === project && request === graphRequest) notify(failure(error).message);
+    } finally {
+      if (request === graphRequest) graphLoading = false;
+    }
+  }
+  async function toggleGraph() {
+    if (!project || busy) return;
+    await settleComposition();
+    graphOpen = !graphOpen;
+    if (!graphOpen) { await tick(); editor?.focus(); }
+  }
+  async function openGraphArticle(path: string) {
+    await selectEntry(index.find(entry => entry.path === path) ?? { path, name: path.split('/').at(-1)!, kind: 'markdown' });
+  }
   let shellWidth = $state(0);
   let sidebarDraft = $state<number | null>(null),
     outlineDraft = $state<number | null>(null);
@@ -370,6 +407,7 @@
     imageDimensions = '';
   }
   function clearDocument() {
+    graphOpen = false;
     cancelSave();
     quickPanel?.forgetFocus();
     session = null;
@@ -423,7 +461,14 @@
       await toggle(entry);
       return;
     }
-    if (entry.path === current?.path) return;
+    if (entry.path === current?.path) {
+      if (graphOpen) {
+        graphOpen = false;
+        await tick();
+        editor?.focus();
+      }
+      return;
+    }
     await operation(() => loadEntry(entry));
   }
   async function chooseProject() {
@@ -437,6 +482,8 @@
     const root = await invoke<string>('workspace_open', { path });
     clearDocument();
     project = root;
+    graphData = { nodes: [], edges: [] };
+    graphRequest++;
     tree = {};
     expanded = [''];
     selected = '';
@@ -821,7 +868,7 @@
       </div>
     </div>
     {#if project}
-      <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} onTrash={(entry) => void trash(entry)} />
+      <SidebarNav {view} counts={navCounts} onSelect={(next) => (view = next)} onTrash={(entry) => void trash(entry)} {graphOpen} onGraph={() => void toggleGraph()} />
     {/if}
     {#if view === 'tree'}
       <div class="folders-heading">フォルダ</div>
@@ -943,17 +990,18 @@
           <span class="welcome-mark"><Icon name="file" size={44} /></span>
           <p>書く場所を、準備しています。</p>
         </div>
-      {:else if contentError}<div class="empty-state">
+      {:else if contentError && !graphOpen}<div class="empty-state">
           <span class="state-icon"><Icon name="file" size={42} /></span>
           <h1>{current?.name ?? 'Nagori'}</h1>
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>
       {:else if (current?.kind === 'markdown' || plain) && session}<div class="document-body">
-          <div class="editor-column">
-            <OutlineNotice visible={outlineNotice} />
+          <div class="editor-column" style="position:relative">
+            <OutlineNotice visible={outlineNotice && !graphOpen} />
             <Editor
               {initialText}
+              hidden={graphOpen}
               {documentKey}
               saving={status === 'saving'}
               {readonly}
@@ -978,6 +1026,9 @@
               onOutline={(headings) => (outline = headings)}
               onOutlinePosition={(index) => (outlinePosition = index)}
             />
+            {#if graphOpen}
+              <GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} />
+            {/if}
           </div>
           {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
             <div class="outline-boundary">
@@ -995,6 +1046,7 @@
             <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
           {/if}
         </div>
+      {:else if graphOpen}<GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} />
       {:else if current?.kind === 'image'}<div class="image-preview">
           <img
             src={imageUrl}

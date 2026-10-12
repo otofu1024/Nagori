@@ -3,6 +3,7 @@ mod apple_quit;
 mod cli;
 mod commands;
 mod files;
+mod graph;
 mod image;
 mod menu;
 mod search;
@@ -50,6 +51,7 @@ pub fn run() {
             commands::workspace_open,
             commands::workspace_list,
             commands::workspace_index,
+            commands::workspace_graph_documents,
             commands::workspace_search,
             commands::document_open,
             commands::document_save,
