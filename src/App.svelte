@@ -5,6 +5,7 @@
   import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
   import { createSettingsDialog } from './lib/workspace/settingsDialog.ts';
   import { createFontZoom } from './lib/workspace/fontZoom.ts';
+  import { mountSmoothWheel } from './lib/editor/smoothWheel.ts';
   import { createFileActions } from './lib/workspace/fileActions.ts';
   import { createMenus } from './lib/workspace/menus.ts';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
@@ -756,6 +757,7 @@
     const focused = () => void checkExternal();
     window.addEventListener('focus', focused);
     const releaseZoom = fontZoom.mount();
+    const releaseWheel = mountSmoothWheel();
     void (async () => {
       if (!isTauri()) {
         starting = false;
@@ -821,6 +823,7 @@
       unlisteners.forEach((unlisten) => unlisten());
       window.removeEventListener('focus', focused);
       releaseZoom();
+      releaseWheel();
       cancelSave();
       clearTimeout(fsTimer);
       releaseImages();

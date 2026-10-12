@@ -15,67 +15,73 @@ export function wheelTarget(position: number, delta: number, maximum: number): n
   return Math.max(0, Math.min(Math.max(0, maximum), position + delta));
 }
 
-export function wheelPosition(from: number, to: number, progress: number): number {
-  const t = Math.max(0, Math.min(1, progress));
-  return from + (to - from) * (1 - (1 - t) ** 3);
+export function wheelPosition(from: number, to: number, elapsed: number): number {
+  return from + (to - from) * (1 - Math.exp(-Math.max(0, elapsed) / 30));
+}
+
+let stopWheel = (_dom?: HTMLElement) => {};
+
+export function mountSmoothWheel() {
+  let frame = 0, target = 0, previousTime = 0, expectedTop = 0, expectedLeft = 0, lastNative = -Infinity;
+  let dom: HTMLElement | undefined;
+  const events = new AbortController(), signal = events.signal;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const stop = () => { cancelAnimationFrame(frame); frame = 0; dom = undefined; };
+  stopWheel = (element) => { if (!element || element === dom) stop(); };
+  const scrolled = () => {
+    if (dom && (!dom.isConnected || dom.scrollTop !== expectedTop || dom.scrollLeft !== expectedLeft)) stop();
+  };
+  const animate = (now: number) => {
+    scrolled();
+    if (!dom) return;
+    target = wheelTarget(target, 0, dom.scrollHeight - dom.clientHeight);
+    const position = wheelPosition(dom.scrollTop, target, now - previousTime);
+    dom.scrollTop = Math.abs(target - position) <= 1 ? target : position;
+    expectedTop = dom.scrollTop;
+    previousTime = now;
+    if (expectedTop === target) stop();
+    else frame = requestAnimationFrame(animate);
+  };
+  const wheel = (event: WheelEvent) => {
+    const now = performance.now(), notch = isWheelNotch(event, now - lastNative);
+    // DOMにはphaseがないため、細かい入力から400msは標準へ任せ、連続入力の間は延長する。
+    // shortcut: トラックパッドの最初の入力が40pxの倍数だと区別できない。実機で起きる場合はネイティブ側で判別する。
+    if (!notch) lastNative = now;
+    if (!notch || reduced.matches || !event.cancelable || event.defaultPrevented) { stop(); return; }
+    scrolled();
+    const element = event.composedPath().find((node): node is HTMLElement => node instanceof HTMLElement &&
+      node.scrollHeight > node.clientHeight && /^(auto|scroll|overlay)$/.test(getComputedStyle(node).overflowY));
+    if (!element) { stop(); return; }
+    if (dom !== element) {
+      stop();
+      dom = element;
+      target = expectedTop = dom.scrollTop;
+      expectedLeft = dom.scrollLeft;
+      previousTime = now;
+    }
+    const style = getComputedStyle(dom);
+    const delta = event.deltaY * (event.deltaMode === 1 ? parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2 : 1);
+    target = wheelTarget(target, delta, dom.scrollHeight - dom.clientHeight);
+    event.preventDefault();
+    if (target === dom.scrollTop) stop();
+    else if (!frame) frame = requestAnimationFrame(animate);
+  };
+  document.addEventListener('wheel', wheel, { passive: false, signal });
+  document.addEventListener('scroll', scrolled, { capture: true, passive: true, signal });
+  for (const name of ['keydown', 'pointerdown', 'touchstart', 'compositionstart', 'input', 'click']) {
+    document.addEventListener(name, stop, { capture: true, passive: true, signal });
+  }
+  reduced.addEventListener('change', stop, { signal });
+  return () => { stop(); events.abort(); stopWheel = () => {}; };
 }
 
 const plugin = ViewPlugin.fromClass(class {
-  frame = 0;
-  from = 0;
-  target = 0;
-  started = 0;
-  expectedTop = 0;
-  expectedLeft = 0;
-  lastNative = -Infinity;
-  events = new AbortController();
-  reduced = matchMedia('(prefers-reduced-motion: reduce)');
   view: EditorView;
-  constructor(view: EditorView) {
-    this.view = view;
-    const signal = this.events.signal;
-    view.scrollDOM.addEventListener('wheel', this.wheel, { passive: false, signal });
-    view.scrollDOM.addEventListener('scroll', this.scrolled, { passive: true, signal });
-    for (const name of ['keydown', 'pointerdown', 'touchstart', 'compositionstart']) {
-      view.dom.addEventListener(name, this.stop, { capture: true, passive: true, signal });
-    }
-    this.reduced.addEventListener('change', this.stop, { signal });
-  }
-  stop = () => { cancelAnimationFrame(this.frame); this.frame = 0; };
-  scrolled = () => {
-    if (this.frame && (this.view.scrollDOM.scrollTop !== this.expectedTop || this.view.scrollDOM.scrollLeft !== this.expectedLeft)) this.stop();
-  };
-  wheel = (event: WheelEvent) => {
-    const now = performance.now(), notch = isWheelNotch(event, now - this.lastNative);
-    // DOMにはphaseがないため、細かい入力から400msは標準へ任せ、連続入力の間は延長する。
-    // shortcut: トラックパッドの最初の入力が40pxの倍数だと区別できない。実機で起きる場合はネイティブ側で判別する。
-    if (!notch) this.lastNative = now;
-    if (!notch || this.reduced.matches || !event.cancelable || event.defaultPrevented) { this.stop(); return; }
-    this.scrolled();
-    const dom = this.view.scrollDOM;
-    const delta = event.deltaY * (event.deltaMode === 1 ? this.view.defaultLineHeight : 1);
-    this.target = wheelTarget(this.frame ? this.target : dom.scrollTop, delta, dom.scrollHeight - dom.clientHeight);
-    event.preventDefault();
-    this.from = this.expectedTop = dom.scrollTop;
-    this.expectedLeft = dom.scrollLeft;
-    this.started = now;
-    if (!this.frame) this.frame = requestAnimationFrame(this.animate);
-  };
-  animate = (now: number) => {
-    this.scrolled();
-    if (!this.frame) return;
-    const dom = this.view.scrollDOM;
-    this.target = wheelTarget(this.target, 0, dom.scrollHeight - dom.clientHeight);
-    const progress = (now - this.started) / 150;
-    dom.scrollTop = wheelPosition(this.from, this.target, progress);
-    this.expectedTop = dom.scrollTop;
-    if (progress >= 1 || this.expectedTop === this.target) this.stop();
-    else this.frame = requestAnimationFrame(this.animate);
-  };
+  constructor(view: EditorView) { this.view = view; }
   update(update: ViewUpdate) {
-    if (update.docChanged || update.selectionSet || update.focusChanged || update.transactions.some(tr => tr.scrollIntoView)) this.stop();
+    if (update.docChanged || update.selectionSet || update.focusChanged || update.transactions.some(tr => tr.scrollIntoView)) stopWheel(this.view.scrollDOM);
   }
-  destroy() { this.stop(); this.events.abort(); }
+  destroy() { stopWheel(this.view.scrollDOM); }
 });
 
-export const smoothWheel = [plugin, Prec.highest(EditorView.scrollHandler.of(view => { view.plugin(plugin)?.stop(); return false; }))];
+export const smoothWheel = [plugin, Prec.highest(EditorView.scrollHandler.of(view => { stopWheel(view.scrollDOM); return false; }))];
