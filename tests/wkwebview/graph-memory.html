@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>グラフのメモリ確認</title>
+    <style>
+      html,
+      body,
+      #host {
+        height: 100%;
+        margin: 0;
+      }
+      #controls {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        z-index: 100;
+        background: white;
+        color: black;
+        padding: 8px;
+        font: 12px sans-serif;
+      }
+      button {
+        margin-right: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="controls"><button id="open">開いて落ち着かせる</button><button id="close">閉じる</button><span id="state">準備中</span></div>
+    <script type="module" src="./graph-memory.js"></script>
+  </body>
+</html>

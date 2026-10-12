@@ -7,11 +7,13 @@
   export type SidebarView = 'tree' | 'all' | 'starred' | 'recent' | 'trash';
   type Counts = Record<'all' | 'starred' | 'recent' | 'trash', number>;
 
-  let { view, counts, onSelect, onTrash }: {
+  let { view, counts, onSelect, onTrash, graphOpen = false, onGraph }: {
     view: SidebarView;
     counts: Counts;
     onSelect: (view: SidebarView) => void;
     onTrash: (entry: Entry) => void;
+    graphOpen?: boolean;
+    onGraph: () => void;
   } = $props();
 
   // ゴミ箱の上に、ドラッグ中の項目があるか
@@ -66,4 +68,8 @@
       {#if item.view !== 'trash' || count > 0}<small class="nav-count">{count}</small>{/if}
     </button>
   {/each}
+  <button class="nav-row" class:active={graphOpen} aria-pressed={graphOpen} onclick={onGraph}>
+    <span class="file-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" aria-hidden="true"><path d="m7 6 10 3M7 6l3 12m7-9-7 9"/><circle cx="6" cy="5" r="3"/><circle cx="19" cy="9" r="3"/><circle cx="10" cy="20" r="3"/></svg></span>
+    <span class="nav-label">グラフビュー</span>
+  </button>
 </nav>
