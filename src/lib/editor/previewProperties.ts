@@ -135,7 +135,6 @@ export class PropertiesWidget extends WidgetType {
       value.className = 'nagori-property-value';
       row.append(icon, name, value);
       dom.append(row);
-      if (propertyKind(property) === 'date') value.append(icon.cloneNode(true));
       if (
         propertyKind(property) === 'other' ||
         (this.readonly && propertyKind(property) !== 'list' && propertyKind(property) !== 'boolean')
