@@ -53,8 +53,8 @@
     touch-action: none;
     cursor: grab;
   }
+  canvas:focus,
   canvas:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -3px;
+    outline: none;
   }
 </style>
