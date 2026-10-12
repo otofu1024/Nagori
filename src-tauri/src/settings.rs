@@ -46,7 +46,7 @@ pub struct Settings {
     pub zoom_font_size: bool,
     // オンの時、本文の幅はウィンドウの空きに合わせて決める。editor_widthは手動の値として残す。古い設定はオフで読む
     pub auto_editor_width: bool,
-    // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
+    // キーはワークスペース基準の相対パス、値は最後にNagoriEditorで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
 }

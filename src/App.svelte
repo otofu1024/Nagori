@@ -31,8 +31,6 @@
   import ProblemDialog from './lib/components/ProblemDialog.svelte';
   import SaveAsDialog from './lib/components/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
-  import nagoriWordmark from './lib/assets/nagori-wordmark.png';
-  import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
   import type { EditorApi } from './lib/editor/editor';
   import { EditSession, failure, type OpenedDocument } from './lib/workspace/session';
   import { AppFlow } from './lib/workspace/appFlow';
@@ -740,7 +738,7 @@
     void (async () => {
       if (!isTauri()) {
         starting = false;
-        contentError = 'Nagoriはデスクトップアプリです。npm run tauri dev で起動してください。';
+        contentError = 'NagoriEditorはデスクトップアプリです。npm run tauri dev で起動してください。';
         return;
       }
       try {
@@ -820,8 +818,7 @@
   <header class="global-bar" data-tauri-drag-region="deep">
     <div class="brand">
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36" />
-      <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36" />
-      <img class="brand-wordmark brand-wordmark-dark" src={nagoriWordmarkDark} alt="Nagori" width="108" height="36" />
+      <span class="brand-wordmark">NagoriEditor</span>
     </div>
     <button class="quick-button" onclick={() => void quickOpen()} disabled={!project || busy} aria-label="ファイル名・パスで検索"
       ><Icon name="search" /> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button
@@ -946,7 +943,7 @@
   <main>
     <header class="editor-header">
       <div class="breadcrumb">
-        <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'Nagori'}</span
+        <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'NagoriEditor'}</span
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
       <div class="header-actions">
@@ -992,7 +989,7 @@
         </div>
       {:else if contentError && !graphOpen}<div class="empty-state">
           <span class="state-icon"><Icon name="file" size={42} /></span>
-          <h1>{current?.name ?? 'Nagori'}</h1>
+          <h1>{current?.name ?? 'NagoriEditor'}</h1>
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>

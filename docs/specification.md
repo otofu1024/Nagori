@@ -1,10 +1,10 @@
-# Nagori仕様書
+# NagoriEditor仕様書
 
 改訂版1.24、2026-10-09
 
 ## 1. 目的と対応環境
 
-Nagoriは、ローカルのMarkdown記事を書くmacOS向けエディタ兼プレビューアである。Markdownをそのまま保存し、表示を切り替えたり閲覧したりしても本文を変えない。
+NagoriEditorは、ローカルのMarkdown記事を書くmacOS向けエディタ兼プレビューアである。Markdownをそのまま保存し、表示を切り替えたり閲覧したりしても本文を変えない。
 
 初回公開版はApple SiliconのmacOSを対象とする。最低対象はmacOS 13。WindowsとLinuxは対象外。実装にはTauri 2、Rust、Svelte 5、TypeScript、Vite、CodeMirror 6を使う。
 

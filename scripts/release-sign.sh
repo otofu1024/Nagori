@@ -69,7 +69,7 @@ printf '%s\n' "署名証明書と公証資格情報（$notary）を確認しま�
 # Tauriは上記の環境変数を読み、署名、公証、ステープルまで行う。
 npm run tauri build -- --bundles app,dmg --ci
 
-app=src-tauri/target/release/bundle/macos/Nagori.app
+app=src-tauri/target/release/bundle/macos/NagoriEditor.app
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app"
 /usr/sbin/spctl --assess --type execute --verbose=2 "$app"
 /usr/bin/xcrun stapler validate "$app"

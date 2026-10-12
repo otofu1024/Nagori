@@ -74,7 +74,7 @@ pub fn run() {
             commands::app_exit
         ])
         .build(tauri::generate_context!())
-        .expect("Nagori could not start");
+        .expect("NagoriEditor could not start");
     app.run(|app, event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = &event {

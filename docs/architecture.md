@@ -2,7 +2,7 @@
 
 ## 全体構成
 
-NagoriはTauriのWebViewでSvelteの画面を動かす。画面は`src/App.svelte`が管理し、ファイル操作やアプリ設定はTauriのコマンドを通じてRustへ渡す。
+NagoriEditorはTauriのWebViewでSvelteの画面を動かす。画面は`src/App.svelte`が管理し、ファイル操作やアプリ設定はTauriのコマンドを通じてRustへ渡す。
 
 ```text
 Svelte UI (src/App.svelte, src/lib/)
@@ -18,7 +18,7 @@ Rust backend (src-tauri/src/lib.rs)
        ├── settings.rs   設定の型、検証、読み書き
        ├── search.rs     ワークスペース本文検索
        ├── trash.rs      アプリ内ゴミ箱と保存期限
-       └── cli.rs        nagoriコマンドの登録と起動引数
+       └── cli.rs        nagori-editorコマンドの登録と起動引数
 ```
 
 ## 主なファイル
@@ -60,7 +60,7 @@ Rust backend (src-tauri/src/lib.rs)
 | [settings.rs](../src-tauri/src/settings.rs) | 設定の型、値の検証、設定ファイルの読み書き |
 | [search.rs](../src-tauri/src/search.rs) | ワークスペース全体の本文検索 |
 | [trash.rs](../src-tauri/src/trash.rs) | アプリ内ゴミ箱、復元、完全削除、期限切れ項目の処理 |
-| [cli.rs](../src-tauri/src/cli.rs) | 起動引数の解釈とnagoriコマンドの登録処理 |
+| [cli.rs](../src-tauri/src/cli.rs) | 起動引数の解釈とnagori-editorコマンドの登録処理 |
 
 ## 主なデータの流れ
 
