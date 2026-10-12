@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { createToolbar } from './toolbar.svelte.ts';
   import { editorKeymap } from './keymap.ts';
   import Icon from '../components/Icon.svelte';
@@ -291,9 +291,16 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     if (composition || view.compositionStarted) pendingFindBlocked = blocked;
     else view.dispatch({ effects: findReplaceBlocked.of(blocked) });
   });
+  // プロパティ表示かブログのモードが変わった時だけ、表示の拡張を入れ替える。
+  // 入れ替えると画像を含む装飾をすべて作り直すので、ほかの変化では動かさない
+  let previewKey = untrack(() => `${properties}:${blogMode}`);
   $effect(() => {
-    const extension = livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, onPropertyComposition: setComposition });
-    if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(extension) });
+    const key = `${properties}:${blogMode}`;
+    if (key === previewKey) return;
+    previewKey = key;
+    untrack(() => {
+      if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, onPropertyComposition: setComposition })) });
+    });
   });
   $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });
   $effect(() => { const disabled = readonly || busy; if (view) view.dispatch({ effects: readOnlyConfig.reconfigure([EditorState.readOnly.of(disabled), EditorView.editable.of(!disabled)]) }); if (disabled) formatting.toolbar = null; });

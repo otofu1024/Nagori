@@ -228,6 +228,14 @@ window.run = async () => {
     );
     nav().click();
     await pause(600);
+    document.querySelector('.graph-view:not([hidden]) .graph-back').click();
+    await pause(300);
+    check(
+      '右上の戻るボタンで本文が保たれたまま戻る',
+      !document.querySelector('.graph-view:not([hidden])') && editor.state.doc.toString() === edited,
+    );
+    nav().click();
+    await pause(600);
     document.querySelector('.nav-row').click();
     await tick();
     const note =

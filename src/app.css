@@ -277,8 +277,6 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 .outline button { position: relative; width: 100%; padding: 8px 8px 8px calc(12px + var(--outline-depth) * 14px); border-radius: 9px; text-align: left; font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere; }
 .outline button.top-level { font-weight: 600; }
 .outline button[aria-current="location"] { color: var(--accent); }
-/* 目次の項目には、押した後の青い枠を出さない */
-.outline button:focus-visible { outline: none; }
 .outline button[aria-current="location"]::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 2px; }
 /* つまみは継承色で描き、領域の色だけを遷移させる。WebKitのつまみ自体には遷移を付けない。 */
 .activity-scrollbar:not(.scrollbar-active) { color: transparent; }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Icon from './Icon.svelte';
   import { graphCanvas } from '../workspace/graphCanvas.ts';
   import type { GraphData } from '../workspace/graph.ts';
   let {
@@ -8,12 +9,14 @@
     current = '',
     loading = false,
     onOpen,
+    onBack,
   }: {
     data: GraphData;
     active: boolean;
     current?: string;
     loading?: boolean;
     onOpen: (path: string) => void;
+    onBack: () => void;
   } = $props();
   let canvas: HTMLCanvasElement;
   let graph = $state.raw<ReturnType<typeof graphCanvas>>();
@@ -34,6 +37,7 @@
 
 <div class="graph-view" hidden={!active} aria-busy={loading}>
   <canvas bind:this={canvas} tabindex="0" aria-label="ノートとタグのグラフ"></canvas>
+  <button class="graph-back" type="button" aria-label="記事に戻る" title="記事に戻る" onclick={onBack}><Icon name="back" size={16} /></button>
 </div>
 
 <style>
@@ -45,6 +49,22 @@
   }
   .graph-view[hidden] {
     display: none;
+  }
+  .graph-back {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .graph-back:hover {
+    color: var(--text);
   }
   canvas {
     display: block;

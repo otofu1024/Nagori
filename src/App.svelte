@@ -1049,7 +1049,7 @@
               onOutlinePosition={(index) => (outlinePosition = index)}
             />
             {#if graphOpen}
-              <GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} />
+              <GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
             {/if}
           </div>
           {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
@@ -1068,7 +1068,7 @@
             <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
           {/if}
         </div>
-      {:else if graphOpen}<GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} />
+      {:else if graphOpen}<GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
       {:else if current?.kind === 'image'}<div class="image-preview">
           <img
             src={imageUrl}
