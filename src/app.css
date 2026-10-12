@@ -148,7 +148,10 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 }
 .brand img { display: block; flex-shrink: 0; object-fit: contain; }
 .brand-icon { width: 36px; height: 36px; }
-.brand-wordmark { font-size: 23px; font-weight: 650; letter-spacing: -.04em; white-space: nowrap; }
+.brand-wordmark { width: 108px; height: 36px; }
+.brand .brand-wordmark-dark { display: none; }
+:root[data-theme="dark"] .brand-wordmark-light { display: none; }
+:root[data-theme="dark"] .brand-wordmark-dark { display: block; }
 .quick-button {
   display: flex;
   align-items: center;
@@ -349,7 +352,7 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
   .global-actions { gap: 6px; }
   .brand { gap: 8px; }
   .brand-icon { width: 30px; height: 30px; }
-  .brand-wordmark { font-size: 21px; }
+  .brand-wordmark { width: 100px; height: auto; }
   .quick-button { font-size: 12px; gap: 7px; }
   .quick-button kbd { display: none; }
   .editor-header { padding: 0 22px; }

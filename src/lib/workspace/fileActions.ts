@@ -12,6 +12,7 @@ type FileActionDeps = {
   busy: boolean;
   composing: boolean;
   project: string;
+  readonly rootDirectory: string;
   view: SidebarView;
   expanded: string[];
   selected: string;
@@ -39,7 +40,7 @@ type FileActionDeps = {
 
 export function createFileActions(deps: FileActionDeps) {
   type CliStatus = { message: string };
-  // nagori-editorコマンドの登録と解除。結果と失敗理由は通知で示す
+  // nagoriコマンドの登録と解除。結果と失敗理由は通知で示す
   async function runCli(id: 'cli_install' | 'cli_uninstall') {
     if (deps.busy || deps.composing) return;
     await deps.operation(async () => {
@@ -53,7 +54,8 @@ export function createFileActions(deps: FileActionDeps) {
   }
   function selectedFolder() {
     const entry = deps.rows.find((item) => item.path === deps.selected);
-    return entry?.kind === 'directory' ? entry.path : parentPath(deps.selected);
+    const folder = entry?.kind === 'directory' ? entry.path : parentPath(deps.selected);
+    return !deps.rootDirectory || containsPath(deps.rootDirectory, folder) ? folder : deps.rootDirectory;
   }
   async function startName(kind: 'markdown' | 'directory' | 'rename', entry?: Entry) {
     if (deps.busy) return;
@@ -177,7 +179,7 @@ export function createFileActions(deps: FileActionDeps) {
   async function deleteTrash(item: TrashItem) {
     if (deps.busy) return;
     if (
-      !(await confirm(`「${item.name}」をmacOSのゴミ箱へ移します。NagoriEditorのゴミ箱からは消えます。`, {
+      !(await confirm(`「${item.name}」をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
         title: '完全に削除',
         kind: 'warning',
         okLabel: '完全に削除',
@@ -196,7 +198,7 @@ export function createFileActions(deps: FileActionDeps) {
     if (deps.busy || !deps.trashItems.length) return;
     const count = deps.trashItems.length;
     if (
-      !(await confirm(`ゴミ箱の${count}件をmacOSのゴミ箱へ移します。NagoriEditorのゴミ箱からは消えます。`, {
+      !(await confirm(`ゴミ箱の${count}件をmacOSのゴミ箱へ移します。Nagoriのゴミ箱からは消えます。`, {
         title: 'ゴミ箱を空にする',
         kind: 'warning',
         okLabel: 'ゴミ箱を空にする',

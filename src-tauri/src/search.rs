@@ -41,6 +41,16 @@ pub struct Match {
 
 // 検索語を正規表現として解釈するか、文字どおりに扱うかを決めて検索する
 pub fn run(root: &Path, query: &str, case_sensitive: bool, regexp: bool) -> Result<SearchResult> {
+    run_from(root, "", query, case_sensitive, regexp)
+}
+
+pub fn run_from(
+    root: &Path,
+    directory: &str,
+    query: &str,
+    case_sensitive: bool,
+    regexp: bool,
+) -> Result<SearchResult> {
     if query.is_empty() {
         return Ok(SearchResult {
             results: vec![],
@@ -68,7 +78,7 @@ pub fn run(root: &Path, query: &str, case_sensitive: bool, regexp: bool) -> Resu
     let mut results = vec![];
     let mut total = 0;
     let mut truncated = false;
-    'files: for entry in files::index(root)? {
+    'files: for entry in files::index_from(root, directory)? {
         // 画像と、テキストとして開けないものは対象外
         if !matches!(entry.kind.as_str(), "markdown" | "other") {
             continue;

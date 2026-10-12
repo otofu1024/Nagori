@@ -264,3 +264,9 @@ test('本文の幅の自動調整は既定でオフで、古い設定ではオ�
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
   assert.equal(startupSettings(JSON.parse(JSON.stringify(saved))).editorWidth, 900);
 });
+
+test('ブログの機能は初期値がオンで、オフと不正な値を扱う', () => {
+  assert.equal(startupSettings({}).blogFeatures, true);
+  assert.equal(startupSettings({ blogFeatures: false }).blogFeatures, false);
+  assert.equal(startupSettings({ blogFeatures: null } as unknown as Parameters<typeof startupSettings>[0]).blogFeatures, true);
+});

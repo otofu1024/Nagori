@@ -67,3 +67,15 @@ test('一番上へのドロップは、ワークスペース名の上で移せ�
   assert.equal(rootDrop(dragging), null);
   endDrag();
 });
+
+test('ブログの一番上への移動は記事フォルダを使う', () => {
+  const root = 'src/content/blog';
+  const { event } = fakeEvent();
+  beginDrag(event, note(root + '/post/index.md'));
+  assert.equal(rootDrop(event, root)?.path, root + '/post/index.md');
+  endDrag();
+  beginDrag(fakeEvent().event, note(root + '/note.md'));
+  const dragging = { dataTransfer: { types: [DRAG_TYPE] } } as unknown as DragEvent;
+  assert.equal(rootDrop(dragging, root), null);
+  endDrag();
+});

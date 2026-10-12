@@ -6,12 +6,14 @@
   let {
     dialog = $bindable(),
     settings,
+    busy = false,
     onChange,
     onReset,
     onClose,
   }: {
     dialog?: HTMLDialogElement;
     settings: Settings;
+    busy?: boolean;
     onChange: () => void;
     onReset: () => void;
     onClose: () => void;
@@ -67,6 +69,7 @@
           <label><input type="radio" name="font" value="serif" bind:group={settings.fontFamily} onchange={onChange} /> 明朝</label>
         </fieldset>
       {:else if section === 'editor'}
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
         <label class="range-row">自動保存までの時間 <output>{(settings.autosaveDelay / 1000).toFixed(1)}秒</output>
           <input type="range" min={RANGES.autosaveDelay.min} max={RANGES.autosaveDelay.max} step="100" style:--fill={rangeFill(settings.autosaveDelay, RANGES.autosaveDelay)} bind:value={settings.autosaveDelay} onchange={onChange} />
         </label>

@@ -9,6 +9,26 @@ use std::{
 };
 
 pub const DOCUMENT_LIMIT: usize = 2 * 1024 * 1024;
+pub const BLOG_DIRECTORY: &str = "src/content/blog";
+
+pub fn blog_mode(root: &Path, enabled: bool) -> bool {
+    enabled && validate_blog(root).is_ok()
+}
+
+// テンプレートの構成を確かめる。途中のシンボリックリンクも既存のパス検証で拒否する
+pub fn validate_blog(root: &Path) -> Result<()> {
+    let valid = resolve(root, BLOG_DIRECTORY, false).is_ok_and(|path| path.is_dir())
+        && ["src/theme/theme.css", "src/config.ts"]
+            .iter()
+            .all(|path| resolve(root, path, false).is_ok_and(|path| path.is_file()));
+    if !valid {
+        return Err(Error::new(
+            "BLOG",
+            "ブログのリポジトリではありません。src/content/blog/、src/theme/theme.css、src/config.tsがあるフォルダを選んでください。",
+        ));
+    }
+    Ok(())
+}
 #[derive(Debug, Serialize)]
 pub struct Error {
     pub code: &'static str,
@@ -230,8 +250,11 @@ pub fn list(root: &Path, path: &str) -> Result<Vec<Entry>> {
     Ok(result)
 }
 pub fn index(root: &Path) -> Result<Vec<Entry>> {
+    index_from(root, "")
+}
+pub fn index_from(root: &Path, path: &str) -> Result<Vec<Entry>> {
     let mut result = vec![];
-    let mut pending = vec![String::new()];
+    let mut pending = vec![path.to_owned()];
     while let Some(path) = pending.pop() {
         for entry in list(root, &path)? {
             if entry.kind == "directory" {
@@ -573,4 +596,5 @@ pub fn move_entry(root: &Path, path: &str, to_directory: &str) -> Result<Entry> 
     entry(root, &to)
 }
 #[cfg(test)]
+#[path = "files/tests.rs"]
 mod tests;

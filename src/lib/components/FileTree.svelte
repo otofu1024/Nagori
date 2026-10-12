@@ -9,6 +9,7 @@
 
   let {
     project,
+    rootDirectory = '',
     rows,
     expanded,
     current,
@@ -26,6 +27,7 @@
     onCommitName,
   }: {
     project: string;
+    rootDirectory?: string;
     rows: Row[];
     expanded: string[];
     current: string | undefined;
@@ -54,7 +56,7 @@
   // 落とした先を要素から求める。ファイルの行と名前の入力欄は対象外（null）
   function dropAt(event: DragEvent): Drop | null {
     const element = event.target instanceof Element ? event.target.closest('.tree-row, .inline-name') : null;
-    if (!element) return { path: '' };
+    if (!element) return { path: rootDirectory };
     if (!element.classList.contains('tree-row') || element.getAttribute('data-kind') !== 'directory') return null;
     const path = element.getAttribute('data-path') ?? '';
     return { path, row: rows.find((row) => row.path === path) };
@@ -137,7 +139,7 @@
 <nav
   use:activityScrollbar
   class="file-tree"
-  class:drop-root={dropTarget === ''}
+  class:drop-root={dropTarget === rootDirectory}
   aria-label="プロジェクト内のファイル"
   ondragover={dragOver}
   ondragleave={dragLeave}

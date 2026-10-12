@@ -1,19 +1,31 @@
-import { localLink } from './navigation.ts';
+import { BLOG_DIRECTORY, localLink } from './navigation.ts';
 
-export type GraphArticle = { path: string; title: string; tags: string[]; links: string[] };
+export type GraphArticle = { path: string; title: string; slug?: string; tags: string[]; links: string[] };
 export type GraphNode = { id: string; label: string; kind: 'article' | 'tag'; path?: string; degree: number };
 export type GraphEdge = { source: string; target: string; kind: 'link' | 'tag' };
 export type GraphData = { nodes: GraphNode[]; edges: GraphEdge[] };
 
-export function buildGraph(articles: GraphArticle[]): GraphData {
+export function buildGraph(articles: GraphArticle[], blogMode = false): GraphData {
   const nodes = new Map<string, GraphNode>();
   const edges = new Map<string, GraphEdge>();
   const names = new Map<string, string | null>();
-  for (const { path, title } of articles) {
+  const routes = new Map<string, string | null>();
+  for (const { path, title, slug: explicitSlug } of articles) {
     const id = `article:${path}`,
       name = path.split('/').at(-1)!.replace(/\.md$/i, '');
     nodes.set(id, { id, path, label: title || name, kind: 'article', degree: 0 });
     names.set(name, names.has(name) ? null : id);
+    if (blogMode && path.startsWith(BLOG_DIRECTORY + '/')) {
+      const slug = (
+        explicitSlug ||
+        path
+          .slice(BLOG_DIRECTORY.length + 1)
+          .replace(/\.(md|markdown)$/i, '')
+          .replace(/(?:^|\/)index$/i, '')
+      ).replace(/^\/+|\/+$/g, '');
+      const route = '/posts/' + slug;
+      routes.set(route, routes.has(route) ? null : id);
+    }
   }
   const connect = (source: string, target: string, kind: GraphEdge['kind']) => {
     if (source === target) return;
@@ -35,10 +47,18 @@ export function buildGraph(articles: GraphArticle[]): GraphData {
     for (const link of article.links) {
       const wiki = link.startsWith('[[') && link.endsWith(']]');
       const href = wiki ? link.slice(2, -2) : link;
-      if (!href || href.startsWith('#') || href.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(href)) continue;
+      if (
+        !href ||
+        href.startsWith('#') ||
+        (href.startsWith('/') && !(blogMode && href.startsWith('/posts/'))) ||
+        /^[a-z][a-z\d+.-]*:/i.test(href)
+      )
+        continue;
       try {
         let target: string | null | undefined;
-        if (wiki) {
+        if (blogMode && href.startsWith('/posts/')) {
+          target = routes.get(decodeURIComponent(href.split(/[?#]/)[0]).replace(/\/+$/, ''));
+        } else if (wiki) {
           const name = href.split(/[?#]/)[0],
             path = /\.md$/i.test(name) ? name : name + '.md';
           target = `article:${localLink(article.path, path)}`;

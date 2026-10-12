@@ -7,6 +7,7 @@ use std::collections::HashSet;
 pub struct GraphArticle {
     pub path: String,
     pub title: String,
+    pub slug: String,
     pub tags: Vec<String>,
     pub links: Vec<String>,
 }
@@ -68,7 +69,10 @@ pub fn extract(path: String, text: &str) -> GraphArticle {
                 ..
             }) if image_depth == 0 => {
                 let href = dest_url.as_ref();
-                if !href.is_empty() && !href.starts_with('#') && !href.starts_with('/') {
+                if !href.is_empty()
+                    && !href.starts_with('#')
+                    && (!href.starts_with('/') || href.starts_with("/posts/"))
+                {
                     // External URLs cannot resolve to workspace articles.
                     if !href
                         .split(['/', '?', '#'])
@@ -93,6 +97,7 @@ pub fn extract(path: String, text: &str) -> GraphArticle {
     GraphArticle {
         path,
         title: string("title"),
+        slug: string("slug"),
         tags,
         links,
     }
@@ -101,6 +106,13 @@ pub fn extract(path: String, text: &str) -> GraphArticle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extracts_blog_slug_and_routes() {
+        let article = extract("src/content/blog/post/index.md".into(), "---\nslug: custom\n---\n[post](/posts/custom?x=1#part) [external](//example.com) [other](/about)");
+        assert_eq!(article.slug, "custom");
+        assert_eq!(article.links, ["/posts/custom?x=1#part"]);
+    }
 
     #[test]
     fn extracts_yaml_and_markdown_links_without_images_code_or_front_matter() {
@@ -115,7 +127,7 @@ mod tests {
         let article = extract("a.md".into(), "[[Note]] [[Note]] [[folder/Note.md#part|label]] [regular](Note) `[[code]]` ![image](Note.md) ![[image]] $[[math]]$\n\n```md\n[[fenced]]\n```\n\n[[https://example.com]] [[/absolute]] [blog](/posts/slug)");
         assert_eq!(
             article.links,
-            ["[[Note]]", "[[folder/Note.md#part]]", "Note"]
+            ["[[Note]]", "[[folder/Note.md#part]]", "Note", "/posts/slug"]
         );
     }
 

@@ -21,6 +21,7 @@ export type Options = {
   resolveImage(reference: string): Promise<string>;
   onLink(href: string): void;
   properties?: boolean;
+  blogMode?: boolean;
   onPropertyComposition?(active: boolean): void;
 };
 export const inlineClasses: Record<string, string> = {

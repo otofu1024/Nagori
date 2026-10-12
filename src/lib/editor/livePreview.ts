@@ -39,7 +39,7 @@ export function livePreview(options: Options): Extension {
       if (!options.properties || tr.state.field(propertiesSourceField) || tr.state.field(compositionField) || !tr.newSelection.main.empty)
         return tr;
       let end = 0;
-      tr.state.field(field).between(0, tr.newDoc.length, (_from, to, decoration) => {
+      tr.state.field(field, false)?.between(0, tr.newDoc.length, (_from, to, decoration) => {
         if (decoration.spec.widget instanceof PropertiesWidget) end = to;
       });
       return end && tr.newSelection.main.head < end ? [tr, { selection: { anchor: end } }] : tr;
@@ -49,7 +49,7 @@ export function livePreview(options: Options): Extension {
       if (!options.properties || !tr.startState.selection.main.empty || tr.annotation(Transaction.userEvent) === 'input.properties')
         return true;
       let end = 0;
-      tr.startState.field(field).between(0, tr.startState.doc.length, (_from, to, decoration) => {
+      tr.startState.field(field, false)?.between(0, tr.startState.doc.length, (_from, to, decoration) => {
         if (decoration.spec.widget instanceof PropertiesWidget) end = to;
       });
       // 本文の先頭でBackspaceを押しても、隠れているFront Matterは消さない。

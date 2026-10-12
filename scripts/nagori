@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-fail() { printf 'nagori-editor: %s\n' "$*" >&2; exit 1; }
+fail() { printf 'nagori: %s\n' "$*" >&2; exit 1; }
 
-# 登録先のシンボリックリンクと対象ファイルのパスをmacOSのシェルで解決する。
+# Resolve both installation symlinks and file targets using macOS shell tools.
 resolve_path() {
     resolved=$1
     while [ -L "$resolved" ]; do
@@ -22,7 +22,7 @@ resolve_path() {
 }
 
 case "${1-}" in
-    -h|--help) printf 'Usage: nagori-editor [directory | file]\n'; exit 0 ;;
+    -h|--help) printf 'Usage: nagori [directory | file]\n'; exit 0 ;;
 esac
 [ "$#" -le 1 ] || fail 'ディレクトリまたはファイルを1つ指定してください。'
 [ "$(uname -s)" = Darwin ] || fail 'このコマンドはmacOS用です。'
@@ -42,19 +42,19 @@ else
 fi
 script=$(resolve_path "$0") || fail 'コマンドのパスを解決できません。'
 case "$script" in
-    */Contents/Resources/cli/nagori-editor)
-        app=${script%/Contents/Resources/cli/nagori-editor}
+    */Contents/Resources/cli/nagori)
+        app=${script%/Contents/Resources/cli/nagori}
         ;;
     *)
         project=$(dirname "$(dirname "$script")")
-        app=$project/src-tauri/target/release/bundle/macos/NagoriEditor.app
+        app=$project/src-tauri/target/release/bundle/macos/Nagori.app
         if [ ! -d "$app" ]; then
-            app=$HOME/Applications/NagoriEditor.app
-            [ -d "$app" ] || app=/Applications/NagoriEditor.app
+            app=$HOME/Applications/Nagori.app
+            [ -d "$app" ] || app=/Applications/Nagori.app
         fi
         ;;
 esac
-[ -d "$app" ] || fail 'NagoriEditor.appがありません。先にMac用アプリをビルドまたはインストールしてください。'
+[ -d "$app" ] || fail 'Nagori.appがありません。先にMac用アプリをビルドまたはインストールしてください。'
 if [ -d "$target" ]; then
     exec /usr/bin/open -a "$app" "$workspace"
 else

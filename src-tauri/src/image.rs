@@ -206,6 +206,7 @@ fn make_preview(file: fs::File) -> Result<Vec<u8>> {
 // 大きな写真を開いてもメモリの使用量を抑えられる
 #[cfg(target_os = "macos")]
 #[allow(non_snake_case, non_upper_case_globals)]
+#[path = "image/imageio.rs"]
 mod imageio;
 
 pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Result<PathBuf> {
@@ -336,4 +337,5 @@ pub fn paste_image(root: &Path, document_path: &str, data: Vec<u8>) -> Result<In
 }
 
 #[cfg(test)]
+#[path = "image/tests.rs"]
 mod tests;

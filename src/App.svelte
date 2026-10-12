@@ -31,10 +31,12 @@
   import ProblemDialog from './lib/components/ProblemDialog.svelte';
   import SaveAsDialog from './lib/components/SaveAsDialog.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
+  import nagoriWordmark from './lib/assets/nagori-wordmark.png';
+  import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
   import type { EditorApi } from './lib/editor/editor';
   import { EditSession, failure, type OpenedDocument } from './lib/workspace/session';
   import { AppFlow } from './lib/workspace/appFlow';
-  import { parentPath, localLink, type Entry, type Naming } from './lib/workspace/navigation';
+  import { BLOG_DIRECTORY, parentPath, localLink, type Entry, type Naming } from './lib/workspace/navigation';
   import { createImageLoader } from './lib/workspace/imageLoader.ts';
   import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/workspace/imageDrop';
 
@@ -48,6 +50,9 @@
     settingsOpen = $state(false),
     settingsDialog = $state<HTMLDialogElement>();
   const theme = $derived(resolvedTheme(settings.theme, systemDark));
+  let blogMode = $state(false);
+  const rootDirectory = $derived(blogMode ? BLOG_DIRECTORY : '');
+  let appliedBlogFeatures = true;
   let project = $state(''),
     current = $state<Entry | null>(null),
     initialText = $state(''),
@@ -92,7 +97,7 @@
       const draft = untrack(() => session?.dirty ? { path: session.path, text: session.text } : null);
       const documents = await invoke<GraphArticle[]>('workspace_graph_documents', { draft });
       if (!graphOpen || root !== project || request !== graphRequest) return;
-      graphData = buildGraph(documents);
+      graphData = buildGraph(documents, blogMode);
     } catch (error) {
       if (root === project && request === graphRequest) notify(failure(error).message);
     } finally {
@@ -155,7 +160,7 @@
         if (entry.kind === 'directory' && expanded.includes(entry.path)) walk(entry.path, depth + 1);
       }
     };
-    walk('', 0);
+    walk(rootDirectory, 0);
     return out;
   });
   const labels: Record<string, string> = {
@@ -367,7 +372,7 @@
       try {
         await list(path);
       } catch {
-        if (path === '') throw new Error('プロジェクトフォルダを読み込めません。');
+        if (path === rootDirectory) throw new Error('プロジェクトフォルダを読み込めません。');
         tree = { ...tree, [path]: [] };
       }
     }
@@ -477,13 +482,16 @@
     });
   }
   async function openProject(path: string, restoreFile?: string | null) {
-    const root = await invoke<string>('workspace_open', { path });
+    const opened = await invoke<{ root: string; blogMode: boolean }>('workspace_open', { path, blogFeatures: settings.blogFeatures });
+    const root = opened.root;
+    blogMode = opened.blogMode;
+    appliedBlogFeatures = settings.blogFeatures;
     clearDocument();
     project = root;
     graphData = { nodes: [], edges: [] };
     graphRequest++;
     tree = {};
-    expanded = [''];
+    expanded = [rootDirectory];
     selected = '';
     index = [];
     view = 'tree';
@@ -501,8 +509,8 @@
       if (entry) {
         const parent = parentPath(entry.path);
         const folders = parent.split('/').filter(Boolean);
-        let built = '';
-        for (const name of folders) {
+        let built = rootDirectory;
+        for (const name of (rootDirectory ? parent.slice(rootDirectory.length).split('/').filter(Boolean) : folders)) {
           built = built ? built + '/' + name : name;
           await list(built);
           expanded = [...expanded, built];
@@ -545,6 +553,7 @@
     get busy() { return busy; },
     get composing() { return composing; },
     get project() { return project; },
+    get rootDirectory() { return rootDirectory; },
     get view() { return view; }, set view(value) { view = value; },
     get expanded() { return expanded; }, set expanded(value) { expanded = value; },
     get selected() { return selected; }, set selected(value) { selected = value; },
@@ -561,18 +570,18 @@
   });
   // ワークスペースの名前へ離すと、一番上へ移す
   function rootDragOver(event: DragEvent) {
-    rootHot = rootDrop(event) !== null;
+    rootHot = rootDrop(event, rootDirectory) !== null;
     if (!rootHot) return;
     event.preventDefault();
     event.dataTransfer!.dropEffect = 'move';
   }
   function rootDropped(event: DragEvent) {
-    const entry = rootDrop(event);
+    const entry = rootDrop(event, rootDirectory);
     rootHot = false;
     endDrag();
     if (!entry) return;
     event.preventDefault();
-    void move(entry, '');
+    void move(entry, rootDirectory);
   }
   async function insertImage() {
     if (!session || session.readonly || previewOnly || current?.kind !== 'markdown') return;
@@ -703,6 +712,18 @@
   function applySettings() {
     if (starting || !settingsLoaded) return;
     void persist();
+    if (project && settings.blogFeatures !== appliedBlogFeatures) void operation(async () => {
+      const opened = await invoke<{ root: string; blogMode: boolean }>('workspace_open', { path: project, blogFeatures: settings.blogFeatures });
+      blogMode = opened.blogMode;
+      appliedBlogFeatures = settings.blogFeatures;
+      tree = {};
+      expanded = [rootDirectory];
+      selected = current?.path ?? '';
+      await refreshTree();
+      await refreshIndex();
+    }).then(ok => {
+      if (!ok) { settings.blogFeatures = appliedBlogFeatures; void persist(); }
+    });
   }
   async function resetSettings() {
     if (!settingsLoaded) return;
@@ -716,7 +737,7 @@
     Object.assign(settings, resetPreferences(settings));
     sidebarDraft = null;
     outlineDraft = null;
-    void persist();
+    applySettings();
   }
   function toggleOutline() {
     if (starting || !settingsLoaded) return;
@@ -738,7 +759,7 @@
     void (async () => {
       if (!isTauri()) {
         starting = false;
-        contentError = 'NagoriEditorはデスクトップアプリです。npm run tauri dev で起動してください。';
+        contentError = 'Nagoriはデスクトップアプリです。npm run tauri dev で起動してください。';
         return;
       }
       try {
@@ -818,7 +839,8 @@
   <header class="global-bar" data-tauri-drag-region="deep">
     <div class="brand">
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36" />
-      <span class="brand-wordmark">NagoriEditor</span>
+      <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36" />
+      <img class="brand-wordmark brand-wordmark-dark" src={nagoriWordmarkDark} alt="Nagori" width="108" height="36" />
     </div>
     <button class="quick-button" onclick={() => void quickOpen()} disabled={!project || busy} aria-label="ファイル名・パスで検索"
       ><Icon name="search" /> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button
@@ -880,6 +902,7 @@
     {/if}
     {#if view === 'tree'}
       <FileTree
+        {rootDirectory}
         {project}
         {rows}
         {expanded}
@@ -943,7 +966,7 @@
   <main>
     <header class="editor-header">
       <div class="breadcrumb">
-        <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'NagoriEditor'}</span
+        <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'Nagori'}</span
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
       <div class="header-actions">
@@ -989,7 +1012,7 @@
         </div>
       {:else if contentError && !graphOpen}<div class="empty-state">
           <span class="state-icon"><Icon name="file" size={42} /></span>
-          <h1>{current?.name ?? 'NagoriEditor'}</h1>
+          <h1>{current?.name ?? 'Nagori'}</h1>
           <p>{contentError}</p>
           {#if project}<button onclick={() => void reveal(current ?? undefined)}>Finderで表示</button>{/if}
         </div>
@@ -1004,6 +1027,8 @@
               {readonly}
               {busy}
               {plain}
+              properties={!blogMode || !!current?.path.startsWith(BLOG_DIRECTORY + '/')}
+              {blogMode}
               previewOnly={previewOnly && !plain}
               focus={settings.focusMode}
               typewriter={settings.typewriterMode}
@@ -1098,6 +1123,7 @@
   }}
 />
 <SettingsDialog
+  {busy}
   bind:dialog={settingsDialog}
   settings={settings}
   onChange={applySettings}

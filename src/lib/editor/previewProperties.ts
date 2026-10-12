@@ -13,10 +13,30 @@ export const propertiesSourceField = StateField.define({
     return value && tr.newSelection.main.from < (frontMatter(tr.newDoc.toString())?.to ?? 0);
   },
 });
-export function propertyKind(property: Property) {
+export const templateProperties = [
+  'title',
+  'description',
+  'publishedAt',
+  'updatedAt',
+  'category',
+  'tags',
+  'draft',
+  'cover',
+  'coverAlt',
+  'coverTitleLines',
+] as const;
+export function propertyCandidates(properties: Property[]): string[] {
+  return templateProperties.filter((key) => !properties.some((property) => property.key === key));
+}
+export function propertyKind(property: Property, blogMode = false) {
   if (!property.editable || (typeof property.value === 'string' && /[\r\n]/.test(property.value))) return 'other';
   if (Array.isArray(property.value)) return 'list';
   if (typeof property.value === 'boolean') return 'boolean';
+  if (blogMode) {
+    if (property.key === 'publishedAt' || property.key === 'updatedAt')
+      return !property.value || /^\d{4}-\d{2}-\d{2}$/.test(String(property.value)) ? 'date' : 'other';
+    return typeof property.value === 'string' || property.value === null ? 'text' : 'other';
+  }
   if (typeof property.value === 'number') return 'number';
   if (
     typeof property.value === 'string' &&
@@ -59,7 +79,7 @@ export class PropertiesWidget extends WidgetType {
     this.options = options;
   }
   eq(other: PropertiesWidget) {
-    return this.source === other.source && this.readonly === other.readonly;
+    return this.source === other.source && this.readonly === other.readonly && this.options.blogMode === other.options.blogMode;
   }
   toDOM(view: EditorView) {
     const dom = document.createElement('section');
@@ -115,18 +135,16 @@ export class PropertiesWidget extends WidgetType {
       input.addEventListener('focus', () => view.dispatch({ annotations: isolateHistory.of('before') }));
     };
     for (const property of this.properties) {
+      const kind = propertyKind(property, this.options.blogMode);
       const row = document.createElement('div');
       row.className = 'nagori-property-row';
       row.dataset.key = property.key;
-      row.dataset.kind = propertyKind(property);
+      row.dataset.kind = kind;
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       icon.setAttribute('viewBox', '0 0 24 24');
       icon.setAttribute('aria-hidden', 'true');
       const path = document.createElementNS(icon.namespaceURI, 'path');
-      path.setAttribute(
-        'd',
-        icons[propertyKind(property) === 'list' && ['tags', 'tag', 'aliases'].includes(property.key) ? 'tags' : propertyKind(property)],
-      );
+      path.setAttribute('d', icons[kind === 'list' && ['tags', 'tag', 'aliases'].includes(property.key) ? 'tags' : kind]);
       icon.append(path);
       const name = document.createElement('span');
       name.className = 'nagori-property-name';
@@ -135,17 +153,14 @@ export class PropertiesWidget extends WidgetType {
       value.className = 'nagori-property-value';
       row.append(icon, name, value);
       dom.append(row);
-      if (
-        propertyKind(property) === 'other' ||
-        (this.readonly && propertyKind(property) !== 'list' && propertyKind(property) !== 'boolean')
-      ) {
+      if (kind === 'other' || (this.readonly && kind !== 'list' && kind !== 'boolean')) {
         const text = document.createElement('span');
         text.className = 'nagori-property-text';
         text.textContent = valueText(property);
         value.append(text);
         continue;
       }
-      if (propertyKind(property) === 'list') {
+      if (kind === 'list') {
         const chips = document.createElement('span');
         chips.className = 'nagori-property-chips';
         value.append(chips);
@@ -177,14 +192,7 @@ export class PropertiesWidget extends WidgetType {
         }
       } else {
         const input = document.createElement('input');
-        input.type =
-          propertyKind(property) === 'boolean'
-            ? 'checkbox'
-            : propertyKind(property) === 'date'
-              ? 'date'
-              : propertyKind(property) === 'number'
-                ? 'number'
-                : 'text';
+        input.type = kind === 'boolean' ? 'checkbox' : kind === 'date' ? 'date' : kind === 'number' ? 'number' : 'text';
         if (input.type === 'number') input.step = 'any';
         input.setAttribute('aria-label', property.key);
         input.disabled = this.readonly;
@@ -213,30 +221,56 @@ export class PropertiesWidget extends WidgetType {
       const add = document.createElement('button');
       add.className = 'nagori-property-add';
       add.textContent = '+ プロパティを追加';
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'nagori-property-key-input';
-      input.hidden = true;
-      input.setAttribute('aria-label', '追加するプロパティ');
-      add.addEventListener('click', () => {
-        input.hidden = false;
-        input.focus();
-      });
-      const addProperty = () => {
-        if (composing || view.state.field(compositionField, false) || !input.value.trim()) return;
-        const key = input.value.trim();
-        if (readProperties(view.state.doc.toString())?.properties.some((property) => property.key === key)) return;
-        commit(key, '');
-      };
-      inputEvents(input, () => {});
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.isComposing && !composing && event.keyCode !== 229) {
-          event.preventDefault();
-          addProperty();
+      if (this.options.blogMode) {
+        const select = document.createElement('select');
+        select.hidden = true;
+        select.setAttribute('aria-label', '追加するプロパティ');
+        const prompt = document.createElement('option');
+        prompt.value = '';
+        prompt.textContent = '項目を選択';
+        select.append(prompt);
+        for (const key of propertyCandidates(this.properties)) {
+          const option = document.createElement('option');
+          option.value = key;
+          option.textContent = key;
+          select.append(option);
         }
-      });
-      input.addEventListener('blur', addProperty);
-      dom.append(add, input);
+        add.disabled = select.options.length === 1;
+        add.addEventListener('click', () => {
+          select.hidden = false;
+          select.focus();
+        });
+        select.addEventListener('change', () => {
+          if (!select.value) return;
+          commit(select.value, select.value === 'draft' ? false : select.value === 'tags' || select.value === 'coverTitleLines' ? [] : '');
+        });
+        dom.append(add, select);
+      } else {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'nagori-property-key-input';
+        input.hidden = true;
+        input.setAttribute('aria-label', '追加するプロパティ');
+        add.addEventListener('click', () => {
+          input.hidden = false;
+          input.focus();
+        });
+        const addProperty = () => {
+          if (composing || view.state.field(compositionField, false) || !input.value.trim()) return;
+          const key = input.value.trim();
+          if (readProperties(view.state.doc.toString())?.properties.some((property) => property.key === key)) return;
+          commit(key, '');
+        };
+        inputEvents(input, () => {});
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && !event.isComposing && !composing && event.keyCode !== 229) {
+            event.preventDefault();
+            addProperty();
+          }
+        });
+        input.addEventListener('blur', addProperty);
+        dom.append(add, input);
+      }
     }
     dom.append(error);
     dom.addEventListener('keydown', (event) => {
@@ -295,8 +329,12 @@ export class PropertiesWidget extends WidgetType {
     const rows = [...dom.querySelectorAll<HTMLElement>('.nagori-property-row')];
     if (
       rows.length !== this.properties.length ||
-      rows.some((row, i) => row.dataset.key !== this.properties[i].key || row.dataset.kind !== propertyKind(this.properties[i])) ||
-      !!dom.querySelector('.nagori-property-add') === this.readonly
+      rows.some(
+        (row, i) =>
+          row.dataset.key !== this.properties[i].key || row.dataset.kind !== propertyKind(this.properties[i], this.options.blogMode),
+      ) ||
+      !!dom.querySelector('.nagori-property-add') === this.readonly ||
+      (!this.readonly && !!dom.querySelector('select') !== !!this.options.blogMode)
     )
       return false;
     this.sync(dom, view);

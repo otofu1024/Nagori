@@ -3,19 +3,19 @@ pub(crate) fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<t
     let action = |id: &str, text: &str, shortcut: Option<&str>| {
         MenuItem::with_id(app, id, text, true, shortcut)
     };
-    let about = P::about(app, Some("NagoriEditorについて"), None)?;
+    let about = P::about(app, Some("Nagoriについて"), None)?;
     let settings = action("settings-open", "設定…", Some("CmdOrCtrl+,"))?;
     let services = P::services(app, None)?;
     let hide = P::hide(app, None)?;
     let hide_others = P::hide_others(app, None)?;
     let show_all = P::show_all(app, None)?;
-    let cli_install = action("cli-install", "nagori-editorコマンドを登録…", None)?;
-    let cli_uninstall = action("cli-uninstall", "nagori-editorコマンドの登録を解除", None)?;
-    let quit = action("quit", "NagoriEditorを終了", Some("CmdOrCtrl+Q"))?;
+    let cli_install = action("cli-install", "nagoriコマンドを登録…", None)?;
+    let cli_uninstall = action("cli-uninstall", "nagoriコマンドの登録を解除", None)?;
+    let quit = action("quit", "Nagoriを終了", Some("CmdOrCtrl+Q"))?;
     let separator = P::separator(app)?;
     let application = Submenu::with_items(
         app,
-        "NagoriEditor",
+        "Nagori",
         true,
         &[
             &about,

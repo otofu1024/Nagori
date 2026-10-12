@@ -67,3 +67,22 @@ test('wiki links prefer the same directory and do not choose an ambiguous filena
   assert.ok(next.nodes.every((node) => node.id !== 'tag:old'));
   assert.equal(next.edges.length, 2);
 });
+
+test('ブログのモードだけでpostsを解決し、slug、index、重複、wikiを扱う', () => {
+  const docs = [
+    article('src/content/blog/a/index.md', {
+      links: ['/posts/b/?q=1#x', '/posts/日本語', '/posts/custom', '/posts/duplicate', '[[unique]]', '/posts/%ZZ'],
+    }),
+    article('src/content/blog/b/index.md'),
+    article('src/content/blog/日本語.md'),
+    article('src/content/blog/c.md', { slug: 'custom' }),
+    article('src/content/blog/d.md', { slug: 'duplicate' }),
+    article('src/content/blog/e.md', { slug: 'duplicate' }),
+    article('src/content/blog/unique.md'),
+  ];
+  assert.equal(buildGraph(docs).edges.length, 1);
+  const graph = buildGraph(docs, true);
+  assert.equal(graph.edges.length, 4);
+  assert.ok(graph.edges.some((edge) => edge.target === 'article:src/content/blog/b/index.md'));
+  assert.ok(graph.edges.some((edge) => edge.target === 'article:src/content/blog/c.md'));
+});

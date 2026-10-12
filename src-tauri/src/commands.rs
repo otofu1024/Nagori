@@ -19,9 +19,38 @@ use tauri_plugin_opener::OpenerExt;
 #[derive(Default)]
 struct Workspace {
     root: Option<PathBuf>,
+    blog_mode: bool,
     watcher: Option<RecommendedWatcher>,
 }
 impl Workspace {
+    fn directory(&self) -> &str {
+        if self.blog_mode {
+            files::BLOG_DIRECTORY
+        } else {
+            ""
+        }
+    }
+    fn list(&self, path: &str) -> Result<Vec<Entry>> {
+        let path = if path.is_empty() {
+            self.directory()
+        } else {
+            path
+        };
+        if self.blog_mode
+            && path != files::BLOG_DIRECTORY
+            && !path.starts_with(&format!("{}/", files::BLOG_DIRECTORY))
+        {
+            return Err(Error::new("INVALID", "記事のフォルダを選択してください。"));
+        }
+        files::list(self.root()?, path)
+    }
+    fn index(&self) -> Result<Vec<Entry>> {
+        if self.blog_mode {
+            files::index_from(self.root()?, self.directory())
+        } else {
+            files::index(self.root()?)
+        }
+    }
     fn root(&self) -> Result<&Path> {
         self.root
             .as_deref()
@@ -92,13 +121,42 @@ pub(crate) fn open_request(urls: Vec<url::Url>) -> Result<OpenRequest> {
     })
 }
 
+fn blog_request(mut request: OpenRequest, enabled: bool) -> Result<OpenRequest> {
+    if !enabled {
+        return Ok(request);
+    }
+    if let Some(path) = &request.path {
+        let absolute = Path::new(&request.workspace).join(path);
+        if let Some(root) = absolute.ancestors().skip(1).find(|root| {
+            files::validate_blog(root).is_ok()
+                && absolute
+                    .strip_prefix(root)
+                    .is_ok_and(|path| path.starts_with(files::BLOG_DIRECTORY))
+        }) {
+            request.path = Some(files::relative(root, &absolute)?);
+            request.workspace = root.to_string_lossy().into_owned();
+        }
+    }
+    Ok(request)
+}
+
 #[tauri::command]
-pub(crate) fn open_request_take(state: State<'_, Backend>) -> Result<Option<OpenRequest>> {
+pub(crate) fn open_request_take(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+) -> Result<Option<OpenRequest>> {
     state
         .open_requests
         .lock()
         .map_err(|_| Error::new("INTERNAL", "起動要求のロックに失敗しました。"))?
         .pop_front()
+        .transpose()?
+        .map(|request| {
+            blog_request(
+                request,
+                settings::read(&app).unwrap_or_default().blog_features,
+            )
+        })
         .transpose()
 }
 
@@ -123,12 +181,20 @@ fn trash_base(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
         .map(|directory| directory.join("trash"))
         .map_err(|e| Error::new("TRASH", e.to_string()))
 }
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OpenedWorkspace {
+    root: String,
+    blog_mode: bool,
+}
+
 #[tauri::command]
 pub(crate) async fn workspace_open(
     app: tauri::AppHandle,
     state: State<'_, Backend>,
     path: String,
-) -> Result<String> {
+    blog_features: bool,
+) -> Result<OpenedWorkspace> {
     let trash_base = trash_base(&app).ok();
     // 設定が読めない時は既定の30日で整理する
     let retention_days = settings::read(&app)
@@ -175,19 +241,23 @@ pub(crate) async fn workspace_open(
         watcher
             .watch(&root, RecursiveMode::Recursive)
             .map_err(|e| Error::new("WATCH", e.to_string()))?;
+        workspace.blog_mode = files::blog_mode(&root, blog_features);
         workspace.root = Some(root);
         workspace.watcher = Some(watcher);
-        Ok(project)
+        Ok(OpenedWorkspace {
+            root: project,
+            blog_mode: workspace.blog_mode,
+        })
     })
     .await
 }
 #[tauri::command]
 pub(crate) async fn workspace_list(state: State<'_, Backend>, path: String) -> Result<Vec<Entry>> {
-    work(&state, move |w| files::list(w.root()?, &path)).await
+    work(&state, move |w| w.list(&path)).await
 }
 #[tauri::command]
 pub(crate) async fn workspace_index(state: State<'_, Backend>) -> Result<Vec<Entry>> {
-    work(&state, move |w| files::index(w.root()?)).await
+    work(&state, move |w| w.index()).await
 }
 #[derive(serde::Deserialize)]
 pub(crate) struct GraphDraft {
@@ -202,7 +272,7 @@ pub(crate) async fn workspace_graph_documents(
 ) -> Result<Vec<crate::graph::GraphArticle>> {
     work(&state, move |w| {
         let root = w.root()?;
-        files::index(root)?
+        w.index()?
             .into_iter()
             .filter(|entry| {
                 entry.kind == "markdown" && entry.path.to_ascii_lowercase().ends_with(".md")
@@ -227,16 +297,25 @@ pub(crate) async fn workspace_search(
     case_sensitive: bool,
     regexp: bool,
 ) -> Result<search::SearchResult> {
-    let root = {
+    let (root, directory) = {
         let workspace = state
             .workspace
             .lock()
             .map_err(|_| Error::new("INTERNAL", "ファイル処理のロックに失敗しました。"))?;
-        workspace.root()?.to_path_buf()
+        (
+            workspace.root()?.to_path_buf(),
+            workspace.directory().to_owned(),
+        )
     };
-    tauri::async_runtime::spawn_blocking(move || search::run(&root, &query, case_sensitive, regexp))
-        .await
-        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        if directory.is_empty() {
+            search::run(&root, &query, case_sensitive, regexp)
+        } else {
+            search::run_from(&root, &directory, &query, case_sensitive, regexp)
+        }
+    })
+    .await
+    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
 #[tauri::command]
 pub(crate) async fn document_open(
