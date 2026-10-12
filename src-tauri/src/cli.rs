@@ -5,7 +5,7 @@ use std::{
     process::Command,
 };
 
-const DESTINATION: &str = "/usr/local/bin/nagori";
+const DESTINATION: &str = "/usr/local/bin/nagori-editor";
 
 #[derive(serde::Serialize)]
 pub struct Status {
@@ -27,7 +27,7 @@ fn source() -> Result<PathBuf> {
                 "アプリをビルドし、Applicationsフォルダへ移動してください。",
             )
         })?;
-    Ok(contents.join("Resources/cli/nagori"))
+    Ok(contents.join("Resources/cli/nagori-editor"))
 }
 
 fn available(source: &Path) -> bool {
@@ -59,9 +59,9 @@ fn status(message: Option<String>) -> Status {
         available,
         message: message.unwrap_or_else(|| {
             if installed {
-                "nagoriコマンドは登録済みです。".into()
+                "nagori-editorコマンドは登録済みです。".into()
             } else if available {
-                "nagoriコマンドを登録できます。".into()
+                "nagori-editorコマンドを登録できます。".into()
             } else {
                 "アプリをApplicationsフォルダへ移動してから登録してください。".into()
             }
@@ -69,7 +69,7 @@ fn status(message: Option<String>) -> Status {
     }
 }
 
-// Shell arguments are always single-quoted; AppleScript receives the command as argv.
+// シェル引数は単一引用符で囲み、AppleScriptにはコマンドを引数として渡す。
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -145,15 +145,9 @@ fn change(action: &str) -> Result<Status> {
         ));
     }
     let message = if action == "install" {
-        let legacy =
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/bin/nagori"));
-        if legacy.is_some_and(|path| fs::symlink_metadata(path).is_ok()) {
-            "nagoriコマンドを/usr/local/bin/nagoriに登録しました。~/.local/bin/nagoriにもコマンドがあります。古い登録が先に使われる場合は、登録先を確認して解除してください。"
-        } else {
-            "nagoriコマンドを/usr/local/bin/nagoriに登録しました。ターミナルを開き直して使ってください。PATHに/usr/local/binがない場合は追加してください。"
-        }
+        "nagori-editorコマンドを/usr/local/bin/nagori-editorに登録しました。ターミナルを開き直して使ってください。PATHに/usr/local/binがない場合は追加してください。"
     } else {
-        "nagoriコマンドの登録を解除しました。"
+        "nagori-editorコマンドの登録を解除しました。"
     };
     Ok(status(Some(message.into())))
 }
@@ -188,8 +182,8 @@ mod tests {
         assert!(result.status.success());
         assert_eq!(result.stdout, value.as_bytes());
         let temp = tempfile::tempdir().unwrap();
-        let destination = temp.path().join("nagori");
-        let source = temp.path().join("other/nagori");
+        let destination = temp.path().join("nagori-editor");
+        let source = temp.path().join("other/nagori-editor");
         std::os::unix::fs::symlink(&source, &destination).unwrap();
         assert!(owns(&destination, &source));
         assert!(!owns(&destination, &temp.path().join("unrelated")));
