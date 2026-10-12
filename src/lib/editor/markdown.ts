@@ -12,7 +12,7 @@ const frontMatterBlock: MarkdownConfig = {
       name: 'FrontMatter',
       before: 'HorizontalRule',
       parse(cx, line) {
-        if (cx.lineStart !== 0 || !/^(?:\uFEFF)?---\r?$/.test(line.text)) return false;
+        if (cx.lineStart !== 0 || !/^(?:\uFEFF)?---[ \t]*\r?$/.test(line.text)) return false;
         // 閉じの位置を先に確かめるため、解析中の入力を読む(公開型には無い)。閉じがなければ通常の本文として扱う
         const input = (cx as unknown as { input: Input }).input;
         const front = frontMatter(input.read(0, input.length));
@@ -41,7 +41,7 @@ export type Span = { from: number; to: number };
 export const touches = (span: Span, selection: Span) => selection.from <= span.to && selection.to >= span.from;
 export const intersects = (a: Span, b: Span) => a.from < b.to && b.from < a.to;
 export function frontMatter(text: string): Span | null {
-  const match = /^(?:\uFEFF)?---\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(text);
+  const match = /^(?:\uFEFF)?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(text);
   return match ? { from: 0, to: match[0].length } : null;
 }
 export function children(node: SyntaxNode): SyntaxNode[] {

@@ -5,7 +5,8 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let output = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/private/tmp/nagori-wkwebview-check"
 try! FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
-let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 650), styleMask: [.titled], backing: .buffered, defer: false)
+let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 650), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+window.title = "Nagoriの確認 (閉じる、Esc、Cmd+Qで止まります)"
 let config = WKWebViewConfiguration()
 let web = WKWebView(frame: window.contentView!.bounds, configuration: config)
 window.contentView!.addSubview(web)
@@ -64,4 +65,15 @@ web.load(URLRequest(url: URL(string: CommandLine.arguments.count > 2 ? CommandLi
 // 別のウィンドウへ移って変換が終わることを避ける。確認中は実キー入力をしない。
 let focusTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in app.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
 DispatchQueue.main.asyncAfter(deadline: .now() + 300) { print("WKWebView確認が時間切れになりました"); exit(1) }
+// 閉じるボタン、Esc、Cmd+Q、Cmd+Wで、いつでも確認を止められるようにする
+final class Closer: NSObject, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) { print("WKWebView確認を止めました"); exit(1) }
+}
+let closer = Closer()
+window.delegate = closer
+NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    let command = event.modifierFlags.contains(.command)
+    if event.keyCode == 53 || (command && ["q", "w"].contains(event.charactersIgnoringModifiers ?? "")) { print("WKWebView確認を止めました"); exit(1) }
+    return event
+}
 app.run()

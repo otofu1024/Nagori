@@ -17,7 +17,12 @@ export const compositionField = StateField.define({
   create: () => false,
   update: (value, tr) => tr.effects.reduce((v, e) => (e.is(compositionMode) ? e.value : v), value),
 });
-export type Options = { resolveImage(reference: string): Promise<string>; onLink(href: string): void };
+export type Options = {
+  resolveImage(reference: string): Promise<string>;
+  onLink(href: string): void;
+  properties?: boolean;
+  onPropertyComposition?(active: boolean): void;
+};
 export const inlineClasses: Record<string, string> = {
   StrongEmphasis: 'nagori-bold',
   Emphasis: 'nagori-italic',

@@ -8,6 +8,7 @@ import { MathWidget } from './previewMath.ts';
 import { TableWidget } from './previewTable.ts';
 import { decorateLists } from './previewLists.ts';
 import { decorateBlocks } from './previewBlocks.ts';
+import { propertiesDecoration } from './previewProperties.ts';
 import { previewContext, type PreviewContext } from './previewContext.ts';
 import { previewOnlyField, inlineClasses, type Options } from './previewState.ts';
 
@@ -15,6 +16,8 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   const previewOnly = state.field(previewOnlyField, false) ?? false;
   const { tree, text, front, refs, math } = context ?? previewContext(state),
     ranges: Range<Decoration>[] = [];
+  const properties = propertiesDecoration(state, options);
+  if (properties) ranges.push(properties);
   const active = (span: Span) => !previewOnly && state.selection.ranges.some((r) => touches(span, r));
   const mark = (from: number, to: number, className: string, attributes?: Record<string, string>) => {
     if (from < to) ranges.push(Decoration.mark({ class: className, attributes }).range(from, to));
