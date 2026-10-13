@@ -1,3 +1,4 @@
+import { checkCharacters } from './blogCharacterChecks.js';
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -25,6 +26,15 @@ window.addEventListener('unhandledrejection', (event) => errors.push(String(even
 window.show = async () => {};
 window.run = async () => {
   let originalTheme;
+  let charactersPrepared = false;
+  const characterRequest = async (input) => {
+    const response = await fetch('./blog-characters', { method: 'POST', body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok || result?.error) throw result?.error ?? Error('キャラクターの確認に失敗しました。');
+    if (input.action === 'prepare') charactersPrepared = true;
+    if (input.action === 'reset') charactersPrepared = false;
+    return result;
+  };
   const writeTheme = async (path, text) => {
     const response = await fetch('./blog-theme', { method: 'POST', body: JSON.stringify({ path, text }) });
     if (!response.ok) throw Error(await response.text());
@@ -40,6 +50,8 @@ window.run = async () => {
     if (!article) throw Error('ブログのコピーにFront Matter付きの記事がありません');
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
     const originals = new Map(files);
+    let characterSaves = 0;
+    const confirmations = [];
     const saves = [],
       openedLinks = [],
       cardRequests = [];
@@ -69,6 +81,12 @@ window.run = async () => {
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
+        if (command === 'plugin:dialog|message') { confirmations.push(args.message); return args.buttons.OkCancelCustom[0]; }
+        if (command === 'blog_characters_image_baseline') return characterRequest({ action: 'imageBaseline', path: args.path });
+        if (command === 'blog_characters_save') {
+          const result = await characterRequest({ action: 'save', request: args.request });
+          data.config = args.request.text; characterSaves++; return result;
+        }
         if (command === 'plugin:event|listen') {
           listeners.set(args.event, args.handler);
           return args.handler;
@@ -101,9 +119,11 @@ window.run = async () => {
         if (command === 'workspace_blog_config') return blogMode ? data.config : null;
         if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
         if (command === 'workspace_list') return listing(args.path);
-        if (command === 'workspace_index') return blogMode ? entries : generic;
+        if (command === 'workspace_index') return blogMode ? [...entries, ...(charactersPrepared ? [{ path: 'src/content/blog/nagori-character-check.md', name: 'nagori-character-check.md', kind: 'markdown' }] : [])] : generic;
         if (command === 'workspace_search') return data.search;
         if (command === 'trash_list') return [];
+        if (command === 'document_open' && args.path === 'src/config.ts') return characterRequest({ action: 'open' });
+        if (command === 'document_open' && args.path === 'src/content/blog/nagori-character-check.md') return (await characterRequest({ action: 'documents' })).find(doc => doc.path === args.path);
         if (command === 'document_open')
           return { path: args.path, text: files.get(args.path), baseline: originals.get(args.path), readonly: false };
         if (command === 'document_save') {
@@ -558,6 +578,7 @@ window.run = async () => {
     await until(() => document.querySelector('.settings-dialog[open]'));
     [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'ブログ').click();
     await tick();
+    await checkCharacters({ check, until, tick, view, replace, before, request: characterRequest, confirmations, saveCount: () => characterSaves });
     const toggle = [...document.querySelectorAll('.check-row')]
       .find((label) => label.textContent.trim() === 'ブログの機能')
       .querySelector('input');
@@ -689,7 +710,7 @@ window.run = async () => {
     await until(() => !host.hasAttribute('data-blog-theme'));
     check(
       'ブログの機能がオフの時はブログの設定を押せない',
-      blogLabels.every((label) => blogToggle(label).disabled),
+      blogLabels.every((label) => blogToggle(label).disabled) && document.querySelector('.manage-characters').disabled,
     );
     check(
       'ブログの機能をオフにしても個別の値を保つ',
@@ -715,7 +736,7 @@ window.run = async () => {
     check('オンで本文もブログの配色へ戻る', getComputedStyle(content).color === 'rgb(30, 42, 63)');
     check(
       'ブログの機能をオンに戻すとブログの設定を押せる',
-      blogLabels.every((label) => !blogToggle(label).disabled),
+      blogLabels.every((label) => !blogToggle(label).disabled) && !document.querySelector('.manage-characters').disabled,
     );
     check('ブログの機能をオンに戻しても個別の値を保つ', !blogToggle('キャラクターの吹き出し').checked);
     check('ブログの機能をオンに戻しても字下げの値を保つ', !blogToggle(indentLabel).checked);
@@ -732,6 +753,7 @@ window.run = async () => {
   } catch (error) {
     return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
   } finally {
+    if (charactersPrepared) await characterRequest({ action: 'reset' });
     if (originalTheme) {
       await writeTheme('src/theme/theme.css', originalTheme.theme);
       await writeTheme('src/styles/template.css', originalTheme.template);

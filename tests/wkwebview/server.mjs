@@ -1,6 +1,6 @@
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { mkdtemp, mkdir, readdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, unlink, rm } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { createHash } from 'node:crypto';
 
@@ -24,6 +24,37 @@ const extract = (documents) =>
     child.stdin.on('error', reject);
     child.stdin.end(JSON.stringify(documents));
   });
+const characterRoot = '/private/tmp/nagori-stage2-blog';
+let characterTrash;
+let characterBackup;
+async function characterCommand(input) {
+  if (!characterTrash) throw Error('キャラクターの確認を開始してください。');
+  return new Promise((resolve, reject) => {
+    const child = execFile('src-tauri/target/debug/examples/blog-workspace', [characterRoot, '--characters', characterTrash], { maxBuffer: 32 * 1024 * 1024 }, (error, stdout) => {
+      if (error) reject(error);
+      else { try { resolve(JSON.parse(stdout)); } catch (reason) { reject(reason); } }
+    });
+    child.stdin.on('error', reject);
+    child.stdin.end(JSON.stringify(input));
+  });
+}
+async function backupCharacterFile(path) {
+  if (!characterBackup || characterBackup.has(path)) return;
+  if (path !== 'src/config.ts' && path !== 'src/content/blog/nagori-character-check.md' && (!path.startsWith('public/') || path.split('/').includes('..'))) throw Error('確認用のファイルではありません。');
+  characterBackup.set(path, await readFile(join(characterRoot, path)).catch(error => { if (error.code === 'ENOENT') return null; throw error; }));
+}
+async function resetCharacters() {
+  if (characterBackup) {
+    for (const [path, bytes] of characterBackup) {
+      if (bytes === null) await unlink(join(characterRoot, path)).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      else { await mkdir(join(characterRoot, path, '..'), { recursive: true }); await writeFile(join(characterRoot, path), bytes); }
+    }
+  }
+  if (characterTrash) await rm(characterTrash, { recursive: true, force: true });
+  // 確認で作った空の画像フォルダだけを片付ける。
+  await import('node:fs/promises').then(({ rmdir }) => rmdir(join(characterRoot, 'public/images/nagori_check')).catch(() => {}));
+  characterBackup = undefined; characterTrash = undefined;
+}
 const fixtureRoot = await mkdtemp('/private/tmp/nagori-editor-graph-');
 const fixtureDocuments = [
   { path: 'notes/first.md', text: '---\ntitle: 最初のノート\ntags: [共通, 考え]\n---\n# 最初\n[次](second.md) [[散歩]]\n' },
@@ -49,6 +80,30 @@ const server = await createServer({
     {
       name: 'ime-check',
       configureServer(server) {
+        server.middlewares.use('/tests/wkwebview/blog-characters', async (request, response) => {
+          response.setHeader('Content-Type', 'application/json');
+          try {
+            let body = '';
+            for await (const chunk of request) { body += chunk; if (body.length > 32 * 1024 * 1024) throw Error('確認の入力が大きすぎます。'); }
+            const input = JSON.parse(body);
+            if (input.action === 'prepare') {
+              if (characterBackup) throw Error('キャラクターの確認が実行中です。');
+              characterBackup = new Map(); characterTrash = await mkdtemp('/private/tmp/nagori-character-trash-');
+              await backupCharacterFile('src/config.ts');
+              await backupCharacterFile('src/content/blog/nagori-character-check.md');
+              await writeFile(join(characterRoot, 'src/content/blog/nagori-character-check.md'), '> [!NAGORI_CHECK]\n> 管理の確認\n\n> [!NAGORI_CHECK grin]\n> 表情の確認\n');
+              response.end(JSON.stringify({ ready: true }));
+            } else if (input.action === 'reset') {
+              await resetCharacters(); response.end(JSON.stringify({ restored: true }));
+            } else {
+              if (input.action === 'save') {
+                for (const image of input.request.images) await backupCharacterFile(image.path);
+                for (const path of input.request.removedImages) await backupCharacterFile(path);
+              }
+              response.end(JSON.stringify(await characterCommand(input)));
+            }
+          } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ error: String(error) })); }
+        });
         server.middlewares.use('/tests/wkwebview/blog-image', async (request, response) => {
           try {
             const path = new URL(request.url, 'http://localhost').searchParams.get('path');

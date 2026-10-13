@@ -1169,6 +1169,9 @@
 />
 <SettingsDialog
   {busy}
+  {blogMode}
+  {project}
+  onCharactersSaved={async () => { releaseImages(); editor?.refreshImages(); await refreshBlogTheme(); }}
   bind:dialog={settingsDialog}
   settings={settings}
   onChange={applySettings}

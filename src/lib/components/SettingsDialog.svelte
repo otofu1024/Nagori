@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CharacterManager from './CharacterManager.svelte';
   import Icon from './Icon.svelte';
   import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from '../workspace/settings.ts';
   import { rangeFill } from '../workspace/rangeFill.ts';
@@ -7,6 +8,9 @@
     dialog = $bindable(),
     settings,
     busy = false,
+    blogMode = false,
+    project = '',
+    onCharactersSaved = () => {},
     onChange,
     onReset,
     onClose,
@@ -14,12 +18,15 @@
     dialog?: HTMLDialogElement;
     settings: Settings;
     busy?: boolean;
+    blogMode?: boolean;
+    project?: string;
+    onCharactersSaved?: () => void | Promise<void>;
     onChange: () => void;
     onReset: () => void;
     onClose: () => void;
   } = $props();
 
-  type Section = 'display' | 'editor' | 'blog' | 'sidebar' | 'trash';
+  type Section = 'characters' | 'display' | 'editor' | 'blog' | 'sidebar' | 'trash';
   const sections: Array<{ id: Section; label: string }> = [
     { id: 'display', label: '表示' },
     { id: 'editor', label: 'エディタ' },
@@ -28,17 +35,27 @@
     { id: 'trash', label: 'ゴミ箱' },
   ];
   let section = $state<Section>('display');
+  let manager = $state<CharacterManager>();
+  async function close() { if (section !== 'characters' || await manager?.canLeave()) dialog?.close(); }
+  async function back() { if (await manager?.canLeave()) section = 'blog'; }
+  function closed() { section = section === 'characters' ? 'blog' : section; onClose(); }
   const retentionLabel = (days: TrashRetentionDays) => (days === null ? '無期限' : `${days}日`);
   function parseRetention(value: string): TrashRetentionDays {
     return value === 'null' ? null : (Number(value) as TrashRetentionDays);
   }
 </script>
 
-<dialog class="settings-dialog" bind:this={dialog} onclose={onClose} aria-labelledby="settings-title">
+<dialog class="settings-dialog" bind:this={dialog} onclose={closed} oncancel={event => { event.preventDefault(); void close(); }} aria-labelledby="settings-title">
   <header class="settings-header">
-    <h2 id="settings-title">設定</h2>
-    <button class="icon-button" aria-label="設定を閉じる" title="設定を閉じる" onclick={() => dialog?.close()}><Icon name="close" size={16} /></button>
+    <h2 id="settings-title">{section === 'characters' ? 'キャラクターの管理' : '設定'}</h2>
+    {#if section === 'characters'}<button type="button" onclick={() => void back()}>ブログに戻る</button>{/if}
+    <button class="icon-button" aria-label="設定を閉じる" title="設定を閉じる" onclick={() => void close()}><Icon name="close" size={16} /></button>
   </header>
+  {#if section === 'characters'}
+    <div class="characters-panel">
+      {#key project}<CharacterManager bind:this={manager} onSaved={onCharactersSaved} />{/key}
+    </div>
+  {:else}
   <div class="settings-body">
     <nav class="settings-nav" aria-label="設定の項目">
       {#each sections as item (item.id)}
@@ -86,6 +103,7 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogArticleHeader} onchange={onChange} disabled={!settings.blogFeatures} /> 記事の見出し</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogLinkCardsEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> リンクカード</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogCharactersEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> キャラクターの吹き出し</label>
+        <button type="button" class="manage-characters" disabled={!blogMode || busy} onclick={() => (section = 'characters')}>キャラクターの管理</button>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogBodyTheme} onchange={onChange} disabled={!settings.blogFeatures} /> 本文のテーマ</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogIndentOnEnter} onchange={onChange} disabled={!settings.blogFeatures} /> 改行したら全角スペースで字下げする</label>
       {:else if section === 'sidebar'}
@@ -108,6 +126,7 @@
   <footer class="settings-footer">
     <button type="button" onclick={onReset}>すべて初期値に戻す</button>
   </footer>
+  {/if}
 </dialog>
 
 <style>
@@ -116,6 +135,7 @@
   .settings-dialog[open] { display: flex; flex-direction: column; }
   /* 高さを決めた中で、上下の帯が縮んで中身が切れないようにする */
   .settings-header, .settings-footer { flex: none; }
+  .characters-panel { flex: 1; min-height: 0; padding: 20px 24px; overflow: auto; }
   .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border); }
   .settings-header h2 { font-size: 18px; font-weight: 650; color: var(--heading); margin: 0; }
   .settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); }

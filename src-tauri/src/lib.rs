@@ -1,5 +1,6 @@
 #[cfg(target_os = "macos")]
 mod apple_quit;
+mod blog_characters;
 mod cli;
 mod commands;
 mod files;
@@ -54,6 +55,8 @@ pub fn run() {
             commands::workspace_index,
             commands::workspace_blog_theme,
             commands::workspace_blog_config,
+            commands::blog_characters_image_baseline,
+            commands::blog_characters_save,
             commands::workspace_link_cards,
             commands::workspace_link_card,
             commands::workspace_graph_documents,
