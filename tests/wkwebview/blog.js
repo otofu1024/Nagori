@@ -180,6 +180,12 @@ window.run = async () => {
       ).length === 1,
     );
     extraList.open = wasOpen;
+    const extraSummary = extraList.querySelector('summary');
+    check(
+      'たたんだ一覧の見出しは文字の周りだけが光り、下線がある',
+      extraSummary.getBoundingClientRect().width < extraList.getBoundingClientRect().width / 2 &&
+        getComputedStyle(extraSummary).textDecorationLine.includes('underline'),
+    );
     check(
       '公開日と更新日をブログの書式で表示',
       field('publishedAt').textContent === '2026年10月9日 公開' && field('updatedAt').textContent === '2026年10月10日 更新',

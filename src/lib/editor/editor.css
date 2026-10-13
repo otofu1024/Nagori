@@ -131,7 +131,8 @@
   .editor-host :global(.nagori-blog-header .tag-list a:is(:hover, :focus-within) button) { opacity: 1; pointer-events: auto; }
   .editor-host :global(.nagori-header-tag-input) { box-sizing: border-box; width: 2em; min-width: 0; height: 1.9em; padding: 0 .55em; font: inherit; font-size: .85em; line-height: 1; color: inherit; border: 1px solid transparent; border-radius: 999px; background: transparent; }
   .editor-host :global(.nagori-header-tag-input:focus) { width: 7em; outline: none; border-color: var(--border); }
-  .editor-host :global(.nagori-blog-properties summary) { font-size: .85em; color: var(--muted); cursor: pointer; }
+  /* 光る範囲を文字の周りだけにするため、幅を文字に合わせる。文字の位置は余白の分だけ左へ戻してそろえる */
+  .editor-host :global(.nagori-blog-properties summary) { width: fit-content; margin-left: -.5em; padding: .15em .5em; font-size: .85em; color: var(--muted); cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-decoration-thickness: 1px; text-underline-offset: .35em; }
   .editor-host :global(.nagori-blog-properties .nagori-properties) { padding: .7em 0 0; }
   /* たたんだ一覧の見出しと重なるので、中のプロパティ欄の見出しは出さない */
   .editor-host :global(.nagori-blog-properties .nagori-properties-heading) { display: none; }
