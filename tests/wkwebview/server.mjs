@@ -46,10 +46,35 @@ const server = await createServer({
     {
       name: 'ime-check',
       configureServer(server) {
+        server.middlewares.use('/tests/wkwebview/blog-theme', async (request, response) => {
+          response.setHeader('Content-Type', 'application/json');
+          try {
+            if (request.method === 'POST') {
+              let input = '';
+              for await (const chunk of request) input += chunk;
+              const { path, text } = JSON.parse(input);
+              if (!['src/theme/theme.css', 'src/styles/template.css'].includes(path) || typeof text !== 'string')
+                throw Error('Invalid theme file');
+              await writeFile(join('/private/tmp/nagori-stage2-blog', path), text);
+            }
+            const { stdout } = await promisify(execFile)('src-tauri/target/debug/examples/blog-workspace', [
+              '/private/tmp/nagori-stage2-blog',
+              '--theme',
+            ]);
+            response.end(stdout);
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(JSON.stringify({ error: String(error) }));
+          }
+        });
         server.middlewares.use('/tests/wkwebview/blog-data', async (_request, response) => {
           response.setHeader('Content-Type', 'application/json');
           try {
-            const { stdout } = await promisify(execFile)('src-tauri/target/debug/examples/blog-workspace', ['/private/tmp/nagori-stage2-blog'], { maxBuffer: 8 * 1024 * 1024 });
+            const { stdout } = await promisify(execFile)(
+              'src-tauri/target/debug/examples/blog-workspace',
+              ['/private/tmp/nagori-stage2-blog'],
+              { maxBuffer: 8 * 1024 * 1024 },
+            );
             response.end(stdout);
           } catch (error) {
             response.statusCode = 500;
