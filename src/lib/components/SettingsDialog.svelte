@@ -19,10 +19,11 @@
     onClose: () => void;
   } = $props();
 
-  type Section = 'display' | 'editor' | 'sidebar' | 'trash';
+  type Section = 'display' | 'editor' | 'blog' | 'sidebar' | 'trash';
   const sections: Array<{ id: Section; label: string }> = [
     { id: 'display', label: '表示' },
     { id: 'editor', label: 'エディタ' },
+    { id: 'blog', label: 'ブログ' },
     { id: 'sidebar', label: 'サイドバー' },
     { id: 'trash', label: 'ゴミ箱' },
   ];
@@ -69,7 +70,6 @@
           <label><input type="radio" name="font" value="serif" bind:group={settings.fontFamily} onchange={onChange} /> 明朝</label>
         </fieldset>
       {:else if section === 'editor'}
-        <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
         <label class="range-row">自動保存までの時間 <output>{(settings.autosaveDelay / 1000).toFixed(1)}秒</output>
           <input type="range" min={RANGES.autosaveDelay.min} max={RANGES.autosaveDelay.max} step="100" style:--fill={rangeFill(settings.autosaveDelay, RANGES.autosaveDelay)} bind:value={settings.autosaveDelay} onchange={onChange} />
         </label>
@@ -81,6 +81,13 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.focusMode} onchange={onChange} /> 集中モード</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.typewriterMode} onchange={onChange} /> タイプライター表示</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
+      {:else if section === 'blog'}
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogArticleHeader} onchange={onChange} disabled={!settings.blogFeatures} /> 記事の見出し</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogLinkCardsEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> リンクカード</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogCharactersEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> キャラクターの吹き出し</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogBodyTheme} onchange={onChange} disabled={!settings.blogFeatures} /> 本文のテーマ</label>
+        <label class="check-row"><input type="checkbox" bind:checked={settings.blogIndentOnEnter} onchange={onChange} disabled={!settings.blogFeatures} /> 改行したら全角スペースで字下げする</label>
       {:else if section === 'sidebar'}
         <label class="range-row">最近見たノートの件数 <output>{settings.recentEditedCount}件</output>
           <input type="range" min={RANGES.recentEditedCount.min} max={RANGES.recentEditedCount.max} step="1" style:--fill={rangeFill(settings.recentEditedCount, RANGES.recentEditedCount)} bind:value={settings.recentEditedCount} onchange={onChange} />

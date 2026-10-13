@@ -4,10 +4,12 @@ import { historyKeymap, defaultKeymap } from '@codemirror/commands';
 import { openSearchPanel, closeSearchPanel } from '@codemirror/search';
 import { moveList, continueList } from './listEdit.ts';
 import { moveTable } from './tableEdit.ts';
+import { paragraphNewline } from './paragraphEdit.ts';
 import type { FormatKind } from './editor.ts';
 
 type KeymapDeps = {
   readonly plain: boolean;
+  readonly indentParagraphs?: boolean;
   readonly previewOnly: boolean;
   readonly composition: boolean;
   readonly linkDialog: boolean;
@@ -45,13 +47,12 @@ export function editorKeymap(deps: KeymapDeps): Extension {
         {
           key: 'Enter',
           run: (editor) =>
-            !deps.plain &&
             !deps.previewOnly &&
             !deps.composition &&
             !editor.composing &&
             !editor.compositionStarted &&
             !deps.linkDialog &&
-            (moveTable(editor, 'down') || continueList(editor)),
+            ((!deps.plain && (moveTable(editor, 'down') || continueList(editor))) || paragraphNewline(editor, !!deps.indentParagraphs, deps.plain)),
         },
         {
           key: 'Mod-s',

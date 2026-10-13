@@ -198,14 +198,14 @@ export function decorateBlog(node: SyntaxNode, context: DecorationContext, optio
   if (!options.blogMode || context.active(node)) return false;
   if (node.name === 'Paragraph') {
     const url = standaloneUrl(node, context.text, refs),
-      preview = url && options.linkPreview?.(url);
+      preview = url && options.blogLinkCardsEnabled !== false && options.linkPreview?.(url);
     if (url && !preview) context.mark(node.from, node.to, 'nagori-link', { 'data-href': url, title: `${url}（Cmd＋クリックで開く）` });
     if (preview) {
       context.ranges.push(Decoration.replace({ widget: new LinkCardWidget(preview, options), block: true }).range(node.from, node.to));
       return true;
     }
   }
-  if (node.name === 'Blockquote') {
+  if (node.name === 'Blockquote' && options.blogCharactersEnabled !== false) {
     const first = children(node).find((part) => part.name !== 'QuoteMark');
     if (first?.name !== 'Paragraph') return false;
     const text = context.text.slice(node.from, node.to).replace(/^ {0,3}>[ \t]?/gm, '');

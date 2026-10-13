@@ -47,6 +47,11 @@ pub struct Settings {
     // オンの時、本文の幅はウィンドウの空きに合わせて決める。editor_widthは手動の値として残す。古い設定はオフで読む
     pub auto_editor_width: bool,
     pub blog_features: bool,
+    pub blog_article_header: bool,
+    pub blog_link_cards_enabled: bool,
+    pub blog_characters_enabled: bool,
+    pub blog_body_theme: bool,
+    pub blog_indent_on_enter: bool,
     // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
@@ -76,6 +81,11 @@ impl Default for Settings {
             zoom_font_size: false,
             auto_editor_width: false,
             blog_features: true,
+            blog_article_header: true,
+            blog_link_cards_enabled: true,
+            blog_characters_enabled: true,
+            blog_body_theme: true,
+            blog_indent_on_enter: true,
             recent_opened_at: BTreeMap::new(),
         }
     }

@@ -14,6 +14,7 @@ export type Settings = {
   // オンの時、本文の幅はウィンドウの空きに合わせて決める。editorWidthは手動の値として残す
   autoEditorWidth: boolean;
   blogFeatures: boolean;
+  blogArticleHeader: boolean; blogLinkCardsEnabled: boolean; blogCharactersEnabled: boolean; blogBodyTheme: boolean; blogIndentOnEnter: boolean;
 };
 type FontFamily = 'sans' | 'serif';
 export type TrashRetentionDays = 7 | 14 | 30 | 60 | 90 | null;
@@ -27,7 +28,7 @@ export const RANGES = {
 } as const;
 export const defaults: Settings = {
   lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
-  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, blogFeatures: true,
+  editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, blogFeatures: true, blogArticleHeader: true, blogLinkCardsEnabled: true, blogCharactersEnabled: true, blogBodyTheme: true, blogIndentOnEnter: true,
 };
 
 function clamp(value: unknown, fallback: number, { min, max }: { min: number; max: number }): number {
@@ -67,6 +68,11 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.zoomFontSize = flag(settings.zoomFontSize, defaults.zoomFontSize);
   settings.autoEditorWidth = flag(settings.autoEditorWidth, defaults.autoEditorWidth);
   settings.blogFeatures = flag(settings.blogFeatures, defaults.blogFeatures);
+  settings.blogArticleHeader = flag(settings.blogArticleHeader, defaults.blogArticleHeader);
+  settings.blogLinkCardsEnabled = flag(settings.blogLinkCardsEnabled, defaults.blogLinkCardsEnabled);
+  settings.blogCharactersEnabled = flag(settings.blogCharactersEnabled, defaults.blogCharactersEnabled);
+  settings.blogBodyTheme = flag(settings.blogBodyTheme, defaults.blogBodyTheme);
+  settings.blogIndentOnEnter = flag(settings.blogIndentOnEnter, defaults.blogIndentOnEnter);
   return settings;
 }
 
