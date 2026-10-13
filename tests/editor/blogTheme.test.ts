@@ -21,7 +21,7 @@ test('maps every supported prose selector and keeps all rules inside the editor 
   assert.ok(css.includes('--editor-width:740px'));
   assert.ok(css.includes('--text:var(--color-text)'));
   assert.ok(css.includes('.nagori-link:hover{color:blue;'));
-  assert.ok(css.includes('.nagori-h2,.editor-host[data-blog-theme] .cm-content .nagori-h3{font-size:1.5rem;'));
+  assert.ok(css.includes('.nagori-h2,.editor-host[data-blog-theme] .cm-content .nagori-h3{font-size:calc(var(--blog-rem) * 1.5);'));
   assert.ok(css.includes('.nagori-h2{color:green;'));
   for (const excluded of ['.sidebar', 'body{', '.talk', '.link-card', 'position:fixed', '--surface:red'])
     assert.ok(!css.includes(excluded), excluded);
@@ -46,10 +46,10 @@ test('separates code block edges and handles multiline values and whitespace bef
     template: '.prose pre{padding:1rem;margin:1.75rem 0;border:1px solid}',
     theme: ':root{--font-sans : "Test",\n sans-serif} .prose {font-size : 18px;line-height:2}',
   });
-  assert.ok(css.includes('.nagori-code-first{padding:1rem;padding-bottom:0;'));
-  assert.ok(css.includes('.nagori-code-last{padding:1rem;padding-top:0;'));
+  assert.ok(css.includes('.nagori-code-first{padding:calc(var(--blog-rem) * 1);padding-bottom:0;'));
+  assert.ok(css.includes('.nagori-code-last{padding:calc(var(--blog-rem) * 1);padding-top:0;'));
   assert.ok(css.includes('--font-sans:"Test",\n sans-serif;'));
-  assert.ok(css.includes('font-size:18px;--editor-font-size:18px;'));
+  assert.ok(css.includes('font-size:18px;'));
 });
 
 test('blog block classes preserve source text and leave generic decorations unchanged', async () => {
@@ -76,4 +76,28 @@ test('blog block classes preserve source text and leave generic decorations unch
   assert.ok(blog.some((d) => d.class === 'nagori-quote-last' && d.from === text.indexOf('> 続き')));
   assert.ok(!generic.some((d) => /nagori-(?:paragraph|code-first|code-last|quote-first|quote-last)/.test(d.class)));
   assert.equal(state.doc.toString(), text);
+});
+
+test('拡大縮小の文字の大きさを上書きせず、ブログのremを文字の大きさに比例させる', () => {
+  const css = blogThemeCss({ template: '.prose{font-size:1rem}', theme: ':where(.prose h2){font-size:1.5rem}' });
+  assert.ok(!css.includes('--editor-font-size:'));
+  assert.ok(!/\d(?:\.\d+)?rem\b/.test(css.replace(/@import[^\n]*/g, '')));
+  assert.ok(css.includes('--blog-rem:calc(var(--editor-font-size, 19px) * '));
+  assert.ok(css.includes('.cm-content{font-size:calc(var(--blog-rem) * 1);'));
+});
+
+test('行や部品の箱には上下のmarginを付けず、paddingで間隔を作る', () => {
+  const css = blogThemeCss({
+    template: '.prose h2{margin:3.2rem 0 1rem;padding-bottom:0.45rem;border-bottom:1px solid} .prose p{margin:1.35rem 0} .prose img{margin:2rem auto} .prose a{margin:1rem}',
+    theme: '',
+  });
+  const rule = (target: string) => css.match(new RegExp(`\\.cm-content \\${target}\\{([^}]*)\\}`))?.[1] ?? '';
+  for (const target of ['.nagori-h2', '.nagori-paragraph', '.nagori-image img'])
+    assert.ok(!/(?:^|;)margin(?:-top|-bottom|-block)?:/.test(rule(target)), target);
+  assert.ok(rule('.nagori-h2').includes('padding-top:calc(var(--blog-rem) * 3.2);'));
+  assert.ok(!rule('.nagori-h2').includes('calc(calc'));
+  assert.ok(rule('.nagori-paragraph').includes('padding-top:calc(var(--blog-rem) * 1.35);padding-bottom:calc(var(--blog-rem) * 1.35);'));
+  assert.ok(rule('.nagori-image img').includes('margin-inline:auto;'));
+  // 行の中の文字に付く部品は、行の高さを変えないのでそのまま
+  assert.ok(rule('.nagori-link').includes('margin:calc(var(--blog-rem) * 1);'));
 });

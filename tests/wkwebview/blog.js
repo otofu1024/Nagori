@@ -1,5 +1,6 @@
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 import { undo } from '@codemirror/commands';
 import App from '../../src/App.svelte';
 import { buildGraph } from '../../src/lib/workspace/graph.ts';
@@ -140,6 +141,41 @@ window.run = async () => {
         getComputedStyle(content).lineHeight === '32px' &&
         getComputedStyle(host).getPropertyValue('--editor-width').trim() === '740px',
     );
+    // 行に上下のmarginがあるとCodeMirrorが行の高さを測り違え、矢印キーの移動先が飛ぶ
+    const sample = '\n\n## 見出し二\n\n一つ目の段落です。\n\n二つ目の段落です。\n\n> 引用の一行目\n> 引用の二行目\n\n### 見出し三\n\n三つ目の段落です。\n\n---\n\n最後の段落です。';
+    const sampleFrom = view.state.doc.length;
+    view.dispatch({ changes: { from: sampleFrom, insert: sample } });
+    await tick();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const margined = [...content.querySelectorAll('.cm-line, .cm-widgetBuffer, .nagori-rule, .nagori-image img')].filter((line) => {
+      const style = getComputedStyle(line);
+      return parseFloat(style.marginTop) !== 0 || parseFloat(style.marginBottom) !== 0;
+    });
+    check('ブログのテーマでも本文の行に上下のmarginがない', margined.length === 0);
+    const firstLine = view.state.doc.lineAt(sampleFrom).number + 1;
+    // 続けて下矢印を押した時と同じく、前の位置と目標の列を引き継いで動かす。
+    // 区切り線の行は線の絵に置き換えて表示するので、通り越すのが正しい
+    let range = EditorSelection.cursor(view.state.doc.line(firstLine).from);
+    let steady = true;
+    for (let number = firstLine; number < view.state.doc.lines; ) {
+      range = view.moveVertically(range, true);
+      view.dispatch({ selection: range });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const next = view.state.doc.lineAt(range.head).number;
+      const skipped = view.state.doc.line(number + 1).text;
+      if (!(next === number + 1 || (next === number + 2 && skipped === '---'))) steady = false;
+      if (next <= number) break;
+      number = next;
+    }
+    check('ブログのテーマでも下矢印で次の行へ進む', steady);
+    view.dispatch({ changes: { from: sampleFrom, to: view.state.doc.length }, selection: { anchor: 0 } });
+    const root19 = document.querySelector('.editor-root');
+    const baseSize = parseFloat(getComputedStyle(content).fontSize);
+    root19.style.setProperty('--editor-font-size', '28px');
+    await tick();
+    const zoomed = parseFloat(getComputedStyle(content).fontSize);
+    root19.style.setProperty('--editor-font-size', defaults.fontSize + 'px');
+    check('ブログのテーマでも拡大縮小で本文の文字が大きくなる', zoomed > baseSize * 1.3);
     const changed = (path) =>
       callbacks.get(listeners.get('nagori:fs-changed'))({ event: 'nagori:fs-changed', payload: { paths: [path], project: root } });
     await writeTheme('src/theme/theme.css', originalTheme.theme + '\n:root {--color-text:#643219} :where(.prose){line-height:2.4}');
