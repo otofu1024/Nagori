@@ -135,23 +135,32 @@ window.run = async () => {
         getComputedStyle(content).color === 'rgb(30, 42, 63)' &&
         getComputedStyle(document.querySelector('.sidebar')).backgroundColor === 'rgb(19, 32, 49)',
     );
-    check(
-      'ブログの本文の文字サイズと行間と幅',
-      getComputedStyle(content).fontSize === '16px' &&
-        getComputedStyle(content).lineHeight === '32px' &&
-        getComputedStyle(host).getPropertyValue('--editor-width').trim() === '740px',
-    );
-    // 行に上下のmarginがあるとCodeMirrorが行の高さを測り違え、矢印キーの移動先が飛ぶ
+    // 本文の文字の大きさ、行間、幅はNagoriに従う。テーマを外した時と同じになること
+    const measure = () => [getComputedStyle(content).fontSize, getComputedStyle(content).lineHeight, content.getBoundingClientRect().width].join();
+    const themed = measure();
+    host.removeAttribute('data-blog-theme');
+    const plainLook = measure();
+    host.setAttribute('data-blog-theme', '');
+    check('ブログのテーマでも本文の文字サイズと行間と幅はNagoriのまま', themed === plainLook);
+    // テーマが行に上下のmarginを足すと、CodeMirrorが行の高さを測り違えて矢印キーの移動先が飛ぶ
     const sample = '\n\n## 見出し二\n\n一つ目の段落です。\n\n二つ目の段落です。\n\n> 引用の一行目\n> 引用の二行目\n\n### 見出し三\n\n三つ目の段落です。\n\n---\n\n最後の段落です。';
     const sampleFrom = view.state.doc.length;
     view.dispatch({ changes: { from: sampleFrom, insert: sample } });
     await tick();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const margined = [...content.querySelectorAll('.cm-line, .cm-widgetBuffer, .nagori-rule, .nagori-image img')].filter((line) => {
-      const style = getComputedStyle(line);
-      return parseFloat(style.marginTop) !== 0 || parseFloat(style.marginBottom) !== 0;
-    });
-    check('ブログのテーマでも本文の行に上下のmarginがない', margined.length === 0);
+    // 上下の間隔はNagoriに従うので、テーマを外した時と同じmarginになること
+    const margins = () =>
+      [...content.querySelectorAll('.cm-line, .cm-widgetBuffer, .nagori-rule, .nagori-image img')]
+        .map((line) => {
+          const style = getComputedStyle(line);
+          return style.marginTop + ' ' + style.marginBottom;
+        })
+        .join();
+    const themedMargins = margins();
+    host.removeAttribute('data-blog-theme');
+    const plainMargins = margins();
+    host.setAttribute('data-blog-theme', '');
+    check('ブログのテーマでも本文の行の上下のmarginはNagoriのまま', themedMargins === plainMargins);
     const firstLine = view.state.doc.lineAt(sampleFrom).number + 1;
     // 続けて下矢印を押した時と同じく、前の位置と目標の列を引き継いで動かす。
     // 区切り線の行は線の絵に置き換えて表示するので、通り越すのが正しい
@@ -176,6 +185,7 @@ window.run = async () => {
     const zoomed = parseFloat(getComputedStyle(content).fontSize);
     root19.style.setProperty('--editor-font-size', defaults.fontSize + 'px');
     check('ブログのテーマでも拡大縮小で本文の文字が大きくなる', zoomed > baseSize * 1.3);
+    const blogThemeStyle = () => [...document.querySelectorAll('head style')].map((style) => style.textContent).join('');
     const changed = (path) =>
       callbacks.get(listeners.get('nagori:fs-changed'))({ event: 'nagori:fs-changed', payload: { paths: [path], project: root } });
     await writeTheme('src/theme/theme.css', originalTheme.theme + '\n:root {--color-text:#643219} :where(.prose){line-height:2.4}');
@@ -183,7 +193,7 @@ window.run = async () => {
     await until(() => getComputedStyle(content).color === 'rgb(100, 50, 25)');
     check(
       '外で保存したtheme.cssが再起動せず本文へ映る',
-      Math.abs(parseFloat(getComputedStyle(content).lineHeight) - 38.4) < 0.01 && view.state.doc.toString() === before,
+      measure() === themed && view.state.doc.toString() === before,
     );
     check(
       '外のCSSが左右の欄と上のバーへ広がらない',
@@ -192,11 +202,11 @@ window.run = async () => {
     );
     await writeTheme(
       'src/styles/template.css',
-      originalTheme.template + '\n@layer template {.article-layout{grid-template-columns:minmax(0,680px) 240px}}',
+      originalTheme.template + '\n@layer template {.prose a{text-decoration-color:#123456}}',
     );
     changed('src/styles/template.css');
-    await until(() => getComputedStyle(host).getPropertyValue('--editor-width').trim() === '680px');
-    check('外で保存したtemplate.cssの幅も映る', view === EditorView.findFromDOM(document.querySelector('.cm-editor')));
+    await until(() => blogThemeStyle().includes('#123456'));
+    check('外で保存したtemplate.cssも映る', view === EditorView.findFromDOM(document.querySelector('.cm-editor')));
     await writeTheme('src/theme/theme.css', originalTheme.theme);
     await writeTheme('src/styles/template.css', originalTheme.template);
     changed('src/theme/theme.css');

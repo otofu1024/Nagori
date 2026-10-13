@@ -57,7 +57,12 @@ export function decorateBlocks(node: SyntaxNode, context: DecorationContext, pre
   if (node.name === 'Blockquote') {
     if (blogMode) {
       line(node.from, 'nagori-quote-first');
-      line(node.to, 'nagori-quote-last');
+      // 段落の中の改行は表示の上で1行につなぐので、最後の印はつないだ後の行の先頭に付ける
+      let last = state.doc.lineAt(node.to);
+      const paragraph = node.lastChild;
+      if (paragraph?.name === 'Paragraph' && !active(paragraph))
+        while (last.from > paragraph.from && last.from - 1 >= paragraph.from) last = state.doc.lineAt(last.from - 1);
+      line(last.from, 'nagori-quote-last');
     }
     for (let n = state.doc.lineAt(node.from).number; n <= state.doc.lineAt(node.to).number; n++)
       line(state.doc.line(n).from, 'nagori-quote');
