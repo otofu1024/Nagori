@@ -301,3 +301,32 @@ fn blog_features_default_on_and_persist_off() {
         false
     );
 }
+
+#[test]
+fn blog_display_flags_default_on_and_persist_independently() {
+    let legacy: Settings = serde_json::from_str(r#"{"blogFeatures":false}"#).unwrap();
+    assert!(legacy.blog_article_header);
+    assert!(legacy.blog_link_cards_enabled);
+    assert!(legacy.blog_characters_enabled);
+    assert!(legacy.blog_body_theme);
+    assert!(legacy.blog_indent_on_enter);
+    let keys = [
+        "blogArticleHeader",
+        "blogLinkCardsEnabled",
+        "blogCharactersEnabled",
+        "blogBodyTheme",
+        "blogIndentOnEnter",
+    ];
+    for key in keys {
+        let settings: Settings =
+            serde_json::from_str(&format!(r#"{{"blogFeatures":false,"{key}":false}}"#)).unwrap();
+        let saved = serde_json::to_value(&settings).unwrap();
+        assert_eq!(saved[key], false);
+        assert_eq!(saved["blogFeatures"], false);
+        for other in keys {
+            assert_eq!(saved[other], other != key);
+        }
+        let restored: Settings = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(restored).unwrap(), saved);
+    }
+}

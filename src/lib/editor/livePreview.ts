@@ -12,6 +12,7 @@ export function livePreview(options: Options): Extension {
   let view: EditorView | undefined;
   const previews = new Map<string, { value: import('./blogLinkCards.ts').LinkPreview | null; until: number }>();
   const linkPreview = (url: string) => {
+    if (!options.blogMode || options.blogLinkCardsEnabled === false) return null;
     const cached = options.blogLinkCards?.[url];
     if (cached) return cached;
     const request = previews.get(url);
@@ -145,6 +146,7 @@ export function livePreview(options: Options): Extension {
       keydown(event, view) {
         if (
           !options.blogMode ||
+          options.blogArticleHeader === false ||
           !options.properties ||
           view.state.readOnly ||
           event.key !== 'ArrowUp' ||

@@ -114,8 +114,8 @@ const componentProperties =
   /^(?:display|grid-template-columns|grid-template-rows|flex-direction|justify-content|align-items|gap|row-gap|column-gap|min-width|min-height|overflow(?:-x|-y)?|position|top|right|bottom|left|content|transform|transition|box-shadow|-webkit-box-orient|-webkit-line-clamp)$/;
 const headerProperties = /^(?:display|flex-wrap|align-items|gap|row-gap|column-gap|text-wrap|line-break|overflow-wrap|word-break)$/;
 
-export function blogThemeCss(source: BlogTheme | null): string {
-  if (!source) return '';
+export function blogThemeCss(source: BlogTheme | null, enabled = true): string {
+  if (!source || !enabled) return '';
   const imports: string[] = [],
     rules: string[] = [];
   const declarations = (node: SyntaxNode, css: string, root = false, header = false, component = false) =>

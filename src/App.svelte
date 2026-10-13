@@ -60,9 +60,9 @@
   let blogLinkCards = $state.raw<LinkPreviews | null>(null);
   async function fetchLinkCard(url: string): Promise<LinkPreview | null> {
     const root = project;
-    if (!blogMode) return null;
+    if (!blogMode || !settings.blogLinkCardsEnabled) return null;
     const result = await invoke<LinkPreview | null>('workspace_link_card', { url });
-    return root === project && blogMode ? result : null;
+    return root === project && blogMode && settings.blogLinkCardsEnabled ? result : null;
   }
   let blogThemeRequest = 0;
   async function refreshBlogTheme() {
@@ -760,7 +760,7 @@
   }
   async function resetSettings() {
     if (!settingsLoaded) return;
-    const ok = await confirm('表示・エディタ・サイドバー・ゴミ箱の設定を初期値に戻します。最近見たノートの記録、スター、ワークスペースは消しません。', {
+    const ok = await confirm('表示・エディタ・ブログ・サイドバー・ゴミ箱の設定を初期値に戻します。最近見たノートの記録、スター、ワークスペースは消しません。', {
       title: '設定を初期値に戻す',
       kind: 'warning',
       okLabel: '初期値に戻す',
@@ -1064,6 +1064,11 @@
               {plain}
               properties={!blogMode || !!current?.path.startsWith(BLOG_DIRECTORY + '/')}
               {blogMode}
+              blogArticleHeader={settings.blogArticleHeader}
+              blogLinkCardsEnabled={settings.blogLinkCardsEnabled}
+              blogCharactersEnabled={settings.blogCharactersEnabled}
+              blogBodyTheme={settings.blogBodyTheme}
+              blogIndentOnEnter={settings.blogIndentOnEnter}
               {blogTheme}
               {blogCharacters}
               {blogLinkCards}

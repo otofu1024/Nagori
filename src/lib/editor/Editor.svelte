@@ -29,9 +29,9 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   import { typingFormat, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from '../workspace/workspaceSearch.ts';
 
-  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogTheme = null, blogCategories = null, blogCharacters = null, blogLinkCards = null, fetchLinkCard, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogArticleHeader = true, blogLinkCardsEnabled = true, blogCharactersEnabled = true, blogBodyTheme = true, blogIndentOnEnter = true, blogTheme = null, blogCategories = null, blogCharacters = null, blogLinkCards = null, fetchLinkCard, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogTheme?: BlogTheme | null; blogCharacters?: import('./blogCharacters.ts').BlogCharacters | null; blogLinkCards?: import('./blogLinkCards.ts').LinkPreviews | null; fetchLinkCard?: import('./previewState.ts').Options['fetchLinkCard']; blogCategories?: import('./blogCategories.ts').BlogCategory[] | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
+    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogArticleHeader?: boolean; blogLinkCardsEnabled?: boolean; blogCharactersEnabled?: boolean; blogBodyTheme?: boolean; blogIndentOnEnter?: boolean; blogTheme?: BlogTheme | null; blogCharacters?: import('./blogCharacters.ts').BlogCharacters | null; blogLinkCards?: import('./blogLinkCards.ts').LinkPreviews | null; fetchLinkCard?: import('./previewState.ts').Options['fetchLinkCard']; blogCategories?: import('./blogCategories.ts').BlogCategory[] | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -175,7 +175,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
       ...(plain ? [] : [
         markdown({ base: commonmarkLanguage, extensions: markdownExtensions, codeLanguages: codeLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
         codeHighlighting,
-        previewConfig.of(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogCategories, blogCharacters, blogLinkCards, fetchLinkCard, onPropertyComposition: setComposition })),
+        previewConfig.of(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogArticleHeader, blogLinkCardsEnabled, blogCharactersEnabled, blogCategories, blogCharacters, blogLinkCards, fetchLinkCard, onPropertyComposition: setComposition })),
         typingFormat(() => composition),
       ]),
       // 変換開始だけのdispatchで未確定文字のDOMを作り直さない。
@@ -201,7 +201,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
       readOnlyConfig.of([EditorState.readOnly.of(readonly || busy), EditorView.editable.of(!readonly && !busy)]),
       EditorView.contentAttributes.of(editor => ({ 'aria-label': 'Markdown本文', 'aria-readonly': String(editor.state.readOnly), tabindex: '0', spellcheck: 'false' })),
       editorKeymap({
-        get plain() { return plain; }, get previewOnly() { return previewOnly; }, get composition() { return composition; },
+        get plain() { return plain; }, get indentParagraphs() { return blogMode && blogIndentOnEnter; }, get previewOnly() { return previewOnly; }, get composition() { return composition; },
         get linkDialog() { return formatting.linkDialog; }, get view() { return view; }, onSave: () => onSave(), apply: formatting.apply,
       }),
       EditorView.domEventHandlers({ paste: (event, editor) => pasteMarkdown(event, editor, !plain, onPasteImage, composition || previewOnly || formatting.linkDialog), compositionstart: () => { blurFailsafe.cancel(); setComposition(true); return false; }, compositionend: () => { blurFailsafe.cancel(); setComposition(false); return false; }, keydown: event => { if (composition && keyEndsComposition(event)) setComposition(false); return false; }, blur: () => { blurFailsafe.blur(composition); queueMicrotask(formatting.updateToolbar); return false; }, scroll: () => { queueMicrotask(formatting.updateToolbar); updateOutlinePosition(); return false; } }),
@@ -284,6 +284,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   $effect(() => {
     void editorStyle;
     void blogTheme;
+    void blogBodyTheme;
     view?.requestMeasure();
   });
   $effect(() => {
@@ -294,7 +295,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     else view.dispatch({ effects: findReplaceBlocked.of(blocked) });
   });
   $effect(() => {
-    const css = blogThemeCss(blogMode && !plain ? blogTheme : null);
+    const css = blogThemeCss(blogMode && !plain ? blogTheme : null, blogBodyTheme);
     if (!css) return;
     const style = document.createElement('style');
     style.textContent = css;
@@ -302,15 +303,15 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     view?.requestMeasure();
     return () => style.remove();
   });
-  // プロパティ表示、ブログのモード、カテゴリの候補が変わった時だけ、表示の拡張を入れ替える。
+  // プロパティ表示、ブログの表示設定、カテゴリの候補が変わった時だけ、表示の拡張を入れ替える。
   // 入れ替えると画像を含む装飾をすべて作り直すので、ほかの変化では動かさない
-  let previewKey = untrack(() => `${properties}:${blogMode}:${JSON.stringify(blogCategories)}:${JSON.stringify(blogCharacters)}:${JSON.stringify(blogLinkCards)}`);
+  let previewKey = untrack(() => `${properties}:${blogMode}:${blogArticleHeader}:${blogLinkCardsEnabled}:${blogCharactersEnabled}:${JSON.stringify(blogCategories)}:${JSON.stringify(blogCharacters)}:${JSON.stringify(blogLinkCards)}`);
   $effect(() => {
-    const key = `${properties}:${blogMode}:${JSON.stringify(blogCategories)}:${JSON.stringify(blogCharacters)}:${JSON.stringify(blogLinkCards)}`;
+    const key = `${properties}:${blogMode}:${blogArticleHeader}:${blogLinkCardsEnabled}:${blogCharactersEnabled}:${JSON.stringify(blogCategories)}:${JSON.stringify(blogCharacters)}:${JSON.stringify(blogLinkCards)}`;
     if (key === previewKey) return;
     previewKey = key;
     untrack(() => {
-      if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogCategories, blogCharacters, blogLinkCards, fetchLinkCard, onPropertyComposition: setComposition })) });
+      if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogArticleHeader, blogLinkCardsEnabled, blogCharactersEnabled, blogCategories, blogCharacters, blogLinkCards, fetchLinkCard, onPropertyComposition: setComposition })) });
     });
   });
   $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });
@@ -318,7 +319,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
 </script>
 
 <div {hidden} class="editor-root" class:preview-only={previewOnly} class:plain class:no-heading-rule={!headingRule} onfocusout={() => queueMicrotask(formatting.updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px;${editorStyle}`} data-document={documentKey}>
-  <div class="editor-host" data-blog-theme={blogMode && !plain && blogTheme ? '' : undefined} bind:this={host}></div>
+  <div class="editor-host" data-blog-theme={blogMode && blogBodyTheme && !plain && blogTheme ? '' : undefined} bind:this={host}></div>
   {#if formatting.toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${formatting.toolbar.top}px;left:${formatting.toolbar.left}px`} onmousedown={event => event.preventDefault()}>
       {#each formatting.kinds as kind}

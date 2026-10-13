@@ -361,9 +361,9 @@ export function propertiesDecoration(viewState: import('@codemirror/state').Edit
   if (!read) return null;
   const to = read.bodyFrom + (/^(?:[ \t]*\r?\n)+/.exec(text.slice(read.bodyFrom))?.[0].length ?? 0);
   return Decoration.replace({
-    widget: options.blogMode
+    widget: options.blogMode && options.blogArticleHeader !== false
       ? new BlogHeaderWidget(text, read.properties, viewState.readOnly, options)
-      : new PropertiesWidget(text.slice(0, read.bodyFrom), read.properties, viewState.readOnly, options),
+      : new PropertiesWidget(text.slice(0, read.bodyFrom), read.properties, viewState.readOnly, { ...options, blogMode: false }),
     block: true,
     // 次の行の先頭にある見出しなどの行装飾を置き換えに巻き込まない。
     inclusiveEnd: false,

@@ -22,6 +22,9 @@ export type Options = {
   onLink(href: string): void;
   properties?: boolean;
   blogMode?: boolean;
+  blogArticleHeader?: boolean;
+  blogLinkCardsEnabled?: boolean;
+  blogCharactersEnabled?: boolean;
   blogCharacters?: import('./blogCharacters.ts').BlogCharacters | null;
   blogLinkCards?: import('./blogLinkCards.ts').LinkPreviews | null;
   fetchLinkCard?(url: string): Promise<import('./blogLinkCards.ts').LinkPreview | null>;

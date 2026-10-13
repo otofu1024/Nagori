@@ -270,3 +270,16 @@ test('ブログの機能は初期値がオンで、オフと不正な値を扱�
   assert.equal(startupSettings({ blogFeatures: false }).blogFeatures, false);
   assert.equal(startupSettings({ blogFeatures: null } as unknown as Parameters<typeof startupSettings>[0]).blogFeatures, true);
 });
+
+
+test('ブログの表示設定は古い設定でオンになり、個別の値を保存・復元する', () => {
+  const keys = ['blogArticleHeader', 'blogLinkCardsEnabled', 'blogCharactersEnabled', 'blogBodyTheme', 'blogIndentOnEnter'] as const;
+  for (const key of keys) {
+    assert.equal(defaults[key], true);
+    assert.equal(startupSettings({})[key], true);
+    assert.equal(startupSettings({ [key]: null } as unknown as Partial<Settings>)[key], true);
+    const saved = { ...defaults, blogFeatures: false, [key]: false };
+    assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
+    assert.equal(resetPreferences(saved)[key], true);
+  }
+});

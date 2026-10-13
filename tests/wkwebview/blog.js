@@ -1,7 +1,7 @@
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { undo, isolateHistory } from '@codemirror/commands';
+import { undo, redo, undoDepth, isolateHistory } from '@codemirror/commands';
 import App from '../../src/App.svelte';
 import { buildGraph } from '../../src/lib/workspace/graph.ts';
 import { BLOG_DIRECTORY } from '../../src/lib/workspace/navigation.ts';
@@ -556,17 +556,147 @@ window.run = async () => {
     );
     document.querySelector('.settings-button').click();
     await until(() => document.querySelector('.settings-dialog[open]'));
-    [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'エディタ').click();
+    [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'ブログ').click();
     await tick();
     const toggle = [...document.querySelectorAll('.check-row')]
       .find((label) => label.textContent.trim() === 'ブログの機能')
       .querySelector('input');
     check('ブログの機能は初期値オン', toggle.checked);
+    const blogToggle = (label) =>
+      [...document.querySelectorAll('.settings-panel .check-row')].find((row) => row.textContent.trim() === label).querySelector('input');
+    const displayLabels = ['記事の見出し', 'リンクカード', 'キャラクターの吹き出し', '本文のテーマ'];
+    const indentLabel = '改行したら全角スペースで字下げする';
+    const blogLabels = [...displayLabels, indentLabel];
+    check(
+      'ブログの欄に4つの表示設定を初期値オンで置く',
+      displayLabels.every((label) => blogToggle(label).checked),
+    );
+    check('全角スペースの字下げは初期値オン', blogToggle(indentLabel).checked);
+    const indentSample = sampleHeader + '\n\n　段落です。';
+    const pressEnter = () => view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    replace(indentSample);
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    await frame();
+    const beforeEnter = snapshot();
+    pressEnter();
+    await frame();
+    check(
+      'ブログの段落を改行すると全角スペースを1つ入れる',
+      snapshot() === beforeEnter + '\n　' && view.state.doc.line(view.state.doc.lines).text === '　',
+    );
+    undo(view);
+    await frame();
+    check('改行と全角スペースは1回のUndoで戻る', snapshot() === beforeEnter);
+    blogToggle(indentLabel).click();
+    await frame();
+    pressEnter();
+    await frame();
+    check(
+      '字下げがオフの時は全角も半角も入れない',
+      snapshot() === beforeEnter + '\n' && view.state.doc.line(view.state.doc.lines).text === '',
+    );
+    undo(view);
+    await frame();
+    blogToggle(indentLabel).click();
+    await frame();
+    // 見出しの行の改行で、後ろの段落の全角スペースの字下げを数えて半角スペースを足さない
+    const headingSample = sampleHeader + '\n\n# 至高の芸術\n　みなさんこんばんわ。';
+    replace(headingSample);
+    view.dispatch({ selection: { anchor: headingSample.indexOf('# 至高の芸術') + '# 至高の芸術'.length } });
+    await frame();
+    pressEnter();
+    await frame();
+    check('見出しの行の改行では空白を足さない', snapshot() === headingSample.replace('# 至高の芸術\n', '# 至高の芸術\n\n'));
+    replace(componentSample);
+    view.dispatch({ selection: { anchor: componentSample.indexOf('本文です。') } });
+    await until(() => document.querySelector('.link-card') && document.querySelector('.talk'));
+    for (const [label, visible] of [
+      ['記事の見出し', () => !!document.querySelector('.article-header')],
+      ['リンクカード', () => !!document.querySelector('.link-card')],
+      ['キャラクターの吹き出し', () => !!document.querySelector('.talk')],
+      ['本文のテーマ', () => host.hasAttribute('data-blog-theme')],
+    ]) {
+      const prior = snapshot();
+      view.dispatch({ changes: { from: view.state.doc.length, insert: '変更' }, annotations: isolateHistory.of('full') });
+      const edited = snapshot(),
+        selected = view.state.selection,
+        depth = undoDepth(view.state);
+      blogToggle(label).click();
+      await until(() => !visible());
+      check(label + 'をオフにすると表示が変わる', !visible());
+      if (label === '記事の見出し')
+        check(
+          '見出しをオフにすると汎用の一覧へ戻る',
+          !!document.querySelector('.nagori-properties') && !document.querySelector('.nagori-blog-header'),
+        );
+      if (label === 'キャラクターの吹き出し')
+        check(
+          '吹き出しをオフにすると普通の引用へ戻る',
+          !!document.querySelector('.nagori-quote') && content.textContent.includes('[!NAGORI]'),
+        );
+      if (label === 'リンクカード') {
+        check('カードをオフにするとURLのリンクへ戻る', !!document.querySelector(`.nagori-link[data-href="${cardUrl}"]`));
+        const requestCount = cardRequests.length,
+          from = view.state.doc.length;
+        view.dispatch({
+          changes: { from, insert: '\n\nhttps://example.com/blog-settings-disabled' },
+          annotations: Transaction.addToHistory.of(false),
+        });
+        await frame();
+        check('カードがオフの間は新しいURLの情報を取得しない', cardRequests.length === requestCount);
+        view.dispatch({ changes: { from, to: view.state.doc.length }, annotations: Transaction.addToHistory.of(false) });
+      }
+      if (label === '本文のテーマ')
+        check(
+          'テーマをオフにすると見出しの構造を残してNagoriの配色へ戻す',
+          !!document.querySelector('.article-header') &&
+            getComputedStyle(content).color === 'rgb(219, 230, 244)' &&
+            getComputedStyle(field('title')).color === 'rgb(219, 230, 244)',
+        );
+      check(
+        label + 'をオフにしても本文、選択位置、Undo履歴を保つ',
+        snapshot() === edited && view.state.selection.eq(selected) && undoDepth(view.state) === depth,
+      );
+      blogToggle(label).click();
+      await until(visible);
+      check(label + 'をオンに戻すと表示が戻る', visible());
+      check(
+        label + 'をオンにしても同じエディタ、本文、選択位置、Undo履歴を保つ',
+        view === EditorView.findFromDOM(document.querySelector('.cm-editor')) &&
+          snapshot() === edited &&
+          view.state.selection.eq(selected) &&
+          undoDepth(view.state) === depth,
+      );
+      undo(view);
+      await frame();
+      check(label + 'の切り替え後も直前の編集をUndoで戻せる', snapshot() === prior);
+      redo(view);
+      await frame();
+      check(label + 'の切り替え後もRedoで編集を戻せる', snapshot() === edited);
+      undo(view);
+      await frame();
+    }
+    // 全体をオフにしても個別の設定値を残す。
+    blogToggle('キャラクターの吹き出し').click();
+    blogToggle(indentLabel).click();
+    await until(() => !document.querySelector('.talk'));
+    replace(before);
+    await frame();
     toggle.click();
     await until(
       () => !blogMode && document.querySelector('.nagori-property-key-input') && document.querySelector('.tree-row[data-path="src"]'),
     );
     await until(() => !host.hasAttribute('data-blog-theme'));
+    check(
+      'ブログの機能がオフの時はブログの設定を押せない',
+      blogLabels.every((label) => blogToggle(label).disabled),
+    );
+    check(
+      'ブログの機能をオフにしても個別の値を保つ',
+      !blogToggle('キャラクターの吹き出し').checked &&
+        displayLabels.filter((label) => label !== 'キャラクターの吹き出し').every((label) => blogToggle(label).checked),
+    );
+    check('ブログの機能をオフにしても字下げの値を保つ', !blogToggle(indentLabel).checked);
     check('オフで本文もNagoriの配色へ戻る', getComputedStyle(content).color === 'rgb(219, 230, 244)');
     check('オフで汎用の一覧と自由入力へ戻る', !settings.blogFeatures && !!document.querySelector('.nagori-property-key-input'));
     check(
@@ -583,6 +713,15 @@ window.run = async () => {
     );
     await until(() => host.hasAttribute('data-blog-theme'));
     check('オンで本文もブログの配色へ戻る', getComputedStyle(content).color === 'rgb(30, 42, 63)');
+    check(
+      'ブログの機能をオンに戻すとブログの設定を押せる',
+      blogLabels.every((label) => !blogToggle(label).disabled),
+    );
+    check('ブログの機能をオンに戻しても個別の値を保つ', !blogToggle('キャラクターの吹き出し').checked);
+    check('ブログの機能をオンに戻しても字下げの値を保つ', !blogToggle(indentLabel).checked);
+    blogToggle('キャラクターの吹き出し').click();
+    blogToggle(indentLabel).click();
+    await frame();
     document.querySelector('[aria-label="設定を閉じる"]').click();
     // モードの切り替えで同じ内容を書き戻すことはあるが、記事の中身は変えない
     check(
