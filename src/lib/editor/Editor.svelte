@@ -29,9 +29,9 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   import { typingFormat, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from '../workspace/workspaceSearch.ts';
 
-  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogTheme = null, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogTheme = null, blogCategories = null, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogTheme?: BlogTheme | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
+    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogTheme?: BlogTheme | null; blogCategories?: import('./blogCategories.ts').BlogCategory[] | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -175,7 +175,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
       ...(plain ? [] : [
         markdown({ base: commonmarkLanguage, extensions: markdownExtensions, codeLanguages: codeLanguage, completeHTMLTags: false, pasteURLAsLink: false }),
         codeHighlighting,
-        previewConfig.of(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, onPropertyComposition: setComposition })),
+        previewConfig.of(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogCategories, onPropertyComposition: setComposition })),
         typingFormat(() => composition),
       ]),
       // 変換開始だけのdispatchで未確定文字のDOMを作り直さない。
@@ -302,15 +302,15 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     view?.requestMeasure();
     return () => style.remove();
   });
-  // プロパティ表示かブログのモードが変わった時だけ、表示の拡張を入れ替える。
+  // プロパティ表示、ブログのモード、カテゴリの候補が変わった時だけ、表示の拡張を入れ替える。
   // 入れ替えると画像を含む装飾をすべて作り直すので、ほかの変化では動かさない
-  let previewKey = untrack(() => `${properties}:${blogMode}`);
+  let previewKey = untrack(() => `${properties}:${blogMode}:${JSON.stringify(blogCategories)}`);
   $effect(() => {
-    const key = `${properties}:${blogMode}`;
+    const key = `${properties}:${blogMode}:${JSON.stringify(blogCategories)}`;
     if (key === previewKey) return;
     previewKey = key;
     untrack(() => {
-      if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, onPropertyComposition: setComposition })) });
+      if (view && !plain) view.dispatch({ effects: previewConfig.reconfigure(livePreview({ resolveImage: ref => resolveImage(ref), onLink: href => onLink(href), properties, blogMode, blogCategories, onPropertyComposition: setComposition })) });
     });
   });
   $effect(() => { const extension = focusMode(focus, typewriter, plain); if (view) view.dispatch({ effects: focusConfig.reconfigure(extension) }); });

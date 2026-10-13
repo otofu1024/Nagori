@@ -22,6 +22,7 @@ export type Options = {
   onLink(href: string): void;
   properties?: boolean;
   blogMode?: boolean;
+  blogCategories?: import('./blogCategories.ts').BlogCategory[] | null;
   onPropertyComposition?(active: boolean): void;
 };
 export const inlineClasses: Record<string, string> = {

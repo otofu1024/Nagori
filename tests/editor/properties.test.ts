@@ -6,7 +6,13 @@ import { history, undo } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { markdownExtensions } from '../../src/lib/editor/markdown.ts';
 import { livePreview } from '../../src/lib/editor/livePreview.ts';
-import { PropertiesWidget, propertiesSource, propertyKind, propertyCandidates, templateProperties } from '../../src/lib/editor/previewProperties.ts';
+import {
+  PropertiesWidget,
+  propertiesSource,
+  propertyKind,
+  propertyCandidates,
+  templateProperties,
+} from '../../src/lib/editor/previewProperties.ts';
 import { compositionMode, previewOnlyMode } from '../../src/lib/editor/previewState.ts';
 import { patchFrontMatter, readProperties } from '../../src/lib/workspace/frontMatter.ts';
 import { syntaxTree } from '@codemirror/language';
@@ -184,7 +190,10 @@ test('区切りの末尾の空白とCRLFを扱い、直後の見出しを保つ'
 
 test('ブログの追加候補はテンプレートの未使用項目だけになる', () => {
   const properties = readProperties('---\ntitle: title\ncustom: value\n---\n本文')!.properties;
-  assert.deepEqual(propertyCandidates(properties), templateProperties.filter(key => key !== 'title'));
+  assert.deepEqual(
+    propertyCandidates(properties),
+    templateProperties.filter((key) => key !== 'title'),
+  );
   assert.equal(propertyKind({ key: 'publishedAt', value: '', editable: true, source: '' }, true), 'date');
   assert.equal(propertyKind({ key: 'publishedAt', value: '', editable: true, source: '' }), 'text');
   const options = { properties: true, blogMode: true, resolveImage: async () => '', onLink: () => {} };
@@ -195,15 +204,53 @@ test('ブログの追加候補はテンプレートの未使用項目だけに�
 test('モードを切り替えても本文とUndo履歴、Previewを保つ', () => {
   const config = new Compartment();
   const options = { properties: true, resolveImage: async () => '', onLink: () => {} };
-  let state = EditorState.create({ doc: text, extensions: [history(), markdown({ extensions: markdownExtensions }), config.of(livePreview(options))] });
+  let state = EditorState.create({
+    doc: text,
+    extensions: [history(), markdown({ extensions: markdownExtensions }), config.of(livePreview(options))],
+  });
   const changes = patchFrontMatter(text, 'title', '変更');
   state = state.update({ changes, annotations: Transaction.userEvent.of('input.properties') }).state;
   state = state.update({ effects: config.reconfigure(livePreview({ ...options, blogMode: true })) }).state;
   assert.equal(readProperties(state.doc.toString())!.properties[0].value, '変更');
   assert.equal(widgets(state)[0].widget.options.blogMode, true);
-  assert.ok(undo({ state, dispatch: transaction => { state = transaction.state; } }));
+  assert.ok(
+    undo({
+      state,
+      dispatch: (transaction) => {
+        state = transaction.state;
+      },
+    }),
+  );
   assert.equal(state.doc.toString(), text);
   state = state.update({ effects: previewOnlyMode.of(true) }).state;
   state = state.update({ effects: config.reconfigure(livePreview({ ...options, blogMode: false })) }).state;
   assert.equal(widgets(state)[0].widget.readonly, true);
+});
+
+test('ブログ記事は見出しのウィジェットになり、本文の変更でも読了時間を更新する', async () => {
+  const { BlogHeaderWidget } = await import('../../src/lib/editor/previewProperties.ts');
+  const options = { properties: true, blogMode: true, resolveImage: async () => '', onLink: () => {} };
+  let state = EditorState.create({
+    doc: text,
+    extensions: [history(), markdown({ extensions: markdownExtensions }), livePreview(options)],
+  });
+  const original = widgets(state)[0].widget;
+  assert.ok(original instanceof BlogHeaderWidget);
+  state = state.update({ changes: { from: state.doc.length, insert: '本文'.repeat(500) } }).state;
+  const updated = widgets(state)[0].widget;
+  assert.ok(updated instanceof BlogHeaderWidget);
+  assert.equal(original.eq(updated), false);
+  state = state.update({ effects: previewOnlyMode.of(true) }).state;
+  assert.equal(widgets(state)[0].widget.readonly, true);
+});
+
+test('短い記事へ欠けた項目を足しても、書き戻し後の本文の先頭にカーソルを置く', () => {
+  const source = '---\ndraft: false\n---\n本文';
+  let state = create(source);
+  state = state.update({ selection: { anchor: source.indexOf('本文') } }).state;
+  state = state.update({
+    changes: patchFrontMatter(source, 'title', 'タイトル'.repeat(20)),
+    annotations: Transaction.userEvent.of('input.properties'),
+  }).state;
+  assert.equal(state.selection.main.head, state.doc.toString().indexOf('本文'));
 });

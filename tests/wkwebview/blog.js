@@ -1,7 +1,7 @@
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
-import { EditorSelection } from '@codemirror/state';
-import { undo } from '@codemirror/commands';
+import { EditorSelection, Transaction } from '@codemirror/state';
+import { undo, isolateHistory } from '@codemirror/commands';
 import App from '../../src/App.svelte';
 import { buildGraph } from '../../src/lib/workspace/graph.ts';
 import { BLOG_DIRECTORY } from '../../src/lib/workspace/navigation.ts';
@@ -82,6 +82,7 @@ window.run = async () => {
           blogMode = args.blogFeatures && data.blogMode;
           return { root, blogMode };
         }
+        if (command === 'workspace_blog_config') return blogMode ? data.config : null;
         if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return blogMode ? entries : generic;
@@ -135,15 +136,214 @@ window.run = async () => {
         getComputedStyle(content).color === 'rgb(30, 42, 63)' &&
         getComputedStyle(document.querySelector('.sidebar')).backgroundColor === 'rgb(19, 32, 49)',
     );
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const snapshot = () => view.state.doc.toString();
+    const value = (key) => readProperties(snapshot()).properties.find((property) => property.key === key)?.value;
+    const field = (key) => document.querySelector(`.article-header [data-key="${key}"]`);
+    const replace = (text) =>
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: text },
+        annotations: [Transaction.userEvent.of('input.properties'), isolateHistory.of('full')],
+      });
+    const sampleHeader =
+      '---\ntitle: 見出しの確認\ndescription: 説明の確認\npublishedAt: 2026-10-09\nupdatedAt: 2026-10-10\ncategory: tech\ntags: [最初, 次]\ndraft: false\ncustom: その他\n---\n\n本文です。\n次の行です。';
+    replace(sampleHeader);
+    await frame();
+    check(
+      '記事の構造とクラスで見出しを描く',
+      !!document.querySelector('.article-header h1 .article-title-line') &&
+        !!document.querySelector('.article-description') &&
+        !!document.querySelector('.article-dates time') &&
+        !!document.querySelector('.tag-list a'),
+    );
+    check('カテゴリの表示名を設定から読む', field('category').textContent === '技術');
+    check(
+      '公開日と更新日をブログの書式で表示',
+      field('publishedAt').textContent === '2026年10月9日 公開' && field('updatedAt').textContent === '2026年10月10日 更新',
+    );
+    const verifyEdit = async (key, edit, expected) => {
+      const prior = snapshot();
+      view.dispatch({ annotations: isolateHistory.of('full') });
+      edit();
+      await frame();
+      check(key + 'をFront Matterに書き戻す', JSON.stringify(value(key)) === JSON.stringify(expected));
+      if (key === 'draft')
+        document
+          .querySelector('.nagori-blog-properties input[type="checkbox"]')
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true }));
+      else undo(view);
+      await frame();
+      check(key + 'の編集をUndoで戻す', snapshot() === prior);
+    };
+    for (const key of ['title', 'description'])
+      await verifyEdit(
+        key,
+        () => {
+          const text = field(key);
+          text.focus();
+          text.textContent = '編集した' + key;
+          text.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+          const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+          text.dispatchEvent(enter);
+          check(key + 'のEnterで改行を入れない', enter.defaultPrevented && !/[\r\n]/.test(text.textContent));
+        },
+        '編集した' + key,
+      );
+    await verifyEdit(
+      'category',
+      () => {
+        field('category').click();
+        const select = document.querySelector('.article-header select');
+        check(
+          'カテゴリ候補は表示名と保存するキーを持つ',
+          [...select.options].some((option) => option.value === 'daily' && option.textContent === '日常'),
+        );
+        select.value = 'daily';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+      'daily',
+    );
+    for (const key of ['publishedAt', 'updatedAt'])
+      await verifyEdit(
+        key,
+        () => {
+          const input = field(key).nextElementSibling;
+          input.hidden = false;
+          input.focus();
+          input.value = '2026-10-13';
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.blur();
+        },
+        '2026-10-13',
+      );
+    await verifyEdit('tags', () => document.querySelector('.tag-list button').click(), ['次']);
+    await verifyEdit(
+      'tags',
+      () => {
+        const input = document.querySelector('.nagori-header-tag-input');
+        input.focus();
+        input.value = '追加';
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      },
+      ['最初', '次', '追加'],
+    );
+    const readingBefore = document.querySelector('.nagori-reading-time').textContent;
+    const end = view.state.doc.length;
+    view.dispatch({ changes: { from: end, insert: '文'.repeat(1000) }, annotations: isolateHistory.of('full') });
+    await frame();
+    check(
+      '読了時間を本文の文字数から更新',
+      readingBefore === '約 1 分で読めます' && document.querySelector('.nagori-reading-time').textContent === '約 3 分で読めます',
+    );
+    undo(view);
+    await frame();
+    let details = document.querySelector('.nagori-blog-properties');
+    details.open = false;
+    await frame();
+    check('たたんだ一覧は短い名前だけを表示', details.querySelector('summary').textContent === 'プロパティ' && !details.open);
+    details.querySelector('summary').click();
+    await frame();
+    check(
+      '一覧を開くと見出し以外の項目を既存の欄で編集できる',
+      details.open && [...details.querySelectorAll('.nagori-property-row')].map((row) => row.dataset.key).join(',') === 'draft,custom',
+    );
+    await verifyEdit('draft', () => details.querySelector('input[type="checkbox"]').click(), true);
+    replace(sampleHeader.replace('title: 見出しの確認', 'title: 別の記事').replace('updatedAt: 2026-10-10\n', ''));
+    await frame();
+    details = document.querySelector('.nagori-blog-properties');
+    check('記事をまたいで一覧の開閉を保つ', details.open);
+    check('更新日のない記事では見出しに更新日を出さない', !field('updatedAt'));
+    await verifyEdit(
+      'updatedAt',
+      () => {
+        details.querySelector('.nagori-property-add').click();
+        const select = details.querySelector('select');
+        select.value = 'updatedAt';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+      '',
+    );
+    const desc = field('description');
+    desc.focus();
+    desc.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    const imeBefore = snapshot();
+    desc.textContent = '変換中の日本語';
+    desc.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, inputType: 'insertCompositionText' }));
+    const imeEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true, keyCode: 229 });
+    desc.dispatchEvent(imeEnter);
+    check(
+      '日本語変換中は確定も書き戻しもしない',
+      snapshot() === imeBefore && !imeEnter.defaultPrevented && document.activeElement === desc,
+    );
+    desc.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '変換中の日本語' }));
+    await frame();
+    check('日本語の変換が終わると書き戻す', value('description') === '変換中の日本語');
+    desc.blur();
+    replace(sampleHeader);
+    await frame();
+    const bodyStart = snapshot().indexOf('本文です。');
+    view.dispatch({ selection: { anchor: bodyStart } });
+    view.focus();
+    view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    await frame();
+    check(
+      '本文の先頭から上矢印で見出しへ移る',
+      document.activeElement === field('description') && view.state.selection.main.head === bodyStart,
+    );
+    const selection = window.getSelection(),
+      rangeToEnd = document.createRange();
+    rangeToEnd.selectNodeContents(field('description'));
+    rangeToEnd.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(rangeToEnd);
+    field('description').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    await frame();
+    check('見出しから下矢印で本文の先頭へ移る', document.activeElement === view.contentDOM && view.state.selection.main.head === bodyStart);
+    const moved = view.moveVertically(EditorSelection.cursor(bodyStart), true);
+    check('見出しのmarginで本文の行を飛ばさない', view.state.doc.lineAt(moved.head).number === view.state.doc.lineAt(bodyStart).number + 1);
+    replace(
+      sampleHeader
+        .replace('title: 見出しの確認', 'title: ""')
+        .replace('description: 説明の確認', 'description: 12')
+        .replace('publishedAt: 2026-10-09', 'publishedAt: 2026-02-31')
+        .replace('category: tech', 'category: unknown'),
+    );
+    await frame();
+    check(
+      '空や不正な必須項目に印を付ける',
+      ['title', 'description', 'publishedAt', 'category'].every((key) => field(key).getAttribute('aria-invalid') === 'true'),
+    );
+    replace(sampleHeader.replace('title: 見出しの確認\n', ''));
+    await frame();
+    const missingTitle = field('title');
+    missingTitle.focus();
+    missingTitle.textContent = '欠けていたタイトル';
+    missingTitle.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await frame();
+    check(
+      '欠けた必須項目をその場で足しても入力の焦点を保つ',
+      value('title') === '欠けていたタイトル' && document.activeElement === missingTitle,
+    );
+    missingTitle.blur();
+    check(
+      '見出しで足した項目を一覧の追加候補から外す',
+      ![...document.querySelector('.nagori-blog-properties select').options].some((option) => option.value === 'title'),
+    );
+    replace(before);
+    await frame();
+    document.querySelector('.nagori-blog-properties').open = false;
+    await frame();
     // 本文の文字の大きさ、行間、幅はNagoriに従う。テーマを外した時と同じになること
-    const measure = () => [getComputedStyle(content).fontSize, getComputedStyle(content).lineHeight, content.getBoundingClientRect().width].join();
+    const measure = () =>
+      [getComputedStyle(content).fontSize, getComputedStyle(content).lineHeight, content.getBoundingClientRect().width].join();
     const themed = measure();
     host.removeAttribute('data-blog-theme');
     const plainLook = measure();
     host.setAttribute('data-blog-theme', '');
     check('ブログのテーマでも本文の文字サイズと行間と幅はNagoriのまま', themed === plainLook);
     // テーマが行に上下のmarginを足すと、CodeMirrorが行の高さを測り違えて矢印キーの移動先が飛ぶ
-    const sample = '\n\n## 見出し二\n\n一つ目の段落です。\n\n二つ目の段落です。\n\n> 引用の一行目\n> 引用の二行目\n\n### 見出し三\n\n三つ目の段落です。\n\n---\n\n最後の段落です。';
+    const sample =
+      '\n\n## 見出し二\n\n一つ目の段落です。\n\n二つ目の段落です。\n\n> 引用の一行目\n> 引用の二行目\n\n### 見出し三\n\n三つ目の段落です。\n\n---\n\n最後の段落です。';
     const sampleFrom = view.state.doc.length;
     view.dispatch({ changes: { from: sampleFrom, insert: sample } });
     await tick();
@@ -166,7 +366,7 @@ window.run = async () => {
     // 区切り線の行は線の絵に置き換えて表示するので、通り越すのが正しい
     let range = EditorSelection.cursor(view.state.doc.line(firstLine).from);
     let steady = true;
-    for (let number = firstLine; number < view.state.doc.lines; ) {
+    for (let number = firstLine; number < view.state.doc.lines;) {
       range = view.moveVertically(range, true);
       view.dispatch({ selection: range });
       await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -191,19 +391,13 @@ window.run = async () => {
     await writeTheme('src/theme/theme.css', originalTheme.theme + '\n:root {--color-text:#643219} :where(.prose){line-height:2.4}');
     changed('src/theme/theme.css');
     await until(() => getComputedStyle(content).color === 'rgb(100, 50, 25)');
-    check(
-      '外で保存したtheme.cssが再起動せず本文へ映る',
-      measure() === themed && view.state.doc.toString() === before,
-    );
+    check('外で保存したtheme.cssが再起動せず本文へ映る', measure() === themed && view.state.doc.toString() === before);
     check(
       '外のCSSが左右の欄と上のバーへ広がらない',
       getComputedStyle(document.querySelector('.sidebar')).color !== 'rgb(100, 50, 25)' &&
         getComputedStyle(document.querySelector('.global-bar')).color !== 'rgb(100, 50, 25)',
     );
-    await writeTheme(
-      'src/styles/template.css',
-      originalTheme.template + '\n@layer template {.prose a{text-decoration-color:#123456}}',
-    );
+    await writeTheme('src/styles/template.css', originalTheme.template + '\n@layer template {.prose a{text-decoration-color:#123456}}');
     changed('src/styles/template.css');
     await until(() => blogThemeStyle().includes('#123456'));
     check('外で保存したtemplate.cssも映る', view === EditorView.findFromDOM(document.querySelector('.cm-editor')));

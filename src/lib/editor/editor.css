@@ -109,3 +109,24 @@
   .editor-host :global(.nagori-property-add) { margin-top: .35em; }
   .editor-host :global(.nagori-property-key-input) { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); margin-left: .5em; max-width: 100%; border-radius: 4px; }
   .editor-host :global(.nagori-property-error) { color: var(--danger); font-size: .8em; }
+
+  .editor-host :global(.nagori-blog-header) { display: flow-root; font-size: var(--editor-font-size); line-height: inherit; padding-bottom: 1.5em; }
+  .editor-host :global(.nagori-blog-header .article-header) { display: flow-root; margin-bottom: 1.5em; }
+  .editor-host :global(.nagori-blog-header h1) { margin: 1em 0; font-size: 2em; line-height: 1.45; }
+  .editor-host :global(.nagori-blog-header .article-title-line) { display: block; overflow-wrap: anywhere; }
+  .editor-host :global(.nagori-blog-header .article-description) { margin: 0; }
+  .editor-host :global(.nagori-blog-header .article-dates), .editor-host :global(.nagori-blog-header .tag-list), .editor-host :global(.nagori-header-tags) { display: flex; flex-wrap: wrap; align-items: center; gap: .6em; }
+  .editor-host :global(.nagori-blog-header .article-dates), .editor-host :global(.nagori-blog-header .tag-list) { margin-top: 1em; }
+  .editor-host :global(.nagori-blog-header .category-label), .editor-host :global(.nagori-blog-header time) { cursor: pointer; }
+  .editor-host :global(.nagori-blog-header [contenteditable]) { outline: none; overflow-wrap: anywhere; }
+  .editor-host :global(.nagori-blog-header [data-placeholder]:empty::before), .editor-host :global(.nagori-blog-header [data-placeholder]:has(>span:empty)::before) { content: attr(data-placeholder); color: var(--muted); }
+  .editor-host :global(.nagori-blog-header [aria-invalid='true']) { box-shadow: 0 1px var(--danger); }
+  .editor-host :global(.nagori-blog-header [contenteditable]:focus), .editor-host :global(.nagori-blog-header a:focus-visible), .editor-host :global(.nagori-blog-header time:focus-visible) { outline: 1px solid var(--border); }
+  .editor-host :global(.nagori-header-tags) { display: contents; }
+  .editor-host :global(.nagori-blog-header .tag-list a) { display: inline-flex; gap: .25em; align-items: center; }
+  .editor-host :global(.nagori-blog-header .tag-list button) { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .editor-host :global(.nagori-header-tag-input) { width: 4em; min-width: 0; font: inherit; color: inherit; border: 1px solid transparent; background: transparent; }
+  .editor-host :global(.nagori-header-tag-input:focus) { outline: 1px solid var(--border); }
+  .editor-host :global(.nagori-blog-properties summary) { font-size: .85em; color: var(--muted); cursor: pointer; }
+  .editor-host :global(.nagori-blog-properties .nagori-properties) { padding: .7em 0 0; }
+  .editor-host :global(.nagori-blog-header [hidden]) { display: none; }

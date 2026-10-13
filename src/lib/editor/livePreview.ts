@@ -1,4 +1,4 @@
-import { StateField, EditorState, Transaction, type Extension } from '@codemirror/state';
+import { StateField, EditorState, Transaction, Prec, type Extension } from '@codemirror/state';
 import { EditorView, type DecorationSet } from '@codemirror/view';
 import { syntaxTree } from '@codemirror/language';
 import { propertiesSourceField, PropertiesWidget } from './previewProperties.ts';
@@ -42,7 +42,7 @@ export function livePreview(options: Options): Extension {
       tr.state.field(field, false)?.between(0, tr.newDoc.length, (_from, to, decoration) => {
         if (decoration.spec.widget instanceof PropertiesWidget) end = to;
       });
-      return end && tr.newSelection.main.head < end ? [tr, { selection: { anchor: end } }] : tr;
+      return end && tr.newSelection.main.head < end ? [tr, { selection: { anchor: end }, sequential: true }] : tr;
     }),
     EditorState.changeFilter.of((tr) => {
       if (tr.startState.field(previewOnlyField)) return false;
@@ -55,7 +55,42 @@ export function livePreview(options: Options): Extension {
       // 本文の先頭でBackspaceを押しても、隠れているFront Matterは消さない。
       return end && tr.isUserEvent('delete') ? [0, end] : true;
     }),
-    EditorView.domEventHandlers({
+    // 標準の上矢印の処理より先に、本文の先頭から見出しへ移す
+    Prec.highest(EditorView.domEventHandlers({
+      keydown(event, view) {
+        if (
+          !options.blogMode ||
+          !options.properties ||
+          view.state.readOnly ||
+          event.key !== 'ArrowUp' ||
+          event.isComposing ||
+          view.composing ||
+          view.state.field(compositionField) ||
+          view.state.field(propertiesSourceField)
+        )
+          return false;
+        let end = 0;
+        view.state.field(field).between(0, view.state.doc.length, (_from, to, decoration) => {
+          if (decoration.spec.widget instanceof PropertiesWidget) end = to;
+        });
+        // 見出しと本文の間の空行は飛ばすので、本文の最初の行の一番上から上へ動く時に見出しへ移る
+        const main = view.state.selection.main;
+        const bodyStart = end + (/^(?:[ \t]*\r?\n)+/.exec(view.state.doc.sliceString(end))?.[0].length ?? 0);
+        if (end && main.empty && main.head >= end && main.head <= view.state.doc.lineAt(bodyStart).to && view.moveVertically(main, false).head < bodyStart) {
+          const target = view.dom.querySelector<HTMLElement>('.article-description [contenteditable]');
+          if (target) {
+            target.focus();
+            const range = document.createRange();
+            range.selectNodeContents(target);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            return true;
+          }
+        }
+        return false;
+      },
       click(event) {
         const target = (event.target as HTMLElement).closest<HTMLElement>('[data-href]');
         if (target && event.metaKey) {
@@ -65,6 +100,6 @@ export function livePreview(options: Options): Extension {
         }
         return false;
       },
-    }),
+    })),
   ];
 }
