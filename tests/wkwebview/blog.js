@@ -157,6 +157,29 @@ window.run = async () => {
         !!document.querySelector('.tag-list a'),
     );
     check('カテゴリの表示名を設定から読む', field('category').textContent === '技術');
+    // 本文はカーソルを透明にしているので、見出しの入力欄で受け継がないこと
+    check(
+      '見出しの入力欄ではカーソルが見える',
+      [field('title'), field('description'), document.querySelector('.nagori-header-tag-input')].every(
+        (element) => getComputedStyle(element).caretColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(element).caretColor !== 'transparent',
+      ),
+    );
+    check('タグの消去ボタンはマウスを合わせるまで出さない', getComputedStyle(document.querySelector('.tag-list a button')).opacity === '0');
+    const tagInput = document.querySelector('.nagori-header-tag-input');
+    check(
+      'タグの追加欄はタグと同じくらいの高さ',
+      tagInput.getBoundingClientRect().height <= document.querySelector('.tag-list a').getBoundingClientRect().height + 2,
+    );
+    const extraList = document.querySelector('.nagori-blog-properties'),
+      wasOpen = extraList.open;
+    extraList.open = true;
+    check(
+      'プロパティの見出しは1つだけ',
+      [...document.querySelectorAll('.nagori-blog-header summary, .nagori-blog-header .nagori-properties-heading')].filter(
+        (element) => element.getClientRects().length > 0,
+      ).length === 1,
+    );
+    extraList.open = wasOpen;
     check(
       '公開日と更新日をブログの書式で表示',
       field('publishedAt').textContent === '2026年10月9日 公開' && field('updatedAt').textContent === '2026年10月10日 更新',
