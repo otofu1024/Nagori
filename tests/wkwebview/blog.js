@@ -599,6 +599,14 @@ window.run = async () => {
     await frame();
     blogToggle(indentLabel).click();
     await frame();
+    // 見出しの行の改行で、後ろの段落の全角スペースの字下げを数えて半角スペースを足さない
+    const headingSample = sampleHeader + '\n\n# 至高の芸術\n　みなさんこんばんわ。';
+    replace(headingSample);
+    view.dispatch({ selection: { anchor: headingSample.indexOf('# 至高の芸術') + '# 至高の芸術'.length } });
+    await frame();
+    pressEnter();
+    await frame();
+    check('見出しの行の改行では空白を足さない', snapshot() === headingSample.replace('# 至高の芸術\n', '# 至高の芸術\n\n'));
     replace(componentSample);
     view.dispatch({ selection: { anchor: componentSample.indexOf('本文です。') } });
     await until(() => document.querySelector('.link-card') && document.querySelector('.talk'));

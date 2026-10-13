@@ -128,6 +128,20 @@ test('リストと引用の記号、コードの字下げ、Front Matterと見�
   }
 });
 
+test('見出し、区切り線、リンクの定義の行では空白を足さずに改行する', () => {
+  // 標準の改行は、後ろの段落の全角スペースの字下げを数えて半角スペースを足していた
+  for (const [text, at, expected] of [
+    ['# 至高の芸術\n　みなさんこんばんわ。', 7, '# 至高の芸術\n\n　みなさんこんばんわ。'],
+    ['見出し\n===\n　本文', 3, '見出し\n\n===\n　本文'],
+    ['---\n　本文', 3, '---\n\n　本文'],
+    ['[a]: https://example.com\n　本文', 24, '[a]: https://example.com\n\n　本文'],
+  ] as const) {
+    const value = editor(text, at);
+    value.enter();
+    assert.equal(value.state.doc.toString(), expected, text);
+  }
+});
+
 test('表のEnterは次の行のセルへ移り、全角スペースを入れない', () => {
   const text = '| 列 |\n| --- |\n| 値 |';
   const value = editor(text);
