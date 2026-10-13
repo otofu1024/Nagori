@@ -14,8 +14,6 @@
   import GraphView from './lib/components/GraphView.svelte';
   import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
-  import OutlineNotice from './lib/components/OutlineNotice.svelte';
-  import { outlineNoticeVisible } from './lib/workspace/outlineNotice.ts';
   import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/editor/composition.ts';
   import PaneResizer from './lib/components/PaneResizer.svelte';
   import { SIDEBAR, OUTLINE, paneLayout } from './lib/workspace/paneWidths.ts';
@@ -186,7 +184,6 @@
     conflict: '競合',
     missing: 'ファイルが見つかりません',
   };
-  const outlineNotice = $derived(outlineNoticeVisible({ plain, previewOnly, outlineVisible: settings.outlineVisible, headingCount: outline.length, showOutline: layout.showOutline }));
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
   const starredPaths = $derived(settings.starred[project] ?? []);
   const allList = $derived(allNotes(index));
@@ -1036,7 +1033,6 @@
         </div>
       {:else if (current?.kind === 'markdown' || plain) && session}<div class="document-body">
           <div class="editor-column" style="position:relative">
-            <OutlineNotice visible={outlineNotice && !graphOpen} />
             <Editor
               {initialText}
               hidden={graphOpen}
