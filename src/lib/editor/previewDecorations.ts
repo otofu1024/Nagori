@@ -7,6 +7,7 @@ import { ImageWidget } from './previewImage.ts';
 import { MathWidget } from './previewMath.ts';
 import { TableWidget } from './previewTable.ts';
 import { decorateLists } from './previewLists.ts';
+import { decorateBlog } from './previewBlog.ts';
 import { decorateBlocks } from './previewBlocks.ts';
 import { propertiesDecoration } from './previewProperties.ts';
 import { previewContext, type PreviewContext } from './previewContext.ts';
@@ -35,6 +36,7 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
   walk(tree.topNode, (node) => {
     if (node.name !== 'Document' && front && intersects(front, node)) return false;
     if (/^(?:HTMLBlock|HTMLTag|CommentBlock|ProcessingInstructionBlock|LinkReference|MathUnclosed)$/.test(node.name)) return false;
+    if (decorateBlog(node, decorationContext, options, refs)) return false;
     if (/^(?:InlineMath|DisplayMath|MathBlock)$/.test(node.name)) {
       if (!active(node)) {
         const current = state.doc.lineAt(node.from);

@@ -1,4 +1,4 @@
-// The browser fixture reads a copy through the production file and search code.
+// 確認用のコピーを本番と同じファイル処理と検索で読む。
 #[allow(dead_code)]
 #[path = "../src/files.rs"]
 mod files;
@@ -6,12 +6,41 @@ mod files;
 #[path = "../src/image.rs"]
 mod image;
 #[allow(dead_code)]
+#[path = "../src/link_cards.rs"]
+mod link_cards;
+#[allow(dead_code)]
 #[path = "../src/search.rs"]
 mod search;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::fs::canonicalize(std::env::args().nth(1).ok_or("blog path required")?)?;
     if std::env::args().nth(2).as_deref() == Some("--theme") {
         serde_json::to_writer(std::io::stdout(), &files::read_blog_theme(&root))?;
+        return Ok(());
+    }
+    if std::env::args().nth(2).as_deref() == Some("--image") {
+        use std::io::Write;
+        let path = std::env::args().nth(3).ok_or("image path required")?;
+        if !path.starts_with('/')
+            || path.starts_with("//")
+            || path.split('/').any(|part| part == "..")
+        {
+            return Err("invalid public image".into());
+        }
+        let path = files::resolve(&root, &format!("public{}", path), false)
+            .map_err(|error| error.message)?;
+        std::io::stdout().write_all(
+            &image::read_image(&path)
+                .map_err(|error| error.message)?
+                .data,
+        )?;
+        return Ok(());
+    }
+    if std::env::args().nth(2).as_deref() == Some("--fetch-card") {
+        let url = std::env::args().nth(3).ok_or("URL required")?;
+        let preview = link_cards::Fetcher::default()
+            .fetch(&root, &url)
+            .map_err(|error| error.message)?;
+        serde_json::to_writer(std::io::stdout(), &preview)?;
         return Ok(());
     }
     let blog_mode = files::blog_mode(&root, true);
@@ -34,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "root": root, "blogMode": blog_mode, "entries": entries,
             "generic": generic, "documents": documents, "search": search,
             "config": files::read_blog_config(&root),
+            "linkCards": link_cards::load(&root),
         }),
     )?;
     Ok(())

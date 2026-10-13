@@ -69,6 +69,7 @@ pub(crate) struct Backend {
     pub(crate) allow_exit: Arc<AtomicBool>,
     pub(crate) open_requests: Arc<Mutex<VecDeque<Result<OpenRequest>>>>,
     previews: Arc<Mutex<image::PreviewCache>>,
+    link_cards: Arc<crate::link_cards::Fetcher>,
 }
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct OpenRequest {
@@ -281,6 +282,36 @@ pub(crate) async fn workspace_blog_config(state: State<'_, Backend>) -> Result<O
     })
     .await
 }
+#[tauri::command]
+pub(crate) async fn workspace_link_cards(
+    state: State<'_, Backend>,
+) -> Result<crate::link_cards::Cache> {
+    work(&state, move |w| {
+        Ok(if w.blog_mode {
+            crate::link_cards::load(w.root()?)
+        } else {
+            Default::default()
+        })
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn workspace_link_card(
+    state: State<'_, Backend>,
+    url: String,
+) -> Result<Option<crate::link_cards::Preview>> {
+    let root = work(&state, move |w| {
+        if !w.blog_mode {
+            return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
+        }
+        Ok(w.root()?.to_owned())
+    })
+    .await?;
+    let fetcher = state.link_cards.clone();
+    tauri::async_runtime::spawn_blocking(move || fetcher.fetch(&root, &url))
+        .await
+        .map_err(|error| Error::new("INTERNAL", error.to_string()))?
+}
 #[derive(serde::Deserialize)]
 pub(crate) struct GraphDraft {
     path: String,
@@ -440,6 +471,22 @@ pub(crate) async fn trash_empty(app: tauri::AppHandle, state: State<'_, Backend>
     let base = trash_base(&app)?;
     work(&state, move |w| trash::empty(&base, w.root()?)).await
 }
+fn blog_image_path(workspace: &Workspace, path: &str) -> Result<String> {
+    if workspace.blog_mode && path.starts_with('/') && !path.starts_with("//") {
+        if Path::new(path)
+            .components()
+            .any(|part| part == std::path::Component::ParentDir)
+        {
+            return Err(Error::new(
+                "OUTSIDE",
+                "publicの下の画像を指定してください。",
+            ));
+        }
+        Ok(format!("public/{}", path.trim_start_matches('/')))
+    } else {
+        Ok(path.to_owned())
+    }
+}
 #[tauri::command]
 pub(crate) async fn image_read(
     state: State<'_, Backend>,
@@ -452,8 +499,12 @@ pub(crate) async fn image_read(
         return work(&state, move |w| {
             image::read_image(&image::image_path(
                 w.root()?,
-                &path,
-                document_path.as_deref(),
+                &blog_image_path(w, &path)?,
+                if w.blog_mode && path.starts_with('/') {
+                    None
+                } else {
+                    document_path.as_deref()
+                },
             )?)
         })
         .await
@@ -464,8 +515,12 @@ pub(crate) async fn image_read(
     let source = work(&state, move |w| {
         image::PreviewSource::read(&image::image_path(
             w.root()?,
-            &path,
-            document_path.as_deref(),
+            &blog_image_path(w, &path)?,
+            if w.blog_mode && path.starts_with('/') {
+                None
+            } else {
+                document_path.as_deref()
+            },
         )?)
     })
     .await?;

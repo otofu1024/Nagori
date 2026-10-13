@@ -23,8 +23,9 @@ test('maps every supported prose selector and keeps all rules inside the editor 
   assert.ok(css.includes('.nagori-link:hover{color:blue;'));
   assert.ok(css.includes('.nagori-h2,.editor-host[data-blog-theme] .cm-content .nagori-h3{font-size:calc(var(--blog-rem) * 1.5);'));
   assert.ok(css.includes('.nagori-h2{color:green;'));
-  for (const excluded of ['.sidebar', 'body{', '.talk', '.link-card', 'position:fixed', '--surface:red'])
-    assert.ok(!css.includes(excluded), excluded);
+  for (const excluded of ['.sidebar', 'body{', 'position:fixed', '--surface:red']) assert.ok(!css.includes(excluded), excluded);
+  assert.ok(css.includes('.nagori-blog-component .talk'));
+  assert.ok(css.includes('.nagori-blog-component .link-card'));
   assert.equal(blogThemeCss(null), '');
 });
 
@@ -49,7 +50,8 @@ test('separates code block edges and handles multiline values and whitespace bef
   assert.ok(css.includes('.nagori-code-first{padding:calc(var(--blog-rem) * 1);padding-bottom:0;'));
   assert.ok(css.includes('.nagori-code-last{padding:calc(var(--blog-rem) * 1);padding-top:0;'));
   assert.ok(css.includes('--font-sans:"Test",\n sans-serif;'));
-  assert.ok(!css.includes('font-size:18px'));
+  assert.ok(!css.includes('.cm-content{font-size:18px'));
+  assert.ok(css.includes('.nagori-blog-component{font-size:18px'));
 });
 
 test('blog block classes preserve source text and leave generic decorations unchanged', async () => {
@@ -85,7 +87,8 @@ test('拡大縮小の文字の大きさを上書きせず、見出しの大き�
   assert.ok(!/\d(?:\.\d+)?rem\b/.test(css.replace(/@import[^\n]*/g, '')));
   assert.ok(css.includes('--blog-rem:var(--editor-font-size, 19px)'));
   assert.ok(css.includes('.nagori-h2{font-size:calc(var(--blog-rem) * 1.5);'));
-  assert.ok(!css.includes('font-size:17px'));
+  assert.ok(!css.includes('.nagori-paragraph{font-size:17px'));
+  assert.ok(css.includes('.nagori-blog-component p{font-size:17px'));
   assert.ok(!css.includes('.cm-content{font-size'));
 });
 
@@ -96,7 +99,13 @@ test('行間、上下の間隔、本文の幅はNagoriに従い、飾りの内�
     theme: '',
   });
   for (const excluded of ['line-height:2', 'line-height:1.5', 'max-width', '--editor-width', 'margin:', 'margin-top', 'margin-bottom'])
-    assert.ok(!css.replace(/\.nagori-hidden-line\{[^}]*\}/, '').includes(excluded), excluded);
+    assert.ok(
+      !css
+        .replace(/\.nagori-hidden-line\{[^}]*\}/, '')
+        .replace(/[^{}]*\.nagori-blog-component[^{}]*\{[^}]*\}/g, '')
+        .includes(excluded),
+      excluded,
+    );
   assert.ok(css.includes('.nagori-h2{padding-bottom:calc(var(--blog-rem) * 0.45);border-bottom:1px solid;'));
   assert.ok(css.includes('.nagori-image img{margin-inline:auto;'));
   assert.ok(css.includes('.nagori-quote-first{padding:calc(var(--blog-rem) * 1.1) calc(var(--blog-rem) * 1.25);padding-bottom:0;'));
@@ -130,5 +139,23 @@ test('記事の見出しに元のクラスを閉じ込め、間隔と文字の�
   assert.ok(css.includes('.nagori-blog-header .article-header .article-dates{display:flex;flex-wrap:wrap;gap:calc(var(--blog-rem) * 1);'));
   assert.ok(css.includes('.nagori-blog-header .article-header .category-label.tech{background:cyan;'));
   assert.ok(css.includes('.nagori-blog-header .article-header .tag-list a:hover{color:red;'));
+  assert.ok(!css.includes('color:bad'));
+});
+
+test('カードと吹き出しの元のクラスと疑似要素を部品に閉じ込め、間隔も読む', () => {
+  const css = blogThemeCss({
+    template:
+      '.prose .talk{display:grid;grid-template-columns:4.5rem minmax(0,1fr);margin:2rem 0}.prose .talk__bubble > :first-child{margin-top:0}.prose .link-card__title{display:-webkit-box;-webkit-line-clamp:2}',
+    theme:
+      ':where(.prose .talk__bubble)::before{content:"";position:absolute;left:-7px;transform:rotate(45deg)} .prose .link-card:hover{box-shadow:0 8px 20px black} .prose .talk + body{color:bad}',
+  });
+  assert.ok(
+    css.includes(
+      '.nagori-blog-component .talk{display:grid;grid-template-columns:calc(var(--blog-rem) * 4.5) minmax(0,1fr);margin:calc(var(--blog-rem) * 2) 0;',
+    ),
+  );
+  assert.ok(css.includes('.nagori-blog-component .talk__bubble::before{content:"";position:absolute;left:-7px;transform:rotate(45deg);'));
+  assert.ok(css.includes('.nagori-blog-component .talk__bubble > :first-child{margin-top:0;'));
+  assert.ok(css.includes('-webkit-line-clamp:2'));
   assert.ok(!css.includes('color:bad'));
 });

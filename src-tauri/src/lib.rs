@@ -5,6 +5,7 @@ mod commands;
 mod files;
 mod graph;
 mod image;
+mod link_cards;
 mod menu;
 mod search;
 mod settings;
@@ -53,6 +54,8 @@ pub fn run() {
             commands::workspace_index,
             commands::workspace_blog_theme,
             commands::workspace_blog_config,
+            commands::workspace_link_cards,
+            commands::workspace_link_card,
             commands::workspace_graph_documents,
             commands::workspace_search,
             commands::document_open,

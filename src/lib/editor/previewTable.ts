@@ -6,7 +6,7 @@ import { ImageWidget } from './previewImage.ts';
 import { MathWidget, releaseMath, type MathContext } from './previewMath.ts';
 import { inlineClasses, previewOnlyField, selectSource, type Options } from './previewState.ts';
 
-function renderInline(
+export function renderInline(
   parent: HTMLElement,
   node: SyntaxNode,
   text: string,
@@ -20,7 +20,7 @@ function renderInline(
     (n) =>
       n.from >= content.from &&
       n.to <= content.to &&
-      !/^(?:LinkMark|LinkLabel|URL|LinkTitle|EmphasisMark|CodeMark|StrikethroughMark)$/.test(n.name),
+      !/^(?:LinkMark|LinkLabel|URL|LinkTitle|EmphasisMark|CodeMark|StrikethroughMark|HeaderMark)$/.test(n.name),
   );
   let at = content.from;
   for (const child of kids) {
