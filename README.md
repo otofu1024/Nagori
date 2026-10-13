@@ -9,8 +9,8 @@ Nagoriは、macOS向けのMarkdownエディタ兼プレビューアです。ロ�
 開発とビルドにはNode.js 24、Rust 1.90以上、Xcode Command Line Toolsが必要です。対象はApple SiliconのmacOSで、最低対象をmacOS 13に設定しています。
 
 ```sh
-git clone https://github.com/otofu1024/NagoriEditor.git
-cd NagoriEditor
+git clone https://github.com/otofu1024/Nagori.git
+cd Nagori
 npm ci
 npm run tauri dev
 ```
