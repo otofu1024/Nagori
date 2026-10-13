@@ -1,5 +1,8 @@
 // 確認用のコピーを本番と同じファイル処理と検索で読む。
 #[allow(dead_code)]
+#[path = "../src/blog_characters.rs"]
+mod blog_characters;
+#[allow(dead_code)]
 #[path = "../src/files.rs"]
 mod files;
 #[allow(dead_code)]
@@ -11,8 +14,37 @@ mod link_cards;
 #[allow(dead_code)]
 #[path = "../src/search.rs"]
 mod search;
+#[allow(dead_code)]
+#[path = "../src/trash.rs"]
+mod trash;
+fn character_command(
+    root: &std::path::Path,
+    base: &std::path::Path,
+    input: serde_json::Value,
+) -> files::Result<serde_json::Value> {
+    let path = input["path"].as_str().unwrap_or("");
+    match input["action"].as_str().unwrap_or("") {
+        "open" => Ok(serde_json::to_value(files::open(root, "src/config.ts")?).unwrap()),
+        "imageBaseline" => Ok(serde_json::to_value(blog_characters::image_baseline(root, path)?).unwrap()),
+        "save" => {
+            let request = serde_json::from_value(input["request"].clone()).map_err(|error| files::Error::new("INVALID", error.to_string()))?;
+            Ok(serde_json::to_value(blog_characters::save(root, base, request)?).unwrap())
+        },
+        "trash" => Ok(serde_json::to_value(trash::list(base, root)?).unwrap()),
+        "documents" => Ok(serde_json::Value::Array(files::index_from(root, files::BLOG_DIRECTORY)?.iter().filter(|entry| entry.kind == "markdown").map(|entry| files::open(root, &entry.path).map(|document| serde_json::json!({ "path": document.path, "text": document.text }))).collect::<files::Result<Vec<_>>>()?)),
+        _ => Err(files::Error::new("INVALID", "確認の操作がありません。")),
+    }
+}
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::fs::canonicalize(std::env::args().nth(1).ok_or("blog path required")?)?;
+    if std::env::args().nth(2).as_deref() == Some("--characters") {
+        let base = std::env::args().nth(3).ok_or("trash path required")?;
+        let input = serde_json::from_reader(std::io::stdin())?;
+        let result = character_command(&root, std::path::Path::new(&base), input)
+            .unwrap_or_else(|error| serde_json::json!({ "error": error }));
+        serde_json::to_writer(std::io::stdout(), &result)?;
+        return Ok(());
+    }
     if std::env::args().nth(2).as_deref() == Some("--theme") {
         serde_json::to_writer(std::io::stdout(), &files::read_blog_theme(&root))?;
         return Ok(());

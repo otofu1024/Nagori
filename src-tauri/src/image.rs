@@ -80,6 +80,13 @@ fn validate_image<R: io::BufRead + io::Seek>(reader: image::ImageReader<R>) -> R
     }
     Ok(())
 }
+// キャラクターの画像も既存の寸法とデコードの検証を使う。
+pub(crate) fn validate_import(data: Vec<u8>) -> Result<()> {
+    if data.len() > IMAGE_LIMIT {
+        return Err(Error::new("LIMIT", "画像は20MiB以下にしてください。"));
+    }
+    verify_image(&image_from_bytes(data)?)
+}
 // 取り込む画像だけは最後までデコードし、破損したファイルをプロジェクトへ複製しない
 fn verify_image(image: &Image) -> Result<()> {
     let mut reader =

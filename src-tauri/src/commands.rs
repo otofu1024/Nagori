@@ -283,6 +283,34 @@ pub(crate) async fn workspace_blog_config(state: State<'_, Backend>) -> Result<O
     .await
 }
 #[tauri::command]
+pub(crate) async fn blog_characters_image_baseline(
+    state: State<'_, Backend>,
+    path: String,
+) -> Result<Option<String>> {
+    work(&state, move |w| {
+        if !w.blog_mode {
+            return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
+        }
+        crate::blog_characters::image_baseline(w.root()?, &path)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn blog_characters_save(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    request: crate::blog_characters::SaveRequest,
+) -> Result<crate::blog_characters::Saved> {
+    let base = trash_base(&app)?;
+    work(&state, move |w| {
+        if !w.blog_mode {
+            return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
+        }
+        crate::blog_characters::save(w.root()?, &base, request)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn workspace_link_cards(
     state: State<'_, Backend>,
 ) -> Result<crate::link_cards::Cache> {
