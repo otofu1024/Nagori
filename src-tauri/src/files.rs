@@ -9,6 +9,21 @@ use std::{
 };
 
 pub const DOCUMENT_LIMIT: usize = 2 * 1024 * 1024;
+#[derive(Debug, serde::Serialize)]
+pub struct BlogTheme {
+    pub template: String,
+    pub theme: String,
+}
+pub fn read_blog_theme(root: &Path) -> Option<BlogTheme> {
+    let read = |path| {
+        String::from_utf8(read_limited(&resolve(root, path, false).ok()?, 1024 * 1024).ok()?).ok()
+    };
+    Some(BlogTheme {
+        template: read("src/styles/template.css")?,
+        theme: read("src/theme/theme.css")?,
+    })
+}
+
 pub const BLOG_DIRECTORY: &str = "src/content/blog";
 
 pub fn blog_mode(root: &Path, enabled: bool) -> bool {

@@ -4,7 +4,7 @@ import { children } from './markdown.ts';
 import { RuleWidget } from './previewText.ts';
 import type { DecorationContext } from './previewState.ts';
 
-export function decorateBlocks(node: SyntaxNode, context: DecorationContext, previewOnly: boolean) {
+export function decorateBlocks(node: SyntaxNode, context: DecorationContext, previewOnly: boolean, blogMode = false) {
   const { state, text, active, ranges, line, hide } = context;
   const hideMarker = (node: SyntaxNode) => {
     const current = state.doc.lineAt(node.from);
@@ -37,6 +37,12 @@ export function decorateBlocks(node: SyntaxNode, context: DecorationContext, pre
     const first = state.doc.lineAt(node.from),
       last = state.doc.lineAt(node.to);
     for (let n = first.number; n <= last.number; n++) line(state.doc.line(n).from, 'nagori-code-line');
+    const contentFirst = node.name === 'FencedCode' && !active(node) ? first.number + 1 : first.number;
+    const contentLast = node.name === 'FencedCode' && !active(node) && children(node).filter(n => n.name === 'CodeMark').length > 1 ? last.number - 1 : last.number;
+    if (blogMode && contentFirst <= contentLast) {
+      line(state.doc.line(contentFirst).from, 'nagori-code-first');
+      line(state.doc.line(contentLast).from, 'nagori-code-last');
+    }
     if (node.name === 'FencedCode' && !active(node)) {
       const marks = children(node).filter((n) => n.name === 'CodeMark');
       for (const part of marks) line(part.from, 'nagori-hidden-line');
@@ -49,6 +55,10 @@ export function decorateBlocks(node: SyntaxNode, context: DecorationContext, pre
     return false;
   }
   if (node.name === 'Blockquote') {
+    if (blogMode) {
+      line(node.from, 'nagori-quote-first');
+      line(node.to, 'nagori-quote-last');
+    }
     for (let n = state.doc.lineAt(node.from).number; n <= state.doc.lineAt(node.to).number; n++)
       line(state.doc.line(n).from, 'nagori-quote');
   }

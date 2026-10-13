@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { blogThemeCss, type BlogTheme } from './blogTheme.ts';
   import { createToolbar } from './toolbar.svelte.ts';
   import { editorKeymap } from './keymap.ts';
   import Icon from '../components/Icon.svelte';
@@ -28,9 +29,9 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   import { typingFormat, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from '../workspace/workspaceSearch.ts';
 
-  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogTheme = null, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
     onContextMenu?: (context: EditorContextMenu) => void;
-    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
+    initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogTheme?: BlogTheme | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
@@ -282,6 +283,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   // 本文の幅や行間が変わったら、折り返しを測り直す。サイドバーや目次の開閉で幅が変わった時も同じ
   $effect(() => {
     void editorStyle;
+    void blogTheme;
     view?.requestMeasure();
   });
   $effect(() => {
@@ -290,6 +292,15 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     // 保存の完了が変換と重なっても、未確定文字と文節の選択を触らない。
     if (composition || view.compositionStarted) pendingFindBlocked = blocked;
     else view.dispatch({ effects: findReplaceBlocked.of(blocked) });
+  });
+  $effect(() => {
+    const css = blogThemeCss(blogMode && !plain ? blogTheme : null);
+    if (!css) return;
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.append(style);
+    view?.requestMeasure();
+    return () => style.remove();
   });
   // プロパティ表示かブログのモードが変わった時だけ、表示の拡張を入れ替える。
   // 入れ替えると画像を含む装飾をすべて作り直すので、ほかの変化では動かさない
@@ -307,7 +318,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
 </script>
 
 <div {hidden} class="editor-root" class:preview-only={previewOnly} class:plain class:no-heading-rule={!headingRule} onfocusout={() => queueMicrotask(formatting.updateToolbar)} bind:this={root} style={`--editor-font-size:${fontSize}px;${editorStyle}`} data-document={documentKey}>
-  <div class="editor-host" bind:this={host}></div>
+  <div class="editor-host" data-blog-theme={blogMode && !plain && blogTheme ? '' : undefined} bind:this={host}></div>
   {#if formatting.toolbar}
     <div class="floating-toolbar" role="toolbar" tabindex="-1" aria-label="選択テキストの装飾" style={`top:${formatting.toolbar.top}px;left:${formatting.toolbar.left}px`} onmousedown={event => event.preventDefault()}>
       {#each formatting.kinds as kind}

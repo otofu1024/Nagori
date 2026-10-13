@@ -126,3 +126,39 @@ fn blog_mode_scopes_the_tree_index_and_search_and_off_keeps_generic_behavior() {
         article.parent().unwrap().to_str().unwrap()
     );
 }
+
+#[test]
+fn blog_theme_reads_only_in_blog_mode_and_missing_or_unsafe_files_are_ignored() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(directory.path()).unwrap();
+    fs::create_dir_all(root.join("src/styles")).unwrap();
+    fs::create_dir_all(root.join("src/theme")).unwrap();
+    fs::write(root.join("src/styles/template.css"), ".prose{}").unwrap();
+    fs::write(root.join("src/theme/theme.css"), ":root{}").unwrap();
+    let mut workspace = Workspace {
+        root: Some(root.clone()),
+        blog_mode: false,
+        watcher: None,
+    };
+    assert!(workspace.blog_theme().is_none());
+    workspace.blog_mode = true;
+    let theme = workspace.blog_theme().unwrap();
+    assert_eq!(theme.template, ".prose{}");
+    assert_eq!(theme.theme, ":root{}");
+    fs::write(root.join("src/theme/theme.css"), "changed").unwrap();
+    assert_eq!(workspace.blog_theme().unwrap().theme, "changed");
+    fs::remove_file(root.join("src/styles/template.css")).unwrap();
+    assert!(workspace.blog_theme().is_none());
+    fs::write(root.join("src/styles/template.css"), [0xff]).unwrap();
+    assert!(workspace.blog_theme().is_none());
+    #[cfg(unix)]
+    {
+        fs::remove_file(root.join("src/styles/template.css")).unwrap();
+        std::os::unix::fs::symlink(
+            root.join("src/theme/theme.css"),
+            root.join("src/styles/template.css"),
+        )
+        .unwrap();
+        assert!(workspace.blog_theme().is_none());
+    }
+}

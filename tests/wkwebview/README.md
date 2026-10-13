@@ -39,4 +39,4 @@ test -d /private/tmp/nagori-stage2-blog || cp -R ~/nagori_template /private/tmp/
 swift tests/wkwebview/probe.swift /private/tmp/nagori-blog-check http://127.0.0.1:1438/tests/wkwebview/blog.html
 ```
 
-`blog.html`はコピーをRustのファイル処理で読み、ブログの判定、記事だけの一覧と検索、テンプレートの候補、グラフのブログ内リンク、設定のオンとオフを確認します。画面内の編集はメモリ上で行います。
+`blog.html`はコピーをRustのファイル処理で読み、ブログの判定、記事だけの一覧と検索、テンプレートの候補、グラフのブログ内リンク、設定のオンとオフを確認します。画面内の記事の編集はメモリ上で行います。本文だけへのテーマ適用、ダークモードでの配色、コピーの`theme.css`と`template.css`を保存した後の反映も確認します。CSSはコピーだけを書き換え、確認が終わったら元に戻します。

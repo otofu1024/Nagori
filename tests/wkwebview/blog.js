@@ -23,20 +23,28 @@ window.addEventListener('error', (event) => errors.push(event.message));
 window.addEventListener('unhandledrejection', (event) => errors.push(String(event.reason)));
 window.show = async () => {};
 window.run = async () => {
+  let originalTheme;
+  const writeTheme = async (path, text) => {
+    const response = await fetch('./blog-theme', { method: 'POST', body: JSON.stringify({ path, text }) });
+    if (!response.ok) throw Error(await response.text());
+    return response.json();
+  };
   try {
     const response = await fetch('./blog-data');
     if (!response.ok) throw Error(await response.text());
     const data = await response.json(),
       { root, entries, generic, documents } = data;
+    originalTheme = await (await fetch('./blog-theme')).json();
     const article = documents.find((doc) => doc.text.startsWith('---'));
     if (!article) throw Error('ブログのコピーにFront Matter付きの記事がありません');
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
     const originals = new Map(files);
     const saves = [];
-    let settings = { ...defaults, lastProject: root, lastFile: article.path, theme: 'light', autosaveDelay: 5000 };
+    let settings = { ...defaults, lastProject: root, lastFile: article.path, theme: 'dark', autosaveDelay: 5000 };
     let blogMode = true,
       sequence = 0;
-    const callbacks = new Map();
+    const callbacks = new Map(),
+      listeners = new Map();
     const listing = (path) => {
       const prefix = path || (blogMode ? BLOG_DIRECTORY : '');
       const children = new Map();
@@ -58,7 +66,10 @@ window.run = async () => {
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
-        if (command === 'plugin:event|listen') return args.handler;
+        if (command === 'plugin:event|listen') {
+          listeners.set(args.event, args.handler);
+          return args.handler;
+        }
         if (command === 'plugin:event|unlisten') return;
         if (command === 'settings_get') return settings;
         if (command === 'settings_save') {
@@ -70,6 +81,7 @@ window.run = async () => {
           blogMode = args.blogFeatures && data.blogMode;
           return { root, blogMode };
         }
+        if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return blogMode ? entries : generic;
         if (command === 'workspace_search') return data.search;
@@ -113,6 +125,46 @@ window.run = async () => {
     );
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     const before = view.state.doc.toString();
+    const content = document.querySelector('.cm-content'),
+      host = document.querySelector('.editor-host');
+    await until(() => host.hasAttribute('data-blog-theme'));
+    check(
+      'ダークモードでも本文だけブログの明るい配色',
+      getComputedStyle(host).backgroundColor === 'rgb(255, 255, 255)' &&
+        getComputedStyle(content).color === 'rgb(30, 42, 63)' &&
+        getComputedStyle(document.querySelector('.sidebar')).backgroundColor === 'rgb(19, 32, 49)',
+    );
+    check(
+      'ブログの本文の文字サイズと行間と幅',
+      getComputedStyle(content).fontSize === '16px' &&
+        getComputedStyle(content).lineHeight === '32px' &&
+        getComputedStyle(host).getPropertyValue('--editor-width').trim() === '740px',
+    );
+    const changed = (path) =>
+      callbacks.get(listeners.get('nagori:fs-changed'))({ event: 'nagori:fs-changed', payload: { paths: [path], project: root } });
+    await writeTheme('src/theme/theme.css', originalTheme.theme + '\n:root {--color-text:#643219} :where(.prose){line-height:2.4}');
+    changed('src/theme/theme.css');
+    await until(() => getComputedStyle(content).color === 'rgb(100, 50, 25)');
+    check(
+      '外で保存したtheme.cssが再起動せず本文へ映る',
+      Math.abs(parseFloat(getComputedStyle(content).lineHeight) - 38.4) < 0.01 && view.state.doc.toString() === before,
+    );
+    check(
+      '外のCSSが左右の欄と上のバーへ広がらない',
+      getComputedStyle(document.querySelector('.sidebar')).color !== 'rgb(100, 50, 25)' &&
+        getComputedStyle(document.querySelector('.global-bar')).color !== 'rgb(100, 50, 25)',
+    );
+    await writeTheme(
+      'src/styles/template.css',
+      originalTheme.template + '\n@layer template {.article-layout{grid-template-columns:minmax(0,680px) 240px}}',
+    );
+    changed('src/styles/template.css');
+    await until(() => getComputedStyle(host).getPropertyValue('--editor-width').trim() === '680px');
+    check('外で保存したtemplate.cssの幅も映る', view === EditorView.findFromDOM(document.querySelector('.cm-editor')));
+    await writeTheme('src/theme/theme.css', originalTheme.theme);
+    await writeTheme('src/styles/template.css', originalTheme.template);
+    changed('src/theme/theme.css');
+    await until(() => getComputedStyle(content).color === 'rgb(30, 42, 63)');
     document.querySelector('.nagori-property-add').click();
     const select = document.querySelector('.nagori-properties select');
     const existing = readProperties(before).properties.map((property) => property.key);
@@ -155,6 +207,8 @@ window.run = async () => {
     await until(
       () => !blogMode && document.querySelector('.nagori-property-key-input') && document.querySelector('.tree-row[data-path="src"]'),
     );
+    await until(() => !host.hasAttribute('data-blog-theme'));
+    check('オフで本文もNagoriの配色へ戻る', getComputedStyle(content).color === 'rgb(219, 230, 244)');
     check('オフで汎用の一覧と自由入力へ戻る', !settings.blogFeatures && !!document.querySelector('.nagori-property-key-input'));
     check(
       '切り替えでエディタと本文を保つ',
@@ -168,12 +222,22 @@ window.run = async () => {
       settings.blogFeatures &&
         [...document.querySelectorAll('.tree-row')].every((row) => row.dataset.path.startsWith(BLOG_DIRECTORY + '/')),
     );
+    await until(() => host.hasAttribute('data-blog-theme'));
+    check('オンで本文もブログの配色へ戻る', getComputedStyle(content).color === 'rgb(30, 42, 63)');
     document.querySelector('[aria-label="設定を閉じる"]').click();
     // モードの切り替えで同じ内容を書き戻すことはあるが、記事の中身は変えない
-    check('元のコピーの中身を変える保存がない', saves.every((save) => save.text === save.baseline));
+    check(
+      '元のコピーの中身を変える保存がない',
+      saves.every((save) => save.text === save.baseline),
+    );
     return JSON.stringify({ pass: checks.every((check) => check.pass) && !errors.length, checks, errors, root });
   } catch (error) {
     return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
+  } finally {
+    if (originalTheme) {
+      await writeTheme('src/theme/theme.css', originalTheme.theme);
+      await writeTheme('src/styles/template.css', originalTheme.template);
+    }
   }
 };
 window.ready = true;

@@ -10,6 +10,7 @@
   import { createMenus } from './lib/workspace/menus.ts';
   import { open, confirm } from '@tauri-apps/plugin-dialog';
   import Editor from './lib/editor/Editor.svelte';
+  import { blogThemePaths, type BlogTheme } from './lib/editor/blogTheme.ts';
   import GraphView from './lib/components/GraphView.svelte';
   import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
@@ -52,6 +53,19 @@
     settingsDialog = $state<HTMLDialogElement>();
   const theme = $derived(resolvedTheme(settings.theme, systemDark));
   let blogMode = $state(false);
+  let blogTheme = $state.raw<BlogTheme | null>(null);
+  let blogThemeRequest = 0;
+  async function refreshBlogTheme() {
+    const root = project, enabled = blogMode, request = ++blogThemeRequest;
+    if (!enabled) { blogTheme = null; return; }
+    try {
+      const result = await invoke<BlogTheme | null>('workspace_blog_theme');
+      if (root === project && enabled === blogMode && request === blogThemeRequest) blogTheme = result;
+    } catch {
+      if (root === project && request === blogThemeRequest) blogTheme = null;
+    }
+  }
+  $effect(() => { project; blogMode; untrack(() => { blogTheme = null; void refreshBlogTheme(); }); });
   const rootDirectory = $derived(blogMode ? BLOG_DIRECTORY : '');
   let appliedBlogFeatures = true;
   let project = $state(''),
@@ -768,6 +782,7 @@
         unlisteners.push(
           await listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
             if (event.payload.project !== project) return;
+            if (blogMode && event.payload.paths.some(path => blogThemePaths.includes(path))) void refreshBlogTheme();
             treeQueued = true;
             imagesQueued ||= event.payload.paths.some((path) => /\.(png|jpe?g|gif|webp)$/i.test(path));
             clearTimeout(fsTimer);
@@ -1032,6 +1047,7 @@
               {plain}
               properties={!blogMode || !!current?.path.startsWith(BLOG_DIRECTORY + '/')}
               {blogMode}
+              {blogTheme}
               previewOnly={previewOnly && !plain}
               focus={settings.focusMode}
               typewriter={settings.typewriterMode}

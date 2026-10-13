@@ -51,6 +51,11 @@ impl Workspace {
             files::index(self.root()?)
         }
     }
+    fn blog_theme(&self) -> Option<files::BlogTheme> {
+        self.blog_mode
+            .then(|| files::read_blog_theme(self.root().ok()?))
+            .flatten()
+    }
     fn root(&self) -> Result<&Path> {
         self.root
             .as_deref()
@@ -258,6 +263,12 @@ pub(crate) async fn workspace_list(state: State<'_, Backend>, path: String) -> R
 #[tauri::command]
 pub(crate) async fn workspace_index(state: State<'_, Backend>) -> Result<Vec<Entry>> {
     work(&state, move |w| w.index()).await
+}
+#[tauri::command]
+pub(crate) async fn workspace_blog_theme(
+    state: State<'_, Backend>,
+) -> Result<Option<files::BlogTheme>> {
+    work(&state, move |w| Ok(w.blog_theme())).await
 }
 #[derive(serde::Deserialize)]
 pub(crate) struct GraphDraft {

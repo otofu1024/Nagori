@@ -10,6 +10,10 @@ mod image;
 mod search;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::fs::canonicalize(std::env::args().nth(1).ok_or("blog path required")?)?;
+    if std::env::args().nth(2).as_deref() == Some("--theme") {
+        serde_json::to_writer(std::io::stdout(), &files::read_blog_theme(&root))?;
+        return Ok(());
+    }
     let blog_mode = files::blog_mode(&root, true);
     let directory = if blog_mode { files::BLOG_DIRECTORY } else { "" };
     let entries = files::index_from(&root, directory).map_err(|error| error.message)?;

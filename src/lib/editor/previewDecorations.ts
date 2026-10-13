@@ -104,8 +104,9 @@ export function buildPreview(state: EditorState, options: Options, context?: Pre
         return false;
       }
     }
-    if (decorateBlocks(node, decorationContext, previewOnly) === false) return false;
+    if (decorateBlocks(node, decorationContext, previewOnly, options.blogMode) === false) return false;
     decorateLists(node, decorationContext);
+    if (options.blogMode && node.name === 'Paragraph' && node.parent?.name === 'Document') line(node.from, 'nagori-paragraph');
     if (node.name === 'Paragraph' && !active(node)) {
       const blocked: Span[] = [];
       walk(node, (child) => {
