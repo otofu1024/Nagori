@@ -162,3 +162,41 @@ fn blog_theme_reads_only_in_blog_mode_and_missing_or_unsafe_files_are_ignored() 
         assert!(workspace.blog_theme().is_none());
     }
 }
+
+#[test]
+fn public_images_are_resolved_only_in_blog_mode() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    fs::create_dir_all(root.join("public/images")).unwrap();
+    fs::create_dir_all(root.join("src/content/blog/post")).unwrap();
+    fs::write(root.join("src/content/blog/post/index.md"), "").unwrap();
+    fs::write(root.join("public/images/character.png"), "image").unwrap();
+    let mut workspace = Workspace {
+        root: Some(root.to_owned()),
+        blog_mode: true,
+        ..Default::default()
+    };
+    let path = blog_image_path(&workspace, "/images/character.png").unwrap();
+    assert_eq!(
+        image::image_path(root, &path, None).unwrap(),
+        root.join("public/images/character.png")
+    );
+    assert!(blog_image_path(&workspace, "/../outside.png").is_err());
+    assert!(image::image_path(
+        root,
+        &blog_image_path(&workspace, "//outside/image.png").unwrap(),
+        None
+    )
+    .is_err());
+    workspace.blog_mode = false;
+    assert_eq!(
+        blog_image_path(&workspace, "/images/character.png").unwrap(),
+        "/images/character.png"
+    );
+    assert!(image::image_path(
+        root,
+        "/images/character.png",
+        Some("src/content/blog/post/index.md")
+    )
+    .is_err());
+}

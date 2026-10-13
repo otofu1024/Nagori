@@ -151,6 +151,19 @@ fn property(properties: &Cf, key: *const c_void) -> Option<i64> {
 
 // 長い辺がPREVIEW_EDGEを超える画像だけを縮小し、そのほかは元のバイト列のまま返す
 pub fn preview(file: File) -> Result<Vec<u8>> {
+    thumbnail(file, false)
+}
+// カード用の画像はImageIOで幅480px以下に縮め、透過を残したPNGをWebPへ変換する。
+pub fn link_card(file: File) -> Result<Vec<u8>> {
+    let png = thumbnail(file, true)?;
+    let image = image::load_from_memory(&png).map_err(|_| failed())?;
+    let mut output = std::io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, image::ImageFormat::WebP)
+        .map_err(|_| failed())?;
+    Ok(output.into_inner())
+}
+fn thumbnail(file: File, card: bool) -> Result<Vec<u8>> {
     // 待っている間の書き換えも考慮し、実際にImageIOが読むサイズと形式・寸法を確かめる
     if file.metadata()?.len() > IMAGE_LIMIT as u64 {
         return Err(Error::new("LIMIT", "ファイルサイズが上限を超えています。"));
@@ -184,7 +197,7 @@ pub fn preview(file: File) -> Result<Vec<u8>> {
         return Err(Error::new("UNSUPPORTED", "非対応の画像形式です。"));
     }
     // 2枚以上のフレームがあるアニメーションは、1枚にすると動かなくなるため元のまま返す
-    if unsafe { CGImageSourceGetCount(source.0) } > 1 {
+    if !card && unsafe { CGImageSourceGetCount(source.0) } > 1 {
         return Ok(read_image_file(file)?.data);
     }
     let properties =
@@ -205,17 +218,34 @@ pub fn preview(file: File) -> Result<Vec<u8>> {
     {
         return Err(Error::new("LIMIT", "画像の上限は1,600万画素です。"));
     }
-    if width.max(height) <= i64::from(PREVIEW_EDGE) {
+    if !card && width.max(height) <= i64::from(PREVIEW_EDGE) {
         return Ok(read_image_file(file)?.data);
     }
 
     // EXIFの向きを反映し、長い辺をPREVIEW_EDGEにした画像を作る。展開は縮小した大きさだけ
-    let max_size = number(CF_NUMBER_SINT32, &(PREVIEW_EDGE as i32))?;
+    let edge = if card {
+        // 長い辺の寸法に読み替えて、縦長の画像でも幅を480pxにする。拡大はしない。
+        if width <= 480 {
+            width.max(height)
+        } else {
+            (480 * width.max(height) + width - 1) / width
+        }
+    } else {
+        i64::from(PREVIEW_EDGE)
+    };
+    let max_size = number(CF_NUMBER_SINT32, &(edge as i32))?;
     let thumbnail_options = dictionary(unsafe {
         &[
             (kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue),
             (kCGImageSourceThumbnailMaxPixelSize, max_size.0),
-            (kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue),
+            (
+                kCGImageSourceCreateThumbnailWithTransform,
+                if card {
+                    kCFBooleanFalse
+                } else {
+                    kCFBooleanTrue
+                },
+            ),
             (kCGImageSourceShouldCacheImmediately, kCFBooleanFalse),
         ]
     })?;
@@ -225,7 +255,7 @@ pub fn preview(file: File) -> Result<Vec<u8>> {
     // 透過のない画像はJPEG、透過のある画像は透過を残すためPNGにする。
     // CGImageAlphaInfoのうち、アルファ成分を持つ値は1から4と7(Onlyのみ)
     let has_alpha = matches!(unsafe { CGImageGetAlphaInfo(thumbnail.0) }, 1..=4 | 7);
-    let (uti, encode_options) = if has_alpha {
+    let (uti, encode_options) = if has_alpha || card {
         ("public.png", None)
     } else {
         let quality = number(CF_NUMBER_FLOAT64, &0.8_f64)?;

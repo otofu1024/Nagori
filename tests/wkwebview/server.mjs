@@ -1,6 +1,9 @@
 import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, unlink } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
+import { createHash } from 'node:crypto';
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
@@ -46,6 +49,64 @@ const server = await createServer({
     {
       name: 'ime-check',
       configureServer(server) {
+        server.middlewares.use('/tests/wkwebview/blog-image', async (request, response) => {
+          try {
+            const path = new URL(request.url, 'http://localhost').searchParams.get('path');
+            const { stdout } = await promisify(execFile)(
+              'src-tauri/target/debug/examples/blog-workspace',
+              ['/private/tmp/nagori-stage2-blog', '--image', path],
+              { encoding: 'buffer' },
+            );
+            response.end(stdout);
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(String(error));
+          }
+        });
+        server.middlewares.use('/tests/wkwebview/blog-card-check', async (_request, response) => {
+          const root = '/private/tmp/nagori-stage2-blog',
+            cachePath = join(root, 'src/data/link-cards.json');
+          let original, imagePath, local;
+          try {
+            original = await readFile(cachePath).catch(() => null);
+            const image = await readFile(join(root, 'public/images/nagori/normal.png'));
+            local = createHttpServer((request, reply) => {
+              reply.setHeader('Content-Type', request.url === '/image.png' ? 'image/png' : 'text/html');
+              reply.end(
+                request.url === '/image.png'
+                  ? image
+                  : '<title>ローカルのカード</title><meta name="description" content="保存の見本"><meta property="og:image" content="/image.png">',
+              );
+            });
+            await new Promise((resolve) => local.listen(0, '127.0.0.1', resolve));
+            const url = `http://127.0.0.1:${local.address().port}/preview`;
+            const hash = createHash('sha256').update(url).digest('hex').slice(0, 16);
+            imagePath = join(root, 'public/link-cards', hash + '.webp');
+            const { stdout } = await promisify(execFile)('src-tauri/target/debug/examples/blog-workspace', [root, '--fetch-card', url]);
+            const preview = JSON.parse(stdout),
+              cache = JSON.parse(await readFile(cachePath, 'utf8'));
+            const output = await readFile(imagePath);
+            response.setHeader('Content-Type', 'application/json');
+            response.end(
+              JSON.stringify({
+                saved: cache[url]?.title === 'ローカルのカード' && !!cache[url]?.fetchedAt,
+                sorted: JSON.stringify(Object.keys(cache)) === JSON.stringify(Object.keys(cache).sort()),
+                webp: output.subarray(0, 4).toString() === 'RIFF' && output.subarray(8, 12).toString() === 'WEBP',
+                image: preview.image === '/link-cards/' + hash + '.webp',
+              }),
+            );
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(JSON.stringify({ error: String(error) }));
+          } finally {
+            if (local) await new Promise((resolve) => local.close(resolve));
+            if (original !== undefined) {
+              if (original) await writeFile(cachePath, original);
+              else await unlink(cachePath).catch(() => {});
+            }
+            if (imagePath) await unlink(imagePath).catch(() => {});
+          }
+        });
         server.middlewares.use('/tests/wkwebview/blog-theme', async (request, response) => {
           response.setHeader('Content-Type', 'application/json');
           try {

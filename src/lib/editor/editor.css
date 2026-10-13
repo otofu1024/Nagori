@@ -137,3 +137,6 @@
   /* たたんだ一覧の見出しと重なるので、中のプロパティ欄の見出しは出さない */
   .editor-host :global(.nagori-blog-properties .nagori-properties-heading) { display: none; }
   .editor-host :global(.nagori-blog-header [hidden]) { display: none; }
+
+/* 部品の上下のmarginを入れ物に閉じ込め、CodeMirrorの行の高さに含める。 */
+.editor-host :global(.nagori-blog-component) { display: flow-root; }

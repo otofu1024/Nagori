@@ -12,6 +12,8 @@
   import Editor from './lib/editor/Editor.svelte';
   import { blogThemePaths, type BlogTheme } from './lib/editor/blogTheme.ts';
   import { readBlogCategories, type BlogCategory } from './lib/editor/blogCategories.ts';
+  import { readBlogCharacters, type BlogCharacters } from './lib/editor/blogCharacters.ts';
+  import type { LinkPreviews, LinkPreview } from './lib/editor/blogLinkCards.ts';
   import GraphView from './lib/components/GraphView.svelte';
   import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
@@ -54,22 +56,35 @@
   let blogMode = $state(false);
   let blogTheme = $state.raw<BlogTheme | null>(null);
   let blogCategories = $state.raw<BlogCategory[] | null>(null);
+  let blogCharacters = $state.raw<BlogCharacters | null>(null);
+  let blogLinkCards = $state.raw<LinkPreviews | null>(null);
+  async function fetchLinkCard(url: string): Promise<LinkPreview | null> {
+    const root = project;
+    if (!blogMode) return null;
+    const result = await invoke<LinkPreview | null>('workspace_link_card', { url });
+    return root === project && blogMode ? result : null;
+  }
   let blogThemeRequest = 0;
   async function refreshBlogTheme() {
     const root = project, enabled = blogMode, request = ++blogThemeRequest;
-    if (!enabled) { blogTheme = null; blogCategories = null; return; }
+    if (!enabled) { blogTheme = null; blogCategories = null; blogCharacters = null; blogLinkCards = null; return; }
     try {
-      const [result, config] = await Promise.all([
+      const [result, config, cards] = await Promise.all([
         invoke<BlogTheme | null>('workspace_blog_theme').catch(() => null),
         invoke<string | null>('workspace_blog_config').catch(() => null),
+        invoke<LinkPreviews>('workspace_link_cards').catch(() => ({})),
       ]);
-      if (root === project && enabled === blogMode && request === blogThemeRequest) blogCategories = readBlogCategories(config);
+      if (root === project && enabled === blogMode && request === blogThemeRequest) {
+        blogCategories = readBlogCategories(config);
+        blogCharacters = readBlogCharacters(config);
+        blogLinkCards = cards;
+      }
       if (root === project && enabled === blogMode && request === blogThemeRequest) blogTheme = result;
     } catch {
       if (root === project && request === blogThemeRequest) blogTheme = null;
     }
   }
-  $effect(() => { project; blogMode; untrack(() => { blogTheme = null; blogCategories = null; void refreshBlogTheme(); }); });
+  $effect(() => { project; blogMode; untrack(() => { blogTheme = null; blogCategories = null; blogCharacters = null; blogLinkCards = null; void refreshBlogTheme(); }); });
   const rootDirectory = $derived(blogMode ? BLOG_DIRECTORY : '');
   let appliedBlogFeatures = true;
   let project = $state(''),
@@ -785,7 +800,7 @@
         unlisteners.push(
           await listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
             if (event.payload.project !== project) return;
-            if (blogMode && event.payload.paths.some(path => [...blogThemePaths, 'src/config.ts'].includes(path))) void refreshBlogTheme();
+            if (blogMode && event.payload.paths.some(path => [...blogThemePaths, 'src/config.ts', 'src/data/link-cards.json'].includes(path))) void refreshBlogTheme();
             treeQueued = true;
             imagesQueued ||= event.payload.paths.some((path) => /\.(png|jpe?g|gif|webp)$/i.test(path));
             clearTimeout(fsTimer);
@@ -1050,6 +1065,9 @@
               properties={!blogMode || !!current?.path.startsWith(BLOG_DIRECTORY + '/')}
               {blogMode}
               {blogTheme}
+              {blogCharacters}
+              {blogLinkCards}
+              {fetchLinkCard}
               {blogCategories}
               previewOnly={previewOnly && !plain}
               focus={settings.focusMode}

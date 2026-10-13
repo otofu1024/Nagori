@@ -40,7 +40,9 @@ window.run = async () => {
     if (!article) throw Error('ブログのコピーにFront Matter付きの記事がありません');
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
     const originals = new Map(files);
-    const saves = [];
+    const saves = [],
+      openedLinks = [],
+      cardRequests = [];
     let settings = { ...defaults, lastProject: root, lastFile: article.path, theme: 'dark', autosaveDelay: 5000 };
     let blogMode = true,
       sequence = 0;
@@ -81,6 +83,20 @@ window.run = async () => {
         if (command === 'workspace_open') {
           blogMode = args.blogFeatures && data.blogMode;
           return { root, blogMode };
+        }
+        if (command === 'workspace_link_cards') return blogMode ? data.linkCards : {};
+        if (command === 'workspace_link_card') {
+          cardRequests.push(args.url);
+          return null;
+        }
+        if (command === 'image_read') {
+          const response = await fetch('./blog-image?path=' + encodeURIComponent(args.path));
+          if (!response.ok) throw Error(await response.text());
+          return response.arrayBuffer();
+        }
+        if (command === 'external_open') {
+          openedLinks.push(args.url);
+          return;
         }
         if (command === 'workspace_blog_config') return blogMode ? data.config : null;
         if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
@@ -157,6 +173,80 @@ window.run = async () => {
         !!document.querySelector('.tag-list a'),
     );
     check('カテゴリの表示名を設定から読む', field('category').textContent === '技術');
+    const cardUrl = Object.keys(data.linkCards)[0];
+    if (!cardUrl) throw Error('ブログのコピーにリンクカードのキャッシュがありません');
+    const componentSample = sampleHeader + '\n\n' + cardUrl + '\n\n> [!NAGORI]\n> **吹き出しの一行目**\n> 二行目\n\n後の段落';
+    replace(componentSample);
+    view.dispatch({ selection: { anchor: componentSample.indexOf('本文です。') } });
+    await until(() => document.querySelector('.link-card') && document.querySelector('.talk'));
+    const card = document.querySelector('.link-card'),
+      talk = document.querySelector('.talk');
+    check(
+      'キャッシュのURLをブログの構造とクラスでカードにする',
+      card.querySelector('.link-card__title').textContent === data.linkCards[cardUrl].title &&
+        !!card.querySelector('.link-card__body') &&
+        !cardRequests.includes(cardUrl),
+    );
+    check(
+      '吹き出しをブログの構造とクラスで描く',
+      talk.dataset.character === 'NAGORI' &&
+        talk.dataset.expression === 'normal' &&
+        !!talk.querySelector('.talk__bubble p strong') &&
+        talk.textContent.includes('二行目') &&
+        !talk.textContent.includes('[!NAGORI]'),
+    );
+    await until(() => talk.querySelector('.talk__character').complete && talk.querySelector('.talk__character').naturalWidth > 0);
+    check('publicのキャラクター画像をblobで読む', talk.querySelector('.talk__character').src.startsWith('blob:'));
+    if (data.linkCards[cardUrl].image) {
+      await until(() => card.querySelector('img').complete && card.querySelector('img').naturalWidth > 0);
+      check('キャッシュのカード画像もpublicからblobで読む', card.querySelector('img').src.startsWith('blob:'));
+    }
+    check(
+      'カードと吹き出しの入れ物でmarginを閉じ込める',
+      [card, talk].every((element) => getComputedStyle(element.parentElement).display === 'flow-root') &&
+        getComputedStyle(card).display === 'grid' &&
+        getComputedStyle(talk).display === 'grid',
+    );
+    card.click();
+    await frame();
+    check('カードを押すと既存のリンクの開き方を使う', openedLinks.includes(data.linkCards[cardUrl].url));
+    view.dispatch({ selection: { anchor: componentSample.indexOf(cardUrl) } });
+    await frame();
+    check(
+      'カードの段落にカーソルを入れるとURLへ戻す',
+      !document.querySelector('.link-card') && view.state.doc.lineAt(view.state.selection.main.head).text === cardUrl,
+    );
+    for (const marker of ['[!NAGORI]', '二行目']) {
+      view.dispatch({ selection: { anchor: componentSample.indexOf(marker) } });
+      await frame();
+      check(
+        '引用の' + marker + 'へカーソルを入れると吹き出しを記法へ戻す',
+        !document.querySelector('.talk') && view.state.doc.toString() === componentSample,
+      );
+    }
+    let componentRange = EditorSelection.cursor(componentSample.indexOf('本文です。')),
+      componentSteady = true;
+    view.dispatch({ selection: componentRange });
+    await frame();
+    view.focus();
+    // 実際のキー入力と同じく、下矢印のキーを送って動かす
+    for (let number = view.state.doc.lineAt(componentRange.head).number; number < view.state.doc.lines;) {
+      view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      await frame();
+      componentRange = view.state.selection.main;
+      const next = view.state.doc.lineAt(componentRange.head).number;
+      if (next !== number + 1) componentSteady = false;
+      if (next <= number) break;
+      number = next;
+    }
+    check('リンクカードと複数行の吹き出しでも下矢印で行を飛ばさない', componentSteady);
+    const savedCard = await (await fetch('./blog-card-check')).json();
+    check(
+      'ローカルHTMLの取得結果をコピーへ保存しブログのビルドが使えるWebPとJSONにする',
+      savedCard.saved && savedCard.sorted && savedCard.webp && savedCard.image,
+    );
+    replace(sampleHeader);
+    await frame();
     // 本文はカーソルを透明にしているので、見出しの入力欄で受け継がないこと
     check(
       '見出しの入力欄ではカーソルが見える',

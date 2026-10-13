@@ -73,7 +73,7 @@ function children(node: SyntaxNode) {
 }
 function selectors(source: string): string[] {
   source = source.trim().replace(/\s+/g, ' ');
-  if (source.startsWith(':where(') && source.endsWith(')')) source = source.slice(7, -1);
+  source = source.replace(/:where\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, '$1');
   // 関数の形のセレクタの中のカンマは扱わない。範囲を広げるより、当てない方を選ぶ。
   return source.split(',').map((value) => value.trim());
 }
@@ -93,13 +93,32 @@ function headerSelector(selector: string) {
     return null;
   return `${scope} .nagori-blog-header ${selector.startsWith('.article-header') ? selector : '.article-header ' + selector}`;
 }
+// 元のクラス名を部品の入れ物の中だけで使う。本文の行には広げない。
+function componentSelector(selector: string) {
+  const original = selector.replace(/^\.prose /, '');
+  if (
+    /^\.(?:link-card(?:--with-image|__[\w-]+)?|talk(?:__[\w-]+)?)(?: (?:> )?(?:img|p|a|strong|span|:[\w-]+))*?(?::(?:hover|focus-visible|first-child|last-child))?(?:::(?:before|after))?$/.test(
+      original,
+    )
+  )
+    return `${scope} .nagori-blog-component ${original}`;
+  if (selector === '.prose') return `${scope} .nagori-blog-component`;
+  if (
+    proseSelectors[selector.replace(/:(hover|focus-visible)$/, '')] ||
+    /^\.prose (?:ul|ol|li|h5|h6|blockquote > :(?:first-child|last-child))$/.test(selector)
+  )
+    return `${scope} .nagori-blog-component ${original}`;
+  return null;
+}
+const componentProperties =
+  /^(?:display|grid-template-columns|grid-template-rows|flex-direction|justify-content|align-items|gap|row-gap|column-gap|min-width|min-height|overflow(?:-x|-y)?|position|top|right|bottom|left|content|transform|transition|box-shadow|-webkit-box-orient|-webkit-line-clamp)$/;
 const headerProperties = /^(?:display|flex-wrap|align-items|gap|row-gap|column-gap|text-wrap|line-break|overflow-wrap|word-break)$/;
 
 export function blogThemeCss(source: BlogTheme | null): string {
   if (!source) return '';
   const imports: string[] = [],
     rules: string[] = [];
-  const declarations = (node: SyntaxNode, css: string, root = false, header = false) =>
+  const declarations = (node: SyntaxNode, css: string, root = false, header = false, component = false) =>
     children(node).flatMap((child) => {
       if (child.name !== 'Declaration' || children(child).some((part) => part.type.isError)) return [];
       const nameNode = child.firstChild!;
@@ -108,7 +127,7 @@ export function blogThemeCss(source: BlogTheme | null): string {
       if (
         root
           ? !/^--(?:color-[\w-]+|font-[\w-]+|astro-code-[\w-]+)$/.test(name)
-          : !(properties.test(name) || (header && headerProperties.test(name)))
+          : !(properties.test(name) || (header && headerProperties.test(name)) || (component && componentProperties.test(name)))
       )
         return [];
       return [{ name, value }];
@@ -124,6 +143,13 @@ export function blogThemeCss(source: BlogTheme | null): string {
           if (!block) return '';
           const from = selectors(css.slice(child.from, block.from));
           const root = from.includes(':root');
+          const componentTargets = root ? [] : from.map(componentSelector).filter((target): target is string => !!target);
+          const componentExtra = from.some((selector) => /^\.(?:talk|link-card)/.test(selector.replace(/^\.prose /, '')));
+          const componentCss = componentTargets.length
+            ? `${componentTargets.join(',')}{${declarations(block, css, false, true, componentExtra)
+                .map(({ name, value }) => `${name}:${scaleRem(value)};`)
+                .join('')}}`
+            : '';
           const headerTargets = root ? [] : from.map(headerSelector).filter((target): target is string => !!target);
           const headerCss = headerTargets.length
             ? `${headerTargets.join(',')}{${declarations(block, css, false, true)
@@ -131,7 +157,7 @@ export function blogThemeCss(source: BlogTheme | null): string {
                 .join('')}}`
             : '';
           const targets = root ? [scope] : from.map(mapped).filter((s): s is string => !!s);
-          if (!targets.length) return headerCss;
+          if (!targets.length) return headerCss + componentCss;
           const blockLines = from.includes('.prose pre') || from.includes('.prose blockquote');
           // 文字の大きさは、本文と段落ではNagoriに従い、見出しやコードなどではtheme.cssに従う
           const baseText = from.some((selector) => selector === '.prose' || selector === '.prose p');
@@ -142,13 +168,14 @@ export function blogThemeCss(source: BlogTheme | null): string {
           const code = from.includes('.prose pre');
           const kind = code ? 'code' : 'quote';
           const body = ds.map(({ name, value }) => `${name}:${value};`).join('');
-          if (!blockLines) return headerCss + `${targets.join(',')}{${body}}`;
+          if (!blockLines) return headerCss + componentCss + `${targets.join(',')}{${body}}`;
           const padding = ds.find((d) => d.name === 'padding')?.value;
           const radius = ds.find((d) => d.name === 'border-radius')?.value;
           const border = ds.find((d) => d.name === 'border')?.value;
           const borderColor = ds.find((d) => d.name === 'border-color')?.value;
           return (
             headerCss +
+            componentCss +
             `${targets.join(',')}{${body}${radius ? `--blog-${kind}-radius:${radius};` : ''}${code && border ? `--blog-${kind}-border:${border};` : ''}${borderColor ? `--blog-${kind}-border-color:${borderColor};` : ''}margin-block:0;padding-block:0;border-top:0;border-bottom:0;border-radius:0}` +
             `${scope} .cm-content .nagori-${kind}-first{${padding ? `padding:${padding};padding-bottom:0;` : ''}${code ? `border-top:var(--blog-code-border,0);border-top-color:var(--blog-code-border-color,currentColor);` : ''}border-radius:var(--blog-${kind}-radius,0);border-bottom-left-radius:0;border-bottom-right-radius:0}` +
             `${scope} .cm-content .nagori-${kind}-last{${padding ? `padding:${padding};padding-top:0;` : ''}${code ? `border-bottom:var(--blog-code-border,0);border-bottom-color:var(--blog-code-border-color,currentColor);` : ''}border-radius:var(--blog-${kind}-radius,0);border-top-left-radius:0;border-top-right-radius:0}` +

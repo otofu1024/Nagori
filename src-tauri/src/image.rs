@@ -208,6 +208,25 @@ fn make_preview(file: fs::File) -> Result<Vec<u8>> {
 #[allow(non_snake_case, non_upper_case_globals)]
 #[path = "image/imageio.rs"]
 mod imageio;
+#[cfg(target_os = "macos")]
+pub fn link_card(file: fs::File) -> Result<Vec<u8>> {
+    imageio::link_card(file)
+}
+#[cfg(not(target_os = "macos"))]
+pub fn link_card(file: fs::File) -> Result<Vec<u8>> {
+    let image = image::load_from_memory(&read_file_limited(file, 5 * 1024 * 1024)?)
+        .map_err(|e| Error::new("IMAGE", e.to_string()))?;
+    let image = if image.width() > 480 {
+        image.resize(480, u32::MAX, image::imageops::FilterType::Lanczos3)
+    } else {
+        image
+    };
+    let mut output = io::Cursor::new(Vec::new());
+    image
+        .write_to(&mut output, image::ImageFormat::WebP)
+        .map_err(|e| Error::new("IMAGE", e.to_string()))?;
+    Ok(output.into_inner())
+}
 
 pub fn image_path(root: &Path, path: &str, document_path: Option<&str>) -> Result<PathBuf> {
     let input = if let Some(document_path) = document_path {
