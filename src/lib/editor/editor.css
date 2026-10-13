@@ -109,3 +109,31 @@
   .editor-host :global(.nagori-property-add) { margin-top: .35em; }
   .editor-host :global(.nagori-property-key-input) { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--border); margin-left: .5em; max-width: 100%; border-radius: 4px; }
   .editor-host :global(.nagori-property-error) { color: var(--danger); font-size: .8em; }
+
+  .editor-host :global(.nagori-blog-header) { display: flow-root; font-size: var(--editor-font-size); line-height: inherit; padding-bottom: 1.5em; }
+  .editor-host :global(.nagori-blog-header .article-header) { display: flow-root; margin-bottom: 1.5em; }
+  .editor-host :global(.nagori-blog-header h1) { margin: 1em 0; font-size: 2em; line-height: 1.45; }
+  .editor-host :global(.nagori-blog-header .article-title-line) { display: block; overflow-wrap: anywhere; }
+  .editor-host :global(.nagori-blog-header .article-description) { margin: 0; }
+  .editor-host :global(.nagori-blog-header .article-dates), .editor-host :global(.nagori-blog-header .tag-list), .editor-host :global(.nagori-header-tags) { display: flex; flex-wrap: wrap; align-items: center; gap: .6em; }
+  .editor-host :global(.nagori-blog-header .article-dates), .editor-host :global(.nagori-blog-header .tag-list) { margin-top: 1em; }
+  .editor-host :global(.nagori-blog-header .category-label), .editor-host :global(.nagori-blog-header time) { cursor: pointer; }
+  .editor-host :global(.nagori-blog-header [contenteditable]) { outline: none; overflow-wrap: anywhere; }
+  /* 本文はCodeMirrorが自分でカーソルを描くので入力位置を透明にしている。見出しの入力欄では見えるように戻す */
+  .editor-host :global(.nagori-blog-header :is([contenteditable], input)) { caret-color: var(--text); }
+  .editor-host :global(.nagori-blog-header [data-placeholder]:empty::before), .editor-host :global(.nagori-blog-header [data-placeholder]:has(>span:empty)::before) { content: attr(data-placeholder); color: var(--muted); }
+  .editor-host :global(.nagori-blog-header [aria-invalid='true']) { box-shadow: 0 1px var(--danger); }
+  .editor-host :global(.nagori-blog-header [contenteditable]:focus), .editor-host :global(.nagori-blog-header a:focus-visible), .editor-host :global(.nagori-blog-header time:focus-visible) { outline: 1px solid var(--border); }
+  .editor-host :global(.nagori-header-tags) { display: contents; }
+  .editor-host :global(.nagori-blog-header .tag-list a) { position: relative; display: inline-flex; align-items: center; }
+  /* 消去ボタンはタグに重ねて出し、出し入れでタグの幅を変えない */
+  .editor-host :global(.nagori-blog-header .tag-list button) { position: absolute; top: -.45em; right: -.45em; display: grid; place-items: center; width: 1.3em; height: 1.3em; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--muted); font-size: .8em; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; }
+  .editor-host :global(.nagori-blog-header .tag-list a:is(:hover, :focus-within) button) { opacity: 1; pointer-events: auto; }
+  .editor-host :global(.nagori-header-tag-input) { box-sizing: border-box; width: 2em; min-width: 0; height: 1.9em; padding: 0 .55em; font: inherit; font-size: .85em; line-height: 1; color: inherit; border: 1px solid transparent; border-radius: 999px; background: transparent; }
+  .editor-host :global(.nagori-header-tag-input:focus) { width: 7em; outline: none; border-color: var(--border); }
+  /* 光る範囲を文字の周りだけにするため、幅を文字に合わせる。文字の位置は余白の分だけ左へ戻してそろえる */
+  .editor-host :global(.nagori-blog-properties summary) { width: fit-content; margin-left: -.5em; padding: .15em .5em; font-size: .85em; color: var(--muted); cursor: pointer; text-decoration: underline; text-decoration-color: var(--border); text-decoration-thickness: 1px; text-underline-offset: .35em; }
+  .editor-host :global(.nagori-blog-properties .nagori-properties) { padding: .7em 0 0; }
+  /* たたんだ一覧の見出しと重なるので、中のプロパティ欄の見出しは出さない */
+  .editor-host :global(.nagori-blog-properties .nagori-properties-heading) { display: none; }
+  .editor-host :global(.nagori-blog-header [hidden]) { display: none; }

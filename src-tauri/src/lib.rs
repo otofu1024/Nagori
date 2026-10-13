@@ -52,6 +52,7 @@ pub fn run() {
             commands::workspace_list,
             commands::workspace_index,
             commands::workspace_blog_theme,
+            commands::workspace_blog_config,
             commands::workspace_graph_documents,
             commands::workspace_search,
             commands::document_open,

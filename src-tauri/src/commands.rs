@@ -270,6 +270,17 @@ pub(crate) async fn workspace_blog_theme(
 ) -> Result<Option<files::BlogTheme>> {
     work(&state, move |w| Ok(w.blog_theme())).await
 }
+#[tauri::command]
+pub(crate) async fn workspace_blog_config(state: State<'_, Backend>) -> Result<Option<String>> {
+    work(&state, move |w| {
+        Ok(if w.blog_mode {
+            files::read_blog_config(w.root()?)
+        } else {
+            None
+        })
+    })
+    .await
+}
 #[derive(serde::Deserialize)]
 pub(crate) struct GraphDraft {
     path: String,

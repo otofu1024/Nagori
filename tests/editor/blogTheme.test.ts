@@ -117,3 +117,18 @@ test('段落の改行を1行につないだ引用でも、表示の上の最後�
   assert.deepEqual(lines('nagori-quote-first'), [3, 6]);
   assert.deepEqual(lines('nagori-quote-last'), [3, 8]);
 });
+
+test('記事の見出しに元のクラスを閉じ込め、間隔と文字の大きさを拡大縮小に比例させる', () => {
+  const css = blogThemeCss({
+    template:
+      '.article-header{margin-bottom:1.5rem}.article-header h1{margin:1rem 0}.article-dates{display:flex;flex-wrap:wrap;gap:1rem}.article-title-line{display:block}',
+    theme:
+      ':where(.article-header h1){font-size:3rem;line-height:1.45}:where(.category-label.tech){background:cyan}.tag-list a:hover{color:red}.article-layout h1{color:bad}',
+  });
+  assert.ok(css.includes('.nagori-blog-header .article-header{margin-bottom:calc(var(--blog-rem) * 1.5);'));
+  assert.ok(css.includes('.nagori-blog-header .article-header h1{font-size:calc(var(--blog-rem) * 3);line-height:1.45;'));
+  assert.ok(css.includes('.nagori-blog-header .article-header .article-dates{display:flex;flex-wrap:wrap;gap:calc(var(--blog-rem) * 1);'));
+  assert.ok(css.includes('.nagori-blog-header .article-header .category-label.tech{background:cyan;'));
+  assert.ok(css.includes('.nagori-blog-header .article-header .tag-list a:hover{color:red;'));
+  assert.ok(!css.includes('color:bad'));
+});

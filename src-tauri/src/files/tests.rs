@@ -693,3 +693,25 @@ fn blog_detection_requires_the_template_and_rejects_symlinks() {
         assert!(validate_blog(root).is_err());
     }
 }
+
+#[test]
+fn blog_config_reads_utf8_and_rejects_missing_oversized_and_symlink_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(directory.path()).unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    assert!(read_blog_config(&root).is_none());
+    let config = root.join("src/config.ts");
+    fs::write(&config, "export const CATEGORIES = {tech: {label: '技術'}}").unwrap();
+    assert!(read_blog_config(&root).unwrap().contains("技術"));
+    fs::write(&config, [0xff]).unwrap();
+    assert!(read_blog_config(&root).is_none());
+    fs::write(&config, vec![b'a'; 1024 * 1024 + 1]).unwrap();
+    assert!(read_blog_config(&root).is_none());
+    #[cfg(unix)]
+    {
+        fs::remove_file(&config).unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::os::unix::fs::symlink(outside.path(), &config).unwrap();
+        assert!(read_blog_config(&root).is_none());
+    }
+}

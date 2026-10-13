@@ -57,11 +57,11 @@ const scaleRem = (value: string) => value.replace(/(-?\d*\.?\d+)rem\b/g, (_, n: 
 // Nagoriに従う指定を落とす。marginの左右(画像の中央寄せなど)は残す
 function editorOwned(ds: { name: string; value: string }[], keepSize: boolean) {
   const kept = ds.filter(
-    ({ name }) =>
-      !/^(?:line-height|margin(?:-top|-bottom|-block)?|width|max-width)$/.test(name) && (keepSize || name !== 'font-size'),
+    ({ name }) => !/^(?:line-height|margin(?:-top|-bottom|-block)?|width|max-width)$/.test(name) && (keepSize || name !== 'font-size'),
   );
   const horizontal = ds.find(({ name }) => name === 'margin')?.value.split(/\s+/);
-  if (horizontal && horizontal.length > 1) kept.push({ name: 'margin-inline', value: `${horizontal[3] ?? horizontal[1]} ${horizontal[1]}`.replace(/^(\S+) \1$/, '$1') });
+  if (horizontal && horizontal.length > 1)
+    kept.push({ name: 'margin-inline', value: `${horizontal[3] ?? horizontal[1]} ${horizontal[1]}`.replace(/^(\S+) \1$/, '$1') });
   return kept;
 }
 const properties =
@@ -83,17 +83,34 @@ function mapped(selector: string) {
   return target ? `${scope} .cm-content ${target}${pseudo}`.replace('.cm-content .cm-content', '.cm-content') : null;
 }
 
+// 記事の見出しは自前の部品なので、元のクラスを見出しの入れ物の中だけで使う。
+function headerSelector(selector: string) {
+  if (
+    !/^(?:\.article-header(?: (?:h1|time|span))?|\.article-title-line|\.article-description|\.article-dates(?: time)?|\.category-label(?:\.[\w-]+)?|\.tag-list(?: a)?)(?::(?:hover|focus-visible))?$/.test(
+      selector,
+    )
+  )
+    return null;
+  return `${scope} .nagori-blog-header ${selector.startsWith('.article-header') ? selector : '.article-header ' + selector}`;
+}
+const headerProperties = /^(?:display|flex-wrap|align-items|gap|row-gap|column-gap|text-wrap|line-break|overflow-wrap|word-break)$/;
+
 export function blogThemeCss(source: BlogTheme | null): string {
   if (!source) return '';
   const imports: string[] = [],
     rules: string[] = [];
-  const declarations = (node: SyntaxNode, css: string, root = false) =>
+  const declarations = (node: SyntaxNode, css: string, root = false, header = false) =>
     children(node).flatMap((child) => {
       if (child.name !== 'Declaration' || children(child).some((part) => part.type.isError)) return [];
       const nameNode = child.firstChild!;
       const name = css.slice(nameNode.from, nameNode.to);
       const value = css.slice(child.getChild(':')!.to, child.to).trim();
-      if (root ? !/^--(?:color-[\w-]+|font-[\w-]+|astro-code-[\w-]+)$/.test(name) : !properties.test(name)) return [];
+      if (
+        root
+          ? !/^--(?:color-[\w-]+|font-[\w-]+|astro-code-[\w-]+)$/.test(name)
+          : !(properties.test(name) || (header && headerProperties.test(name)))
+      )
+        return [];
       return [{ name, value }];
     });
   function read(node: SyntaxNode, css: string): string {
@@ -107,8 +124,14 @@ export function blogThemeCss(source: BlogTheme | null): string {
           if (!block) return '';
           const from = selectors(css.slice(child.from, block.from));
           const root = from.includes(':root');
+          const headerTargets = root ? [] : from.map(headerSelector).filter((target): target is string => !!target);
+          const headerCss = headerTargets.length
+            ? `${headerTargets.join(',')}{${declarations(block, css, false, true)
+                .map(({ name, value }) => `${name}:${scaleRem(value)};`)
+                .join('')}}`
+            : '';
           const targets = root ? [scope] : from.map(mapped).filter((s): s is string => !!s);
-          if (!targets.length) return '';
+          if (!targets.length) return headerCss;
           const blockLines = from.includes('.prose pre') || from.includes('.prose blockquote');
           // 文字の大きさは、本文と段落ではNagoriに従い、見出しやコードなどではtheme.cssに従う
           const baseText = from.some((selector) => selector === '.prose' || selector === '.prose p');
@@ -119,12 +142,13 @@ export function blogThemeCss(source: BlogTheme | null): string {
           const code = from.includes('.prose pre');
           const kind = code ? 'code' : 'quote';
           const body = ds.map(({ name, value }) => `${name}:${value};`).join('');
-          if (!blockLines) return `${targets.join(',')}{${body}}`;
+          if (!blockLines) return headerCss + `${targets.join(',')}{${body}}`;
           const padding = ds.find((d) => d.name === 'padding')?.value;
           const radius = ds.find((d) => d.name === 'border-radius')?.value;
           const border = ds.find((d) => d.name === 'border')?.value;
           const borderColor = ds.find((d) => d.name === 'border-color')?.value;
           return (
+            headerCss +
             `${targets.join(',')}{${body}${radius ? `--blog-${kind}-radius:${radius};` : ''}${code && border ? `--blog-${kind}-border:${border};` : ''}${borderColor ? `--blog-${kind}-border-color:${borderColor};` : ''}margin-block:0;padding-block:0;border-top:0;border-bottom:0;border-radius:0}` +
             `${scope} .cm-content .nagori-${kind}-first{${padding ? `padding:${padding};padding-bottom:0;` : ''}${code ? `border-top:var(--blog-code-border,0);border-top-color:var(--blog-code-border-color,currentColor);` : ''}border-radius:var(--blog-${kind}-radius,0);border-bottom-left-radius:0;border-bottom-right-radius:0}` +
             `${scope} .cm-content .nagori-${kind}-last{${padding ? `padding:${padding};padding-top:0;` : ''}${code ? `border-bottom:var(--blog-code-border,0);border-bottom-color:var(--blog-code-border-color,currentColor);` : ''}border-radius:var(--blog-${kind}-radius,0);border-top-left-radius:0;border-top-right-radius:0}` +

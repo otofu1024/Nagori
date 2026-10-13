@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &serde_json::json!({
             "root": root, "blogMode": blog_mode, "entries": entries,
             "generic": generic, "documents": documents, "search": search,
+            "config": files::read_blog_config(&root),
         }),
     )?;
     Ok(())

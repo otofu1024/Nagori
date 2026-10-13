@@ -24,6 +24,12 @@ pub fn read_blog_theme(root: &Path) -> Option<BlogTheme> {
     })
 }
 
+// 設定ファイルも既存のパス検証と読み込みの上限を使う。
+pub fn read_blog_config(root: &Path) -> Option<String> {
+    String::from_utf8(read_limited(&resolve(root, "src/config.ts", false).ok()?, 1024 * 1024).ok()?)
+        .ok()
+}
+
 pub const BLOG_DIRECTORY: &str = "src/content/blog";
 
 pub fn blog_mode(root: &Path, enabled: bool) -> bool {
