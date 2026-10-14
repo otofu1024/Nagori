@@ -33,6 +33,7 @@
   import { allNotes, recentlyEdited, starredNotes, recordOpened, type NoteItem, type TrashItem } from './lib/workspace/noteLists.ts';
   import ProblemDialog from './lib/components/ProblemDialog.svelte';
   import SaveAsDialog from './lib/components/SaveAsDialog.svelte';
+  import NewPostButton from './lib/components/NewPostButton.svelte';
   import nagoriIcon from './lib/assets/nagori-icon.png';
   import nagoriWordmark from './lib/assets/nagori-wordmark.png';
   import nagoriWordmarkDark from './lib/assets/nagori-wordmark-dark.png';
@@ -920,6 +921,18 @@
         ><button aria-label="フォルダを作成" title="フォルダを作成" disabled={!project || busy} onclick={() => void startName('directory')}
           ><Icon name="folder-plus" size={17} /></button
         >
+        {#if blogMode}
+          <NewPostButton {project} {busy} {operation} onCreated={async (entry) => {
+            view = 'tree';
+            graphOpen = false;
+            const folder = parentPath(entry.path);
+            if (!expanded.includes(folder)) expanded = [...expanded, folder];
+            await loadEntry(entry);
+            await refreshTree();
+            await refreshIndex();
+            void persist();
+          }} />
+        {/if}
       </div>
     </div>
     {#if project}

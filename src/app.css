@@ -196,8 +196,8 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
 .workspace-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 15px; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 500; }
 .workspace-heading > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-actions { display: flex; gap: 6px; }
-.tree-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
-.tree-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
+.tree-actions > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 9px; }
+.tree-actions > button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-soft); }
 .file-tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 18px; }
 /* すべてのノート・スター付き・最近見たノート・ゴミ箱。フォルダと同じ領域を切り替えて使う */
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-bottom: 12px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }

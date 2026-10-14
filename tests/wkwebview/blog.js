@@ -1,5 +1,6 @@
 import { checkCharacters } from './blogCharacterChecks.js';
 import { checkThemes } from './blogThemeChecks.js';
+import { checkNewPosts } from './blogNewPostChecks.js';
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -15,10 +16,11 @@ const checks = [],
   errors = [];
 const check = (name, pass) => checks.push({ name, pass: !!pass });
 const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
-async function until(test) {
+async function until(test, name = '確認項目未指定', details) {
   const start = performance.now();
   while (!test()) {
-    if (performance.now() - start > 15000) throw Error('確認の待ち時間を超えました');
+    if (performance.now() - start > 15000)
+      throw Error(`確認の待ち時間を超えました: ${name}${details ? '\n' + JSON.stringify(details()) : ''}`);
     await pause();
   }
 }
@@ -28,6 +30,13 @@ window.show = async () => {};
 window.run = async () => {
   let originalTheme;
   let charactersPrepared = false;
+  const created = [];
+  const postRequest = async (input) => {
+    const response = await fetch('./blog-new-post', { method: 'POST', body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok || result?.error) throw result?.error ?? Error('記事の確認に失敗しました。');
+    return result;
+  };
   let themesPrepared = false;
   const themeRequest = async (input) => {
     const response = await fetch('./blog-themes', { method: 'POST', body: JSON.stringify(input) });
@@ -133,6 +142,15 @@ window.run = async () => {
           return;
         }
         if (command === 'workspace_blog_config') return blogMode ? data.config : null;
+        if (command === 'blog_post_create') {
+          const result = await postRequest(args);
+          created.push(result);
+          entries.push(result.entry);
+          generic.push(result.entry);
+          files.set(result.entry.path, result.document.text);
+          originals.set(result.entry.path, result.document.baseline);
+          return result.entry;
+        }
         if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return blogMode ? [...entries, ...(charactersPrepared ? [{ path: 'src/content/blog/nagori-character-check.md', name: 'nagori-character-check.md', kind: 'markdown' }] : [])] : generic;
@@ -750,6 +768,7 @@ window.run = async () => {
     check('ブログの機能をオフにしても字下げの値を保つ', !blogToggle(indentLabel).checked);
     check('オフで本文もNagoriの配色へ戻る', getComputedStyle(content).color === 'rgb(219, 230, 244)');
     check('オフで汎用の一覧と自由入力へ戻る', !settings.blogFeatures && !!document.querySelector('.nagori-property-key-input'));
+    check('ブログのモードでない時は新しい記事ボタンを出さない', !document.querySelector('button[aria-label="新しい記事"]'));
     check(
       '切り替えでエディタと本文を保つ',
       view === EditorView.findFromDOM(document.querySelector('.cm-editor')) && view.state.doc.toString() === before,
@@ -781,10 +800,12 @@ window.run = async () => {
       '元のコピーの中身を変える保存がない',
       saves.every((save) => save.text === save.baseline),
     );
+    await checkNewPosts({ check, until, config: data.config, documents: await window.__TAURI_INTERNALS__.invoke('workspace_graph_documents'), created });
     return JSON.stringify({ pass: checks.every((check) => check.pass) && !errors.length, checks, errors, root });
   } catch (error) {
     return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
   } finally {
+    await postRequest({ action: 'reset' });
     if (themesPrepared) await themeRequest({ action: 'reset' });
     if (charactersPrepared) await characterRequest({ action: 'reset' });
     if (originalTheme) {
