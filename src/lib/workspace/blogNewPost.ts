@@ -1,5 +1,6 @@
 import { readBlogCategories, type BlogCategory } from '../editor/blogCategories.ts';
 import type { Entry } from './navigation.ts';
+import { latestOnly } from './workspaceSearch.ts';
 
 export type NewPostInput = { title: string; description: string; category: string; tags: string[] };
 export type NewPostStorage = {
@@ -7,10 +8,24 @@ export type NewPostStorage = {
   create(date: string, text: string): Promise<Entry>;
 };
 
+export function newPostDialogRequests(isOpen: () => boolean) {
+  const requests = latestOnly();
+  return {
+    ...requests,
+    closed() {
+      // closeイベントが再表示後に届いた場合は、次の読み込みを取り消さない。
+      if (!isOpen()) requests.cancel();
+    },
+    async rendered(id: number, render: () => Promise<void>) {
+      await render();
+      return requests.isCurrent(id);
+    },
+  };
+}
+
 export function newPostErrors(input: NewPostInput, categories: BlogCategory[] | null) {
   return {
     title: input.title.trim() ? '' : 'タイトルは必須です。',
-    description: input.description.trim() ? '' : '説明は必須です。',
     category: categories?.some((item) => item.key === input.category) ? '' : 'カテゴリを選んでください。',
   };
 }

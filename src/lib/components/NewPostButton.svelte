@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Icon from './Icon.svelte';
-  import { blogTagCandidates, createBlogPost, newPostErrors } from '../workspace/blogNewPost.ts';
+  import { blogTagCandidates, createBlogPost, newPostDialogRequests, newPostErrors } from '../workspace/blogNewPost.ts';
   import { readBlogCategories, type BlogCategory } from '../editor/blogCategories.ts';
   import type { Entry } from '../workspace/navigation.ts';
   import { failure } from '../workspace/session.ts';
@@ -32,13 +32,13 @@
     creating = $state(false);
   let composing = false;
   let root = '';
-  let request = 0;
+  const requests = newPostDialogRequests(() => dialog.open);
   const input = $derived({ title, description, category, tags });
   const invalid = $derived(Object.values(newPostErrors(input, categories)).some(Boolean));
 
   async function show() {
     root = project;
-    const currentRequest = ++request;
+    const currentRequest = requests.start();
     title = '';
     description = '';
     category = '';
@@ -57,14 +57,15 @@
         invoke<string | null>('workspace_blog_config'),
         invoke<{ tags: string[] }[]>('workspace_graph_documents').catch(() => []),
       ]);
-      if (currentRequest !== request || root !== project || !dialog.open) return;
+      if (!requests.isCurrent(currentRequest) || root !== project || !dialog.open) return;
       categories = readBlogCategories(config);
       if (!categories) throw new Error('src/config.tsのカテゴリを読めません。');
       candidates = blogTagCandidates(documents);
     } catch (reason) {
-      if (currentRequest === request) error = failure(reason).message;
+      if (requests.isCurrent(currentRequest)) error = failure(reason).message;
     } finally {
-      if (currentRequest === request) loading = false;
+      // 候補を画面へ反映してから、カテゴリを選べるようにする。
+      if (await requests.rendered(currentRequest, tick)) loading = false;
     }
   }
   function addTag(value = tag) {
@@ -128,17 +129,16 @@
   oncancel={(event) => {
     if (creating) event.preventDefault();
   }}
-  onclose={() => {
-    request++;
-  }}
+  onclose={requests.closed}
 >
   <form onsubmit={submit}>
     <h2 id="new-post-heading">新しい記事</h2>
     <label for="new-post-title">タイトル</label>
     <input id="new-post-title" bind:this={titleInput} bind:value={title} required disabled={creating} />
     <label for="new-post-description">説明</label>
-    <input id="new-post-description" bind:value={description} required disabled={creating} />
+    <input id="new-post-description" bind:value={description} disabled={creating} />
     <label for="new-post-category">カテゴリ</label>
+    <!-- 候補を入れ直しても選んだ値と表示がずれないよう、選択欄と値をまとめて結び付ける -->
     <select id="new-post-category" bind:value={category} required disabled={creating || loading}>
       <option value="">カテゴリ</option>
       {#each categories ?? [] as item (item.key)}<option value={item.key}>{item.label}</option>{/each}

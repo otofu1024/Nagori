@@ -15,10 +15,11 @@ const checks = [],
   errors = [];
 const check = (name, pass) => checks.push({ name, pass: !!pass });
 const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
-async function until(test) {
+async function until(test, name = '確認項目未指定', details) {
   const start = performance.now();
   while (!test()) {
-    if (performance.now() - start > 15000) throw Error('確認の待ち時間を超えました');
+    if (performance.now() - start > 15000)
+      throw Error(`確認の待ち時間を超えました: ${name}${details ? '\n' + JSON.stringify(details()) : ''}`);
     await pause();
   }
 }
