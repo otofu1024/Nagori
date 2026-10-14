@@ -118,6 +118,7 @@ export function blogThemeCss(source: BlogTheme | null, enabled = true): string {
   if (!source || !enabled) return '';
   const imports: string[] = [],
     rules: string[] = [];
+  let dark = false;
   const declarations = (node: SyntaxNode, css: string, root = false, header = false, component = false) =>
     children(node).flatMap((child) => {
       if (child.name !== 'Declaration' || children(child).some((part) => part.type.isError)) return [];
@@ -164,6 +165,14 @@ export function blogThemeCss(source: BlogTheme | null, enabled = true): string {
           const ds = (root ? declarations(block, css, root) : editorOwned(declarations(block, css, root), !baseText)).map(
             ({ name, value }) => ({ name, value: scaleRem(value) }),
           );
+          if (root) {
+            const background = ds.find(d => d.name === '--color-bg')?.value.match(/^#([\da-f]{6}|[\da-f]{3})$/i)?.[1];
+            if (background) {
+              const hex = background.length === 3 ? [...background].map(c => c + c).join('') : background;
+              const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+              dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18;
+            }
+          }
           // CodeMirrorはブロックの入れ物ではなく行で並ぶ。余白と角丸は最初と最後の行に付ける。
           const code = from.includes('.prose pre');
           const kind = code ? 'code' : 'quote';
@@ -201,7 +210,7 @@ export function blogThemeCss(source: BlogTheme | null, enabled = true): string {
     .join('');
   return (
     imports.join('\n') +
-    `\n${scope}{${defaults}${aliases}--blog-rem:${blogRem};--selection:#b6eeee;--accent-soft:#e4f8f8;color-scheme:light;color:var(--text);background:var(--surface);}` +
+    `\n${scope}{${defaults}${aliases}--blog-rem:${blogRem};--selection:color-mix(in srgb,var(--color-accent) 28%,var(--color-bg));--accent-soft:color-mix(in srgb,var(--color-accent) 16%,var(--color-bg));color-scheme:${dark ? 'dark' : 'light'};color:var(--text);background:var(--surface);}` +
     `${scope} .cm-scroller{font-family:var(--editor-family)}` +
     `${scope} .cm-content .nagori-heading{background:none}` +
     `${scope} .cm-content .nagori-code-line{color:var(--astro-code-foreground)}` +
@@ -210,6 +219,7 @@ export function blogThemeCss(source: BlogTheme | null, enabled = true): string {
     // ブログの差し色がとても淡くても、編集のための印は見えるようにする。
     `${scope} .cm-content .nagori-hidden-line{font-size:0;line-height:0;padding:0;margin:0;border:0}` +
     `${scope} .cm-cursor{border-left-color:var(--text)}` +
-    `${scope} .cm-searchMatch{background:#ffdf80;color:var(--text)}${scope} .cm-searchMatch-selected{background:#ffc65c}`
+    `${scope} .cm-searchMatch{background:color-mix(in srgb,var(--color-accent) 22%,var(--color-bg));color:var(--text);outline:1px solid var(--color-accent)}` +
+    `${scope} .cm-searchMatch-selected{background:color-mix(in srgb,var(--color-accent) 35%,var(--color-bg))}`
   );
 }

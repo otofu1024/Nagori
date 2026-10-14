@@ -387,6 +387,17 @@ pub fn save(root: &Path, path: &str, text: &str, expected: &str) -> Result<Saved
     }
     let (_, format) = decode(&before)?;
     let bytes = encode(text, &format)?;
+    save_bytes(root, path, &bytes, expected)
+}
+// テーマの置き換えでは、改行とBOMも含めて同梱ファイルや履歴と同じ内容を保存する。
+pub(crate) fn save_bytes(root: &Path, path: &str, bytes: &[u8], expected: &str) -> Result<Saved> {
+    if bytes.len() > DOCUMENT_LIMIT {
+        return Err(Error::new("LIMIT", "文書の上限は2MiBです。"));
+    }
+    let (absolute, before) = check_baseline(root, path, expected)?;
+    if readonly(&absolute)? {
+        return Err(Error::new("PERMISSION", "読み取り専用ファイルです。"));
+    }
     if bytes == before {
         return Ok(Saved {
             baseline: baseline(&bytes),
@@ -398,7 +409,7 @@ pub fn save(root: &Path, path: &str, text: &str, expected: &str) -> Result<Saved
     temporary
         .as_file()
         .set_permissions(fs::metadata(&absolute)?.permissions())?;
-    temporary.write_all(&bytes)?;
+    temporary.write_all(bytes)?;
     temporary.flush()?;
     temporary.as_file().sync_all()?;
     commit(root, path, expected, temporary)?;
