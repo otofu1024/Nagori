@@ -58,6 +58,7 @@ pub fn run() {
             commands::workspace_blog_config,
             commands::blog_themes_read,
             commands::blog_themes_apply,
+            commands::blog_themes_delete,
             commands::blog_themes_restore,
             commands::blog_characters_image_baseline,
             commands::blog_characters_save,

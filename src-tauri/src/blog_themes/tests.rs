@@ -70,9 +70,9 @@ fn oldest_history_is_removed_and_blogs_are_separate() {
     assert_eq!(state.history.len(), HISTORY_LIMIT);
     assert!(!state.history.iter().any(|entry| entry.id == first));
     assert_eq!(
-        fs::read_dir(directory(base.path(), root.path()).unwrap())
+        history(&directory(base.path(), root.path()).unwrap(), &[])
             .unwrap()
-            .count(),
+            .len(),
         HISTORY_LIMIT
     );
     assert!(read(other.path(), base.path()).unwrap().history.is_empty());
@@ -229,4 +229,139 @@ fn all_presets_are_complete_and_match_exactly() {
         assert_eq!(read(root.path(), base.path()).unwrap().preset, Some(id));
         assert_eq!(identify(format!("{css}\n").as_bytes()), None);
     }
+}
+
+#[test]
+fn opening_settings_saves_customs_once_and_uses_their_names() {
+    let (root, base) = fixture();
+    let standard = read(root.path(), base.path()).unwrap();
+    assert_eq!(standard.current.as_deref(), Some("standard"));
+    assert!(standard.customs.is_empty());
+    let custom = b"\xef\xbb\xbf:root { --color-bg: #fff; }\r\n";
+    fs::write(root.path().join(THEME_PATH), custom).unwrap();
+    for _ in 0..3 {
+        let state = read(root.path(), base.path()).unwrap();
+        assert_eq!(state.current.as_deref(), Some("custom-1"));
+        assert_eq!(state.customs.len(), 1);
+        assert_eq!(state.customs[0].name, "カスタム1");
+        assert!(state.history.is_empty());
+    }
+    fs::write(
+        root.path().join(THEME_PATH),
+        b":root { --color-bg: #fff; }\n",
+    )
+    .unwrap();
+    let state = read(root.path(), base.path()).unwrap();
+    assert_eq!(state.current.as_deref(), Some("custom-2"));
+    assert_eq!(state.customs.len(), 2);
+    assert_eq!(
+        fs::read(
+            directory(base.path(), root.path())
+                .unwrap()
+                .join("custom-1.css")
+        )
+        .unwrap(),
+        custom
+    );
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+#[test]
+fn switching_to_basic_custom_and_history_saves_the_current_custom() {
+    let (root, base) = fixture();
+    let path = root.path().join(THEME_PATH);
+    let a = b":root { --color-bg: #123456; }\n";
+    let b = b":root { --color-bg: #abcdef; }\n";
+    let c = b":root { --color-bg: #654321; }\n";
+    fs::write(&path, a).unwrap();
+    apply(root.path(), base.path(), "mono", &files::baseline(a)).unwrap();
+    let state = read(root.path(), base.path()).unwrap();
+    assert_eq!(state.customs.len(), 1);
+    assert_eq!(state.history[0].theme.as_deref(), Some("custom-1"));
+    fs::write(&path, b).unwrap();
+    apply(root.path(), base.path(), "custom-1", &files::baseline(b)).unwrap();
+    assert_eq!(bytes(root.path()), a);
+    let state = read(root.path(), base.path()).unwrap();
+    assert_eq!(state.current.as_deref(), Some("custom-1"));
+    assert_eq!(state.customs.len(), 2);
+    fs::write(&path, c).unwrap();
+    restore(
+        root.path(),
+        base.path(),
+        &state.history[0].id,
+        &files::baseline(c),
+    )
+    .unwrap();
+    assert_eq!(bytes(root.path()), b);
+    let state = read(root.path(), base.path()).unwrap();
+    assert_eq!(state.current.as_deref(), Some("custom-2"));
+    assert_eq!(state.customs.len(), 3);
+    let (other, _) = fixture();
+    assert!(read(other.path(), base.path()).unwrap().customs.is_empty());
+    assert!(apply(
+        other.path(),
+        base.path(),
+        "custom-1",
+        &files::baseline(&bytes(other.path()))
+    )
+    .is_err());
+}
+#[test]
+fn deletion_does_not_change_theme_and_numbers_are_not_reused() {
+    let (root, base) = fixture();
+    let path = root.path().join(THEME_PATH);
+    fs::write(&path, "custom a").unwrap();
+    read(root.path(), base.path()).unwrap();
+    fs::write(&path, "custom b").unwrap();
+    let state = read(root.path(), base.path()).unwrap();
+    let state = delete_custom(root.path(), base.path(), &state.current.unwrap()).unwrap();
+    assert_eq!(bytes(root.path()), b"custom b");
+    assert_eq!(state.current, None);
+    assert_eq!(state.customs.len(), 1);
+    delete_custom(root.path(), base.path(), "custom-1").unwrap();
+    let state = read(root.path(), base.path()).unwrap();
+    assert_eq!(state.current.as_deref(), Some("custom-3"));
+    assert_eq!(state.customs.len(), 1);
+    fs::write(&path, PRESETS[0].1).unwrap();
+    delete_custom(root.path(), base.path(), "custom-3").unwrap();
+    fs::write(&path, "custom a").unwrap();
+    assert_eq!(
+        read(root.path(), base.path()).unwrap().current.as_deref(),
+        Some("custom-4")
+    );
+    for id in ["standard", "../custom-4", "custom-04", "custom-0"] {
+        assert_eq!(
+            delete_custom(root.path(), base.path(), id)
+                .unwrap_err()
+                .code,
+            "INVALID"
+        );
+    }
+    assert_eq!(bytes(root.path()), b"custom a");
+}
+#[test]
+fn custom_save_failure_prevents_replacement_and_skips_reserved_numbers() {
+    let (root, base) = fixture();
+    let path = root.path().join(THEME_PATH);
+    fs::write(&path, "custom a").unwrap();
+    let directory = directory(base.path(), root.path()).unwrap();
+    fs::create_dir(directory.join("custom-1.css")).unwrap();
+    // 番号を残した後にCSSの保存が失敗しても、元のテーマは置き換えない。
+    assert!(save_custom(&directory, b"custom a", &mut vec![]).is_err());
+    assert_eq!(bytes(root.path()), b"custom a");
+    fs::remove_dir(directory.join("custom-1.css")).unwrap();
+    assert_eq!(
+        read(root.path(), base.path()).unwrap().current.as_deref(),
+        Some("custom-2")
+    );
+    fs::remove_file(directory.join("custom-counter")).unwrap();
+    fs::create_dir(directory.join("custom-counter")).unwrap();
+    fs::write(&path, "custom b").unwrap();
+    assert!(apply(
+        root.path(),
+        base.path(),
+        "mono",
+        &files::baseline(b"custom b")
+    )
+    .is_err());
+    assert_eq!(bytes(root.path()), b"custom b");
 }

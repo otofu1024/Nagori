@@ -4,9 +4,10 @@
   import { confirm } from '@tauri-apps/plugin-dialog';
   import { blogThemes, themeName, type ThemeSnapshot, type ThemeSaved } from '../blogThemes/index.ts';
 
-  let { project, disabled = false, themeCss = null, onSaved = () => {} }: {
+  let { project, active = true, disabled = false, themeCss = null, onSaved = () => {} }: {
     project: string;
     disabled?: boolean;
+    active?: boolean;
     themeCss?: string | null;
     onSaved?: () => void | Promise<void>;
   } = $props();
@@ -16,17 +17,17 @@
   let pending = $state(false);
   let error = $state('');
   let request = 0;
-  const unavailable = $derived(disabled || loading || pending || !snapshot);
+  const unavailable = $derived(!active || disabled || loading || pending || !snapshot);
 
   async function reload() {
     const root = project, token = ++request;
-    if (disabled || !root) { snapshot = null; loading = false; return; }
+    if (!active || disabled || !root) { snapshot = null; loading = false; return; }
     loading = true;
     try {
       const result = await invoke<ThemeSnapshot>('blog_themes_read', { project: root });
       if (token !== request || root !== project) return;
       snapshot = result;
-      selected = result.preset ?? '';
+      selected = result.current ?? '';
       error = '';
     } catch (issue) {
       if (token === request && root === project) {
@@ -35,7 +36,7 @@
       }
     } finally { if (token === request) loading = false; }
   }
-  $effect(() => { project; disabled; themeCss; untrack(() => { void reload(); }); });
+  $effect(() => { project; active; disabled; themeCss; untrack(() => { void reload(); }); });
 
   async function change(id?: string) {
     if (unavailable || !snapshot || (!id && !selected)) return;
@@ -46,7 +47,7 @@
     try {
       const message = id ? 'この履歴のtheme.cssに戻しますか？' : `「${themeName(preset)}」でtheme.cssを置き換えますか？`;
       if (!await confirm(message, { title: 'ブログのテーマ', kind: 'warning', okLabel: id ? '戻す' : '適用', cancelLabel: 'キャンセル' })) return;
-      if (root !== project || disabled) return;
+      if (root !== project || !active || disabled) return;
       const result = await invoke<ThemeSaved>(id ? 'blog_themes_restore' : 'blog_themes_apply', { project: root, baseline, ...(id ? { id } : { preset }) });
       if (root !== project) return;
       await onSaved();
@@ -56,25 +57,53 @@
       if (root === project) error = (issue as { message?: string }).message ?? String(issue);
     } finally { pending = false; }
   }
+  async function removeCustom(id: string) {
+    if (unavailable) return;
+    const root = project;
+    pending = true;
+    error = '';
+    try {
+      if (!await confirm(`「${themeName(id)}」を削除しますか？`, { title: 'ブログのテーマ', kind: 'warning', okLabel: '削除', cancelLabel: 'キャンセル' })) return;
+      if (root !== project || !active || disabled) return;
+      const result = await invoke<ThemeSnapshot>('blog_themes_delete', { project: root, id });
+      if (root !== project) return;
+      // 削除直後の再読み込みでは、今使っているカスタムをすぐに保存し直してしまう。
+      snapshot = result;
+      selected = result.current ?? '';
+    } catch (issue) {
+      if (root === project) error = (issue as { message?: string }).message ?? String(issue);
+    } finally { pending = false; }
+  }
 </script>
 
 <div class="blog-themes" aria-busy={loading || pending}>
   <label class="theme-row">テーマ
     <select aria-label="ブログのテーマ" bind:value={selected} disabled={unavailable}>
-      {#if !snapshot?.preset}<option value="" disabled>カスタム</option>{/if}
+      {#if !snapshot?.current}<option value="" disabled>未登録</option>{/if}
       {#each blogThemes as theme (theme.id)}<option value={theme.id}>{theme.name}</option>{/each}
+      {#each snapshot?.customs ?? [] as theme (theme.id)}<option value={theme.id}>{theme.name}</option>{/each}
     </select>
-    <button type="button" disabled={unavailable || !selected || selected === snapshot?.preset} onclick={() => void change()}>適用</button>
+    <button type="button" disabled={unavailable || !selected || selected === snapshot?.current} onclick={() => void change()}>適用</button>
   </label>
-  {#if snapshot}<output aria-label="現在のテーマ">現在のテーマ {themeName(snapshot.preset)}</output>{/if}
-  <details>
+  {#if snapshot}<output aria-label="現在のテーマ">現在のテーマ {themeName(snapshot.current)}</output>{/if}
+  {#if snapshot?.customs.length}
+    <details class="custom-themes">
+      <summary>カスタムテーマ</summary>
+      <ul>
+        {#each snapshot.customs as theme (theme.id)}
+          <li><span>{theme.name}</span><button type="button" disabled={unavailable} onclick={() => void removeCustom(theme.id)}>削除</button></li>
+        {/each}
+      </ul>
+    </details>
+  {/if}
+  <details class="theme-history">
     <summary>テーマの履歴</summary>
     {#if snapshot?.history.length}
       <ul>
         {#each snapshot.history as entry (entry.id)}
           <li>
             <time datetime={new Date(entry.savedAt).toISOString()}>{new Date(entry.savedAt).toLocaleString('ja-JP')}</time>
-            <span>{themeName(entry.preset)}</span>
+            <span>{themeName(entry.theme)}</span>
             <button type="button" disabled={unavailable} onclick={() => void change(entry.id)}>戻す</button>
           </li>
         {/each}

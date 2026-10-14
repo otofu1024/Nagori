@@ -23,7 +23,10 @@ const classes = new Set(('skip-link site-header brand site-nav active hero hero-
 
 test('テーマの一覧とカスタムの項目名', () => {
   assert.deepEqual(blogThemes.map(theme => theme.name), ['標準', 'モノクロ', '和紙', '夕闇']);
-  assert.equal(themeName(null), 'カスタム');
+  assert.equal(themeName(null), '未登録');
+  assert.equal(themeName('custom-1'), 'カスタム1');
+  assert.equal(themeName('custom-12'), 'カスタム12');
+  assert.equal(themeName('custom-0'), '未登録');
 });
 for (const theme of blogThemes) {
   test(`${theme.name}は契約の変数とクラスだけを使い、CSSとして読める`, () => {

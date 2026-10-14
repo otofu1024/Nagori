@@ -9,6 +9,7 @@
     dialog = $bindable(),
     settings,
     busy = false,
+    visible = true,
     blogMode = false,
     project = '',
     onCharactersSaved = () => {},
@@ -21,6 +22,7 @@
     dialog?: HTMLDialogElement;
     settings: Settings;
     busy?: boolean;
+    visible?: boolean;
     blogMode?: boolean;
     project?: string;
     onCharactersSaved?: () => void | Promise<void>;
@@ -105,7 +107,7 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
       {:else if section === 'blog'}
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
-        {#key project}<BlogThemes {project} {themeCss} disabled={!blogMode || busy} onSaved={onThemeSaved} />{/key}
+        {#key project}<BlogThemes {project} {themeCss} active={visible} disabled={!blogMode || busy} onSaved={onThemeSaved} />{/key}
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogArticleHeader} onchange={onChange} disabled={!settings.blogFeatures} /> 記事の見出し</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogLinkCardsEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> リンクカード</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogCharactersEnabled} onchange={onChange} disabled={!settings.blogFeatures} /> キャラクターの吹き出し</label>

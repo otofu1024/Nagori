@@ -1168,6 +1168,7 @@
   }}
 />
 <SettingsDialog
+  visible={settingsOpen}
   {busy}
   {blogMode}
   {project}

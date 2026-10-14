@@ -338,6 +338,19 @@ pub(crate) async fn blog_themes_apply(
     .await
 }
 #[tauri::command]
+pub(crate) async fn blog_themes_delete(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    project: String,
+    id: String,
+) -> Result<crate::blog_themes::Snapshot> {
+    let base = theme_history_base(&app)?;
+    work(&state, move |w| {
+        crate::blog_themes::delete_custom(theme_root(w, &project)?, &base, &id)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn blog_themes_restore(
     app: tauri::AppHandle,
     state: State<'_, Backend>,

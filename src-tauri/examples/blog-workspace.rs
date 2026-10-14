@@ -61,6 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 baseline,
             )
             .map(|value| serde_json::to_value(value).unwrap()),
+            "delete" => blog_themes::delete_custom(
+                &root,
+                std::path::Path::new(&base),
+                input["id"].as_str().unwrap_or(""),
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
             _ => Err(files::Error::new("INVALID", "確認の操作がありません。")),
         }
         .unwrap_or_else(|error| serde_json::json!({ "error": error }));
