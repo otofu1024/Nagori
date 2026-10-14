@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;500;600;700;900&family=Shippori+Mincho+B1:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;500;600;700;900&display=swap");
 
 :root {
   --color-bg: #f6f1e4;
@@ -667,9 +667,8 @@
   }
 }
 
-/* 本文と見出しの字体、細い線の飾り */
+/* 見出しの太さ、細い線の飾り */
 :where(.brand, .hero-copy h1, .section-heading h2, .page-header h1, .post-main h3, .auto-cover-title, .article-header h1, .article-toc__heading h2, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6, .about-grid h2, .author-note h2, .not-found h1) {
-  font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
   font-weight: 700;
 }
 :where(.post-row:hover .post-arrow, .post-row:focus-within .post-arrow) { color: var(--color-bg); }

@@ -17,6 +17,7 @@ const palettes = {
   washi: ['#f6f1e4', '#fbf7ee', '#2a2420', '#665a50', '#e0d5c2', '#c23b22', '#4e6b4f', '#a8321c'],
   dusk: ['#16131a', '#211c26', '#ede5dc', '#a89ea4', '#3a3140', '#ff7b45', '#e2587e', '#ff9a66'],
 };
+const fonts = { standard: 'Noto Sans JP', mono: 'Zen Kaku Gothic New', washi: 'Zen Old Mincho', dusk: 'Zen Kaku Gothic New' };
 // theme-contract.mdの変数とクラス。カテゴリーキーと長さ別の修飾クラスも含める。
 const variables = new Set(['color-bg', 'color-surface', 'color-text', 'color-text-muted', 'color-border', 'color-accent', 'color-accent-secondary', 'color-link', 'color-link-hover', 'font-sans', 'og-bg', 'og-text', 'og-accent', 'astro-code-foreground', 'astro-code-background', ...['comment', 'keyword', 'string', 'string-expression', 'constant', 'function', 'parameter', 'punctuation', 'link'].map(name => `astro-code-token-${name}`)].map(name => `--${name}`));
 const classes = new Set(('skip-link site-header brand site-nav active hero hero-copy hero-title-rule hero-cta section-heading page-header post-row post-row-link post-main post-meta category-label post-arrow auto-cover auto-cover-title medium long auto-cover-category empty-state article article-header article-description article-dates tag-list article-cover article-footer article-pagination__link article-pagination__link--previous article-pagination__link--next article-list-link article-toc is-active article-toc__heading article-toc__divider article-toc__list--root article-toc__list--nested article-toc__number article-toc__text article-toc__arrow article-toc__reading-time article-toc__reading-label prose link-card link-card--with-image link-card__title link-card__description link-card__site link-card__image talk talk__character talk__bubble search-form search-input-row search-status search-results search-result about-grid author-note author-label not-found error-code primary-link site-footer footer-links footer-meta brand-mark section-mark auto-cover-mark article-toc__mark article-toc__leaf article-toc__reading-leaf daily tech review').split(' '));
@@ -29,6 +30,17 @@ test('テーマの一覧とカスタムの項目名', () => {
   assert.equal(themeName('custom-0'), '未登録');
 });
 for (const theme of blogThemes) {
+  test(`${theme.name}は本文のフォントだけを読み込み、見出しにも使う`, () => {
+    const source = css(theme.id);
+    const url = new URL(source.split('\n')[0].match(/url\("([^"]+)"\)/)![1]);
+    assert.deepEqual(url.searchParams.getAll('family').map(family => family.split(':')[0]), [fonts[theme.id]]);
+    assert.equal(source.match(/--font-sans:\s*"([^"]+)"/)?.[1], fonts[theme.id]);
+    if (theme.id === 'washi' || theme.id === 'dusk') {
+      assert.deepEqual([...source.matchAll(/\bfont-family:\s*([^;]+);/g)].map(match => match[1]), ['var(--font-sans)', 'ui-monospace, "SFMono-Regular", Consolas, monospace']);
+      const headings = source.match(/:where\(\.brand, \.hero-copy h1[^}]+\}/)![0];
+      assert.match(headings, /font-weight: 700;/);
+    }
+  });
   test(`${theme.name}は契約の変数とクラスだけを使い、CSSとして読める`, () => {
     const source = css(theme.id), parsed = cssLanguage.parser.parse(source);
     parsed.iterate({ enter: node => {
@@ -62,7 +74,9 @@ for (const theme of blogThemes) {
     assert.ok(adapted.includes('--selection:color-mix(in srgb,var(--color-accent) 28%,var(--color-bg))'));
     assert.ok(adapted.includes('.cm-searchMatch{background:color-mix('));
     assert.ok(adapted.includes('outline:1px solid var(--color-accent)'));
-    if (theme.id !== 'standard') assert.match(adapted, /\.nagori-h2[^\{]*\{font-family:/);
+    assert.ok(adapted.includes('.cm-scroller{font-family:var(--editor-family)}'));
+    if (theme.id === 'mono') assert.match(adapted, /\.nagori-h2[^\{]*\{font-family:/);
+    else assert.doesNotMatch(adapted, /\.nagori-h2[^\{]*\{font-family:/);
     assert.equal(blogThemeCss({ template: '', theme: source }, false), '');
   });
 }
@@ -72,12 +86,7 @@ for (const [id, palette] of Object.entries(palettes)) {
     assert.deepEqual(['bg', 'surface', 'text', 'text-muted', 'border', 'accent', 'accent-secondary', 'link'].map(name => tokens[`--color-${name}`]), palette);
   });
 }
-test('フォントは本文と見出しで指定し、夕闇の明るい背景を残さない', () => {
-  assert.match(css('mono'), /--font-sans: "Zen Kaku Gothic New"/);
-  assert.match(css('washi'), /--font-sans: "Zen Old Mincho"/);
-  assert.match(css('washi'), /font-family: "Shippori Mincho B1"/);
-  assert.match(css('dusk'), /--font-sans: "Zen Kaku Gothic New"/);
-  assert.match(css('dusk'), /font-family: "Zen Old Mincho"/);
+test('夕闇の明るい背景を残さない', () => {
   assert.ok(!css('dusk').includes('background: #fff'));
   assert.ok(!css('dusk').includes('rgb(255 255 255'));
 });

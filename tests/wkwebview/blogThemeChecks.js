@@ -30,10 +30,12 @@ export async function checkThemes({ check, until, tick, view, request, writeThem
   await apply('washi', '和紙');
   await until(() => getComputedStyle(content).color === 'rgb(42, 36, 32)');
   await until(() => host.querySelector('.article-header h1'));
-  check('和紙の本文と見出しに別の明朝体を当てる', getComputedStyle(view.scrollDOM).fontFamily.includes('Zen Old Mincho') && getComputedStyle(host.querySelector('.article-header h1')).fontFamily.includes('Shippori Mincho B1'));
+  check('和紙の本文と見出しをZen Old Minchoに揃える', getComputedStyle(view.scrollDOM).fontFamily.includes('Zen Old Mincho') && getComputedStyle(host.querySelector('.article-header h1')).fontFamily === getComputedStyle(view.scrollDOM).fontFamily);
   await apply('dusk', '夕闇');
   await until(() => getComputedStyle(content).color === 'rgb(237, 229, 220)');
   check('夕闇では本文の欄も暗くなる', getComputedStyle(host).backgroundColor === 'rgb(22, 19, 26)' && getComputedStyle(host).colorScheme === 'dark');
+  await until(() => host.querySelector('.article-header h1'));
+  check('夕闇の本文と見出しをZen Kaku Gothic Newに揃える', getComputedStyle(view.scrollDOM).fontFamily.includes('Zen Kaku Gothic New') && getComputedStyle(host.querySelector('.article-header h1')).fontFamily === getComputedStyle(view.scrollDOM).fontFamily);
   check('夕闇が左右の欄へ広がらない', getComputedStyle(document.querySelector('.sidebar')).backgroundColor === 'rgb(19, 32, 49)');
   const savedSelection = view.state.selection;
   const text = before.slice(before.indexOf('\n\n') + 2).match(/[ぁ-んァ-ヶ一-龠]{2,}/)?.[0] ?? 'title';
