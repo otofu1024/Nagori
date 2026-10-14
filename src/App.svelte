@@ -1061,7 +1061,7 @@
               disabled={starting || !settingsLoaded}
               onclick={toggleOutline}><Icon name="outline" size={16} /></button
             >
-            {#if blogMode}<button class="mode-toggle review-toggle" aria-pressed={reviewOpen && settings.outlineVisible} aria-label="添削" title="添削" disabled={starting || !settingsLoaded} onclick={() => { if (reviewOpen) settings.outlineVisible = !settings.outlineVisible; else { rightPane = 'review'; settings.outlineVisible = true; } void persist(); }}>添削</button>{/if}
+            {#if blogMode}<button class="mode-toggle review-toggle" aria-pressed={reviewOpen && settings.outlineVisible} aria-label="添削" title="添削" disabled={starting || !settingsLoaded} onclick={() => { if (reviewOpen) settings.outlineVisible = !settings.outlineVisible; else { rightPane = 'review'; settings.outlineVisible = true; } void persist(); }}><Icon name="review" size={16} /></button>{/if}
             {/if}
           {/if}
       </div>
