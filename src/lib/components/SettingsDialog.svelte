@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from '../workspace/settings.ts';
   import { rangeFill } from '../workspace/rangeFill.ts';
+  import { reviewAis, type ReviewAi } from '../workspace/blogReview.ts';
 
   let {
     dialog = $bindable(),
@@ -11,6 +12,7 @@
     busy = false,
     visible = true,
     blogMode = false,
+    availableReviewAis = [],
     project = '',
     onCharactersSaved = () => {},
     themeCss = null,
@@ -24,6 +26,7 @@
     busy?: boolean;
     visible?: boolean;
     blogMode?: boolean;
+    availableReviewAis?: ReviewAi[];
     project?: string;
     onCharactersSaved?: () => void | Promise<void>;
     themeCss?: string | null;
@@ -106,6 +109,10 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.typewriterMode} onchange={onChange} /> タイプライター表示</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
       {:else if section === 'blog'}
+        <label>添削のAI <select aria-label="添削のAI" bind:value={settings.blogReviewAi} onchange={onChange} disabled={!blogMode || busy || !availableReviewAis.length}>
+          {#if !availableReviewAis.length}<option value={null}>見つかりません</option>{/if}
+          {#each reviewAis as ai}<option value={ai.id} disabled={!availableReviewAis.includes(ai.id)}>{ai.label}</option>{/each}
+        </select></label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
         {#key project}<BlogThemes {project} {themeCss} active={visible} disabled={!blogMode || busy} onSaved={onThemeSaved} />{/key}
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogArticleHeader} onchange={onChange} disabled={!settings.blogFeatures} /> 記事の見出し</label>

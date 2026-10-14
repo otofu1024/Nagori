@@ -2,6 +2,7 @@
 mod apple_quit;
 mod blog_characters;
 mod blog_posts;
+mod blog_review;
 mod blog_themes;
 mod cli;
 mod commands;
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Backend::default())
+        .manage(blog_review::Reviews::default())
         .setup(|app| {
             app.set_menu(menu::native_menu(app)?)?;
             #[cfg(target_os = "macos")]
@@ -51,6 +53,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cli::cli_install,
             cli::cli_uninstall,
+            blog_review::blog_review_available,
+            blog_review::blog_review_run,
+            blog_review::blog_review_cancel,
             commands::open_request_take,
             commands::workspace_open,
             commands::workspace_list,

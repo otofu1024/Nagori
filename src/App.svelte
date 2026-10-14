@@ -17,6 +17,8 @@
   import GraphView from './lib/components/GraphView.svelte';
   import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
+  import BlogReview from './lib/components/BlogReview.svelte';
+  import { resolvedReviewAi, type ReviewAi } from './lib/workspace/blogReview.ts';
   import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/editor/composition.ts';
   import PaneResizer from './lib/components/PaneResizer.svelte';
   import { SIDEBAR, OUTLINE, paneLayout } from './lib/workspace/paneWidths.ts';
@@ -55,6 +57,9 @@
     settingsDialog = $state<HTMLDialogElement>();
   const theme = $derived(resolvedTheme(settings.theme, systemDark));
   let blogMode = $state(false);
+  let availableReviewAis = $state<ReviewAi[]>([]);
+  let rightPane = $state<'outline' | 'review'>('outline');
+  let reviewRevision = $state(0);
   let blogTheme = $state.raw<BlogTheme | null>(null);
   let blogCategories = $state.raw<BlogCategory[] | null>(null);
   let blogCharacters = $state.raw<BlogCharacters | null>(null);
@@ -155,9 +160,10 @@
   // Markdown以外のファイルを、ただのテキストとして開いているか
   const plain = $derived(current?.kind === 'other');
   // 目次を実際に表示しているか。本文の幅を自動で決める時に、目次の分の空きを引くかどうかに使う
-  const outlineOpen = $derived(!plain && settings.outlineVisible && outline.length > 0);
+  const reviewOpen = $derived(blogMode && rightPane === 'review');
+  const outlineOpen = $derived(!plain && settings.outlineVisible && (reviewOpen || outline.length > 0));
   const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible, settings.editorWidth, { auto: settings.autoEditorWidth, outlineOpen }));
-  const outlineLabel = $derived(settings.outlineVisible
+  const outlineLabel = $derived(reviewOpen ? '目次を表示' : settings.outlineVisible
     ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
     : '目次を表示');
   const focusLabel = $derived(settings.focusMode ? '集中モードをオフにする' : '集中モードをオンにする');
@@ -769,12 +775,14 @@
     });
     if (!ok) return;
     Object.assign(settings, resetPreferences(settings));
+    settings.blogReviewAi = resolvedReviewAi(settings.blogReviewAi, availableReviewAis);
     sidebarDraft = null;
     outlineDraft = null;
     applySettings();
   }
   function toggleOutline() {
     if (starting || !settingsLoaded) return;
+    if (reviewOpen) { rightPane = 'outline'; settings.outlineVisible = true; void persist(); return; }
     settings.outlineVisible = !settings.outlineVisible;
     void persist();
   }
@@ -819,6 +827,8 @@
         unlisteners.push(await listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
         const saved = await invoke<Settings>('settings_get');
         settings = startupSettings(saved);
+        availableReviewAis = await invoke<ReviewAi[]>('blog_review_available').catch(() => []);
+        settings.blogReviewAi = resolvedReviewAi(settings.blogReviewAi, availableReviewAis);
         settingsLoaded = true;
         if (JSON.stringify(settings) !== JSON.stringify(saved)) await persist();
         const requested = await invoke<OpenRequest | null>('open_request_take');
@@ -1045,12 +1055,14 @@
             >
             <button
               class="mode-toggle outline-toggle"
-              aria-pressed={settings.outlineVisible}
+              aria-pressed={settings.outlineVisible && !reviewOpen}
               aria-label={outlineLabel}
               title={outlineLabel}
               disabled={starting || !settingsLoaded}
               onclick={toggleOutline}><Icon name="outline" size={16} /></button
-            >{/if}
+            >
+            {#if blogMode}<button class="mode-toggle review-toggle" aria-pressed={reviewOpen && settings.outlineVisible} aria-label="添削" title="添削" disabled={starting || !settingsLoaded} onclick={() => { if (reviewOpen) settings.outlineVisible = !settings.outlineVisible; else { rightPane = 'review'; settings.outlineVisible = true; } void persist(); }}>添削</button>{/if}
+            {/if}
           {/if}
       </div>
     </header>
@@ -1102,7 +1114,8 @@
               onDropImages={dropImages}
               onImageError={notify}
               {resolveImage}
-              onReady={(api) => (editor = api)}
+              onReady={(api) => { editor = api; reviewRevision++; }}
+              onReviewChange={() => reviewRevision++}
               onOutline={(headings) => (outline = headings)}
               onOutlinePosition={(index) => (outlinePosition = index)}
             />
@@ -1110,10 +1123,10 @@
               <GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
             {/if}
           </div>
-          {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
+          {#if outlineOpen && layout.showOutline}
             <div class="outline-boundary">
               <PaneResizer
-                label="目次の幅"
+                label={reviewOpen ? '添削の幅' : '目次の幅'}
                 value={layout.outline}
                 min={OUTLINE.min}
                 max={layout.outlineMax}
@@ -1123,7 +1136,12 @@
                 onCommit={() => commitPane('outline')}
               />
             </div>
-            <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
+            {#if !reviewOpen}
+              <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
+            {/if}
+          {/if}
+          {#if blogMode}
+            {#key `${project}:${documentKey}`}<BlogReview visible={reviewOpen && outlineOpen && layout.showOutline} ai={resolvedReviewAi(settings.blogReviewAi, availableReviewAis)} getEditor={() => editor} revision={reviewRevision} path={current?.path ?? ''} disabled={readonly || busy || composing || previewOnly || status === 'saving' || graphOpen} />{/key}
           {/if}
         </div>
       {:else if graphOpen}<GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
@@ -1181,6 +1199,7 @@
   }}
 />
 <SettingsDialog
+  {availableReviewAis}
   visible={settingsOpen}
   {busy}
   {blogMode}

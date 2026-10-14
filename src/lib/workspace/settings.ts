@@ -14,6 +14,7 @@ export type Settings = {
   // オンの時、本文の幅はウィンドウの空きに合わせて決める。editorWidthは手動の値として残す
   autoEditorWidth: boolean;
   blogFeatures: boolean;
+  blogReviewAi: 'agy' | 'claude' | 'codex' | null;
   blogArticleHeader: boolean; blogLinkCardsEnabled: boolean; blogCharactersEnabled: boolean; blogBodyTheme: boolean; blogIndentOnEnter: boolean;
 };
 type FontFamily = 'sans' | 'serif';
@@ -27,6 +28,7 @@ export const RANGES = {
   recentEditedCount: { min: 10, max: 50 },
 } as const;
 export const defaults: Settings = {
+  blogReviewAi: null,
   lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
   editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, blogFeatures: true, blogArticleHeader: true, blogLinkCardsEnabled: true, blogCharactersEnabled: true, blogBodyTheme: true, blogIndentOnEnter: true,
 };
@@ -73,6 +75,7 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.blogCharactersEnabled = flag(settings.blogCharactersEnabled, defaults.blogCharactersEnabled);
   settings.blogBodyTheme = flag(settings.blogBodyTheme, defaults.blogBodyTheme);
   settings.blogIndentOnEnter = flag(settings.blogIndentOnEnter, defaults.blogIndentOnEnter);
+  settings.blogReviewAi = ['agy', 'claude', 'codex'].includes(String(settings.blogReviewAi)) ? settings.blogReviewAi : null;
   return settings;
 }
 

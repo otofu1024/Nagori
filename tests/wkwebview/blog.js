@@ -1,6 +1,7 @@
 import { checkCharacters } from './blogCharacterChecks.js';
 import { checkThemes } from './blogThemeChecks.js';
 import { checkNewPosts } from './blogNewPostChecks.js';
+import { createReviewMock, checkReview } from './blogReviewChecks.js';
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -69,6 +70,7 @@ window.run = async () => {
     const article = documents.find((doc) => doc.text.startsWith('---'));
     if (!article) throw Error('ブログのコピーにFront Matter付きの記事がありません');
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
+    const reviewMock = createReviewMock();
     const originals = new Map(files);
     let characterSaves = 0;
     const confirmations = [];
@@ -102,6 +104,7 @@ window.run = async () => {
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
+        if (command.startsWith('blog_review_')) return reviewMock.invoke(command, args);
         if (command === 'plugin:dialog|message') { confirmations.push(args.message); return args.buttons.OkCancelCustom[confirmationAnswers.shift() === false ? 1 : 0]; }
         if (command.startsWith('blog_themes_')) {
           if (!blogMode || args.project !== root) throw { code: 'WORKSPACE', message: '開いているブログが変わりました。' };
@@ -197,6 +200,7 @@ window.run = async () => {
     );
     const view = EditorView.findFromDOM(document.querySelector('.cm-editor'));
     const before = view.state.doc.toString();
+    await checkReview({ check, until, view, mock: reviewMock });
     const content = document.querySelector('.cm-content'),
       host = document.querySelector('.editor-host');
     await until(() => host.hasAttribute('data-blog-theme'));
@@ -611,8 +615,16 @@ window.run = async () => {
     document.querySelector('.settings-button').click();
     await until(() => document.querySelector('.settings-dialog[open]'));
     [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'ブログ').click();
+    await until(() => document.querySelector('select[aria-label="添削のAI"]'), '添削のAIの設定');
+    const aiSelect = () => document.querySelector('select[aria-label="添削のAI"]');
+    check('見つかった最初のAIを初期値にする', aiSelect().value === 'agy');
+    check('見つからないAIは選べない', aiSelect().querySelector('option[value="claude"]').disabled && !aiSelect().querySelector('option[value="codex"]').disabled);
+    aiSelect().value = 'codex'; aiSelect().dispatchEvent(new Event('change', { bubbles: true }));
+    await until(() => settings.blogReviewAi === 'codex', '添削のAIの保存');
+    check('添削のAIの選択を保存', settings.blogReviewAi === 'codex');
     await tick();
     await checkCharacters({ check, until, tick, view, replace, before, request: characterRequest, confirmations, saveCount: () => characterSaves });
+    check('管理ページから戻った後も現在の添削のAIを選べる', aiSelect()?.isConnected && !aiSelect().disabled && aiSelect().value === 'codex');
     // テーマの確認では短い記事を使い、見出しと検索対象の本文を同じ画面に描く。
     const themeSelection = view.state.selection, themeScrollTop = view.scrollDOM.scrollTop;
     try {
@@ -769,6 +781,8 @@ window.run = async () => {
     check('オフで本文もNagoriの配色へ戻る', getComputedStyle(content).color === 'rgb(219, 230, 244)');
     check('オフで汎用の一覧と自由入力へ戻る', !settings.blogFeatures && !!document.querySelector('.nagori-property-key-input'));
     check('ブログのモードでない時は新しい記事ボタンを出さない', !document.querySelector('button[aria-label="新しい記事"]'));
+    check('ブログのモードでない時は添削を出さない', !document.querySelector('.review-toggle') && !document.querySelector('.blog-review'));
+    check('ブログのモードでない時は添削のAIを選べない', aiSelect().disabled);
     check(
       '切り替えでエディタと本文を保つ',
       view === EditorView.findFromDOM(document.querySelector('.cm-editor')) && view.state.doc.toString() === before,
@@ -785,6 +799,7 @@ window.run = async () => {
     check('オンで本文もブログの配色へ戻る', getComputedStyle(content).color === 'rgb(30, 42, 63)');
     await until(() => !document.querySelector('.blog-themes select').disabled);
     check('ブログのモードへ戻すとテーマを選べる', !document.querySelector('.blog-themes select').disabled);
+    check('ブログのモードへ戻すと現在の添削のAIを選べる', aiSelect()?.isConnected && !aiSelect().disabled && aiSelect().value === 'codex');
     check(
       'ブログの機能をオンに戻すとブログの設定を押せる',
       blogLabels.every((label) => !blogToggle(label).disabled) && !document.querySelector('.manage-characters').disabled,

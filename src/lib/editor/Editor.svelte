@@ -28,13 +28,15 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
   import { pasteMarkdown } from './linkPaste.ts';
   import { typingFormat, typingCleanup } from './typingFormat.ts';
   import { matchSpan } from '../workspace/workspaceSearch.ts';
+  import { applyReviewEdit } from './reviewEdit.ts';
 
-  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogArticleHeader = true, blogLinkCardsEnabled = true, blogCharactersEnabled = true, blogBodyTheme = true, blogIndentOnEnter = true, blogTheme = null, blogCategories = null, blogCharacters = null, blogLinkCards = null, fetchLinkCard, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition }: {
+  let { initialText, documentKey, hidden = false, readonly = false, busy = false, saving = false, plain = false, properties = true, blogMode = false, blogArticleHeader = true, blogLinkCardsEnabled = true, blogCharactersEnabled = true, blogBodyTheme = true, blogIndentOnEnter = true, blogTheme = null, blogCategories = null, blogCharacters = null, blogLinkCards = null, fetchLinkCard, previewOnly = false, focus = false, typewriter = false, fontSize = 19, editorStyle = '', headingRule = true, onChange, onComposition, onSave, onLink, onPasteImage, onDropImages, onImageError, onContextMenu, resolveImage, onReady, onOutline, onOutlinePosition, onReviewChange }: {
     onContextMenu?: (context: EditorContextMenu) => void;
     initialText: string; documentKey: string | number; hidden?: boolean; readonly?: boolean; busy?: boolean; saving?: boolean; plain?: boolean; properties?: boolean; blogMode?: boolean; blogArticleHeader?: boolean; blogLinkCardsEnabled?: boolean; blogCharactersEnabled?: boolean; blogBodyTheme?: boolean; blogIndentOnEnter?: boolean; blogTheme?: BlogTheme | null; blogCharacters?: import('./blogCharacters.ts').BlogCharacters | null; blogLinkCards?: import('./blogLinkCards.ts').LinkPreviews | null; fetchLinkCard?: import('./previewState.ts').Options['fetchLinkCard']; blogCategories?: import('./blogCategories.ts').BlogCategory[] | null; previewOnly?: boolean; focus?: boolean; typewriter?: boolean; fontSize?: number; editorStyle?: string; headingRule?: boolean;
     onChange: (text: string) => void; onComposition: (active: boolean) => void; onSave: () => void;
     onLink: (href: string) => void; onPasteImage?: (image: File) => void; resolveImage: (reference: string) => Promise<string>; onReady: (api: EditorApi) => void;
     onOutline?: (headings: OutlineHeading[]) => void; onOutlinePosition?: (index: number) => void;
+    onReviewChange?: () => void;
     onDropImages?: (images: File[]) => Promise<string | null>; onImageError?: (reason: string) => void;
   } = $props();
   let host: HTMLDivElement;
@@ -209,6 +211,8 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
         // 選択の変更では進めない。macOSのメニューの開閉でWebKitが選択を戻すと、挿入が取り消されるため。
         if (update.docChanged) menuRevision++;
         if (update.docChanged) {
+          // 保存やUndo履歴への反映とは別に、添削へ現在の本文を知らせる。
+          onReviewChange?.();
           headings = headings.map(heading => ({ ...heading, from: update.changes.mapPos(heading.from, 1), lineEnd: update.changes.mapPos(heading.lineEnd, 1) }));
           scheduleOutline();
           formatting.changed(update.changes);
@@ -241,11 +245,24 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     });
     resize.observe(editor.scrollDOM);
     onReady({
+      reviewSnapshot: () => ({ text: editor.state.doc.toString(), from: editor.state.selection.main.from, to: editor.state.selection.main.to }),
+      applyReview: (expected, changes) => {
+        if (!contextState().editable || saving || plain || !blogMode) return false;
+        const applied = applyReviewEdit(editor, expected, changes);
+        if (applied) editor.focus();
+        return applied;
+      },
+      selectReviewRange: (from, to) => {
+        if (composition || editor.composing || from < 0 || to > editor.state.doc.length) return;
+        editor.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) });
+        editor.focus();
+      },
       replaceText: text => {
         if (!view || composition || view.composing) return;
         formatting.reset(); menuRevision++;
         const old = view, selection = old.state.selection.main, scroll = old.scrollDOM.scrollTop;
         old.setState(createState(text));
+        onReviewChange?.();
         old.dispatch({ selection: { anchor: Math.min(selection.anchor, text.length), head: Math.min(selection.head, text.length) }, effects: previewOnlyMode.of(previewOnly) });
         old.scrollDOM.scrollTop = scroll; formatting.toolbar = null;
         headings = []; outlinePosition = -1; onOutlinePosition?.(-1); scheduleOutline();
