@@ -1,4 +1,5 @@
 import { checkCharacters } from './blogCharacterChecks.js';
+import { checkThemes } from './blogThemeChecks.js';
 import { checkNewPosts } from './blogNewPostChecks.js';
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
@@ -8,7 +9,7 @@ import App from '../../src/App.svelte';
 import { buildGraph } from '../../src/lib/workspace/graph.ts';
 import { BLOG_DIRECTORY } from '../../src/lib/workspace/navigation.ts';
 import { readProperties } from '../../src/lib/workspace/frontMatter.ts';
-import { templateProperties } from '../../src/lib/editor/previewProperties.ts';
+import { propertiesSource, templateProperties } from '../../src/lib/editor/previewProperties.ts';
 import { defaults } from '../../src/lib/workspace/settings.ts';
 import '../../src/app.css';
 const checks = [],
@@ -36,6 +37,15 @@ window.run = async () => {
     if (!response.ok || result?.error) throw result?.error ?? Error('記事の確認に失敗しました。');
     return result;
   };
+  let themesPrepared = false;
+  const themeRequest = async (input) => {
+    const response = await fetch('./blog-themes', { method: 'POST', body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok || result?.error) throw result?.error ?? Error('テーマの確認に失敗しました。');
+    if (input.action === 'prepare') themesPrepared = true;
+    if (input.action === 'reset') themesPrepared = false;
+    return result;
+  };
   const characterRequest = async (input) => {
     const response = await fetch('./blog-characters', { method: 'POST', body: JSON.stringify(input) });
     const result = await response.json();
@@ -55,12 +65,14 @@ window.run = async () => {
     const data = await response.json(),
       { root, entries, generic, documents } = data;
     originalTheme = await (await fetch('./blog-theme')).json();
+    await themeRequest({ action: 'prepare' });
     const article = documents.find((doc) => doc.text.startsWith('---'));
     if (!article) throw Error('ブログのコピーにFront Matter付きの記事がありません');
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
     const originals = new Map(files);
     let characterSaves = 0;
     const confirmations = [];
+    const confirmationAnswers = [];
     const saves = [],
       openedLinks = [],
       cardRequests = [];
@@ -90,7 +102,11 @@ window.run = async () => {
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
-        if (command === 'plugin:dialog|message') { confirmations.push(args.message); return args.buttons.OkCancelCustom[0]; }
+        if (command === 'plugin:dialog|message') { confirmations.push(args.message); return args.buttons.OkCancelCustom[confirmationAnswers.shift() === false ? 1 : 0]; }
+        if (command.startsWith('blog_themes_')) {
+          if (!blogMode || args.project !== root) throw { code: 'WORKSPACE', message: '開いているブログが変わりました。' };
+          return themeRequest({ ...args, action: command.slice('blog_themes_'.length) });
+        }
         if (command === 'blog_characters_image_baseline') return characterRequest({ action: 'imageBaseline', path: args.path });
         if (command === 'blog_characters_save') {
           const result = await characterRequest({ action: 'save', request: args.request });
@@ -597,6 +613,19 @@ window.run = async () => {
     [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'ブログ').click();
     await tick();
     await checkCharacters({ check, until, tick, view, replace, before, request: characterRequest, confirmations, saveCount: () => characterSaves });
+    // テーマの確認では短い記事を使い、見出しと検索対象の本文を同じ画面に描く。
+    const themeSelection = view.state.selection, themeScrollTop = view.scrollDOM.scrollTop;
+    try {
+      replace(sampleHeader);
+      view.dispatch({ selection: { anchor: sampleHeader.indexOf('本文です。') }, effects: propertiesSource.of(false) });
+      view.scrollDOM.scrollTop = 0;
+      await until(() => document.querySelector('.article-header h1')?.textContent.includes('見出しの確認'));
+      await checkThemes({ check, until, tick, view, request: themeRequest, writeTheme, changed, originalTheme, confirmations, confirmationAnswers });
+    } finally {
+      replace(before);
+      view.dispatch({ selection: themeSelection });
+      view.scrollDOM.scrollTop = themeScrollTop;
+    }
     const toggle = [...document.querySelectorAll('.check-row')]
       .find((label) => label.textContent.trim() === 'ブログの機能')
       .querySelector('input');
@@ -730,6 +759,7 @@ window.run = async () => {
       'ブログの機能がオフの時はブログの設定を押せない',
       blogLabels.every((label) => blogToggle(label).disabled) && document.querySelector('.manage-characters').disabled,
     );
+    check('汎用のモードではブログのテーマを選べない', document.querySelector('.blog-themes select').disabled && document.querySelector('.blog-themes button').disabled);
     check(
       'ブログの機能をオフにしても個別の値を保つ',
       !blogToggle('キャラクターの吹き出し').checked &&
@@ -753,6 +783,8 @@ window.run = async () => {
     );
     await until(() => host.hasAttribute('data-blog-theme'));
     check('オンで本文もブログの配色へ戻る', getComputedStyle(content).color === 'rgb(30, 42, 63)');
+    await until(() => !document.querySelector('.blog-themes select').disabled);
+    check('ブログのモードへ戻すとテーマを選べる', !document.querySelector('.blog-themes select').disabled);
     check(
       'ブログの機能をオンに戻すとブログの設定を押せる',
       blogLabels.every((label) => !blogToggle(label).disabled) && !document.querySelector('.manage-characters').disabled,
@@ -774,6 +806,7 @@ window.run = async () => {
     return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
   } finally {
     await postRequest({ action: 'reset' });
+    if (themesPrepared) await themeRequest({ action: 'reset' });
     if (charactersPrepared) await characterRequest({ action: 'reset' });
     if (originalTheme) {
       await writeTheme('src/theme/theme.css', originalTheme.theme);

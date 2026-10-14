@@ -5,6 +5,8 @@ mod blog_characters;
 #[allow(dead_code)]
 #[path = "../src/blog_posts.rs"]
 mod blog_posts;
+#[path = "../src/blog_themes.rs"]
+mod blog_themes;
 #[allow(dead_code)]
 #[path = "../src/files.rs"]
 mod files;
@@ -45,6 +47,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let result = blog_posts::create(&root, input["date"].as_str().unwrap_or(""), input["text"].as_str().unwrap_or(""))
             .and_then(|entry| Ok(serde_json::json!({ "entry": entry, "document": files::open(&root, &entry.path)? })))
             .unwrap_or_else(|error| serde_json::json!({ "error": error }));
+        serde_json::to_writer(std::io::stdout(), &result)?;
+        return Ok(());
+    }
+    if std::env::args().nth(2).as_deref() == Some("--themes") {
+        let base = std::env::args().nth(3).ok_or("history path required")?;
+        let input: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
+        let baseline = input["baseline"].as_str().unwrap_or("");
+        let result = match input["action"].as_str().unwrap_or("") {
+            "read" => blog_themes::read(&root, std::path::Path::new(&base))
+                .map(|value| serde_json::to_value(value).unwrap()),
+            "apply" => blog_themes::apply(
+                &root,
+                std::path::Path::new(&base),
+                input["preset"].as_str().unwrap_or(""),
+                baseline,
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            "restore" => blog_themes::restore(
+                &root,
+                std::path::Path::new(&base),
+                input["id"].as_str().unwrap_or(""),
+                baseline,
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            "delete" => blog_themes::delete_custom(
+                &root,
+                std::path::Path::new(&base),
+                input["id"].as_str().unwrap_or(""),
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            _ => Err(files::Error::new("INVALID", "確認の操作がありません。")),
+        }
+        .unwrap_or_else(|error| serde_json::json!({ "error": error }));
         serde_json::to_writer(std::io::stdout(), &result)?;
         return Ok(());
     }

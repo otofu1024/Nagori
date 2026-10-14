@@ -49,6 +49,19 @@ async function newPostCommand(input) {
     child.stdin.end(JSON.stringify(input));
   });
 }
+let themeHistory;
+let themeBackup;
+async function themeCommand(input) {
+  if (!themeHistory) throw Error('テーマの確認を開始してください。');
+  return new Promise((resolve, reject) => {
+    const child = execFile('src-tauri/target/debug/examples/blog-workspace', [characterRoot, '--themes', themeHistory], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      if (error) reject(error);
+      else { try { resolve(JSON.parse(stdout)); } catch (reason) { reject(reason); } }
+    });
+    child.stdin.on('error', reject);
+    child.stdin.end(JSON.stringify(input));
+  });
+}
 async function characterCommand(input) {
   if (!characterTrash) throw Error('キャラクターの確認を開始してください。');
   return new Promise((resolve, reject) => {
@@ -111,6 +124,25 @@ const server = await createServer({
               if (body.length > 4 * 1024 * 1024) throw Error('確認の入力が大きすぎます。');
             }
             response.end(JSON.stringify(await newPostCommand(JSON.parse(body))));
+          } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ error: String(error) })); }
+        });
+        server.middlewares.use('/tests/wkwebview/blog-themes', async (request, response) => {
+          response.setHeader('Content-Type', 'application/json');
+          try {
+            let body = '';
+            for await (const chunk of request) { body += chunk; if (body.length > 64 * 1024) throw Error('確認の入力が大きすぎます。'); }
+            const input = JSON.parse(body);
+            if (input.action === 'prepare') {
+              if (themeHistory) throw Error('テーマの確認が実行中です。');
+              themeBackup = await readFile(join(characterRoot, 'src/theme/theme.css'));
+              themeHistory = await mkdtemp('/private/tmp/nagori-theme-history-');
+              response.end(JSON.stringify({ ready: true }));
+            } else if (input.action === 'reset') {
+              if (themeBackup) await writeFile(join(characterRoot, 'src/theme/theme.css'), themeBackup);
+              if (themeHistory) await rm(themeHistory, { recursive: true, force: true });
+              themeBackup = undefined; themeHistory = undefined;
+              response.end(JSON.stringify({ restored: true }));
+            } else response.end(JSON.stringify(await themeCommand(input)));
           } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ error: String(error) })); }
         });
         server.middlewares.use('/tests/wkwebview/blog-characters', async (request, response) => {

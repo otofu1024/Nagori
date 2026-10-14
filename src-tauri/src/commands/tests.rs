@@ -200,3 +200,22 @@ fn public_images_are_resolved_only_in_blog_mode() {
     )
     .is_err());
 }
+
+#[test]
+fn theme_requests_require_blog_mode_and_the_same_project() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(directory.path()).unwrap();
+    let project = root.to_str().unwrap();
+    let mut workspace = Workspace {
+        root: Some(root.clone()),
+        blog_mode: false,
+        watcher: None,
+    };
+    assert_eq!(theme_root(&workspace, project).unwrap_err().code, "BLOG");
+    workspace.blog_mode = true;
+    assert_eq!(theme_root(&workspace, project).unwrap(), root.as_path());
+    assert_eq!(
+        theme_root(&workspace, "/another/blog").unwrap_err().code,
+        "WORKSPACE"
+    );
+}
