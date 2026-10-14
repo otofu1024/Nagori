@@ -1,12 +1,16 @@
 <script lang="ts">
   import CharacterManager from './CharacterManager.svelte';
   import BlogThemes from './BlogThemes.svelte';
+  import ReviewSettings from './ReviewSettings.svelte';
+  import type { ReviewAi } from '../workspace/blogReview.ts';
   import Icon from './Icon.svelte';
   import { RANGES, TRASH_RETENTION_OPTIONS, type Settings, type TrashRetentionDays } from '../workspace/settings.ts';
   import { rangeFill } from '../workspace/rangeFill.ts';
 
   let {
     dialog = $bindable(),
+    availableReviewAis = [],
+    initialSection = null,
     settings,
     busy = false,
     visible = true,
@@ -20,6 +24,7 @@
     onClose,
   }: {
     dialog?: HTMLDialogElement;
+    availableReviewAis?: ReviewAi[]; initialSection?: 'blog' | null;
     settings: Settings;
     busy?: boolean;
     visible?: boolean;
@@ -42,6 +47,7 @@
     { id: 'trash', label: 'ゴミ箱' },
   ];
   let section = $state<Section>('display');
+  $effect(() => { if (visible && initialSection) section = initialSection; });
   let manager = $state<CharacterManager>();
   async function close() { if (section !== 'characters' || await manager?.canLeave()) dialog?.close(); }
   async function back() { if (await manager?.canLeave()) section = 'blog'; }
@@ -106,6 +112,7 @@
         <label class="check-row"><input type="checkbox" bind:checked={settings.typewriterMode} onchange={onChange} /> タイプライター表示</label>
         <label class="check-row"><input type="checkbox" bind:checked={settings.headingRule} onchange={onChange} /> 見出し1〜3の下線を表示</label>
       {:else if section === 'blog'}
+        <ReviewSettings {settings} available={availableReviewAis} active={visible} disabled={!settings.blogFeatures || busy} {onChange} />
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogFeatures} onchange={onChange} disabled={busy} /> ブログの機能</label>
         {#key project}<BlogThemes {project} {themeCss} active={visible} disabled={!blogMode || busy} onSaved={onThemeSaved} />{/key}
         <label class="check-row"><input type="checkbox" bind:checked={settings.blogArticleHeader} onchange={onChange} disabled={!settings.blogFeatures} /> 記事の見出し</label>

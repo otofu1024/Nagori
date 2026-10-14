@@ -52,6 +52,10 @@ pub struct Settings {
     pub blog_characters_enabled: bool,
     pub blog_body_theme: bool,
     pub blog_indent_on_enter: bool,
+    pub blog_review_ai: Option<String>,
+    pub blog_review_model: String,
+    pub blog_review_effort: String,
+    pub blog_review_models: BTreeMap<String, Vec<String>>,
     // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
     pub recent_opened_at: BTreeMap<String, u64>,
@@ -86,6 +90,10 @@ impl Default for Settings {
             blog_characters_enabled: true,
             blog_body_theme: true,
             blog_indent_on_enter: true,
+            blog_review_ai: None,
+            blog_review_model: String::new(),
+            blog_review_effort: String::new(),
+            blog_review_models: BTreeMap::new(),
             recent_opened_at: BTreeMap::new(),
         }
     }
