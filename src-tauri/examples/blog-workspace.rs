@@ -3,6 +3,9 @@
 #[path = "../src/blog_characters.rs"]
 mod blog_characters;
 #[allow(dead_code)]
+#[path = "../src/blog_posts.rs"]
+mod blog_posts;
+#[allow(dead_code)]
 #[path = "../src/files.rs"]
 mod files;
 #[allow(dead_code)]
@@ -37,6 +40,14 @@ fn character_command(
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::fs::canonicalize(std::env::args().nth(1).ok_or("blog path required")?)?;
+    if std::env::args().nth(2).as_deref() == Some("--new-post") {
+        let input: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
+        let result = blog_posts::create(&root, input["date"].as_str().unwrap_or(""), input["text"].as_str().unwrap_or(""))
+            .and_then(|entry| Ok(serde_json::json!({ "entry": entry, "document": files::open(&root, &entry.path)? })))
+            .unwrap_or_else(|error| serde_json::json!({ "error": error }));
+        serde_json::to_writer(std::io::stdout(), &result)?;
+        return Ok(());
+    }
     if std::env::args().nth(2).as_deref() == Some("--characters") {
         let base = std::env::args().nth(3).ok_or("trash path required")?;
         let input = serde_json::from_reader(std::io::stdin())?;

@@ -27,6 +27,28 @@ const extract = (documents) =>
 const characterRoot = '/private/tmp/nagori-stage2-blog';
 let characterTrash;
 let characterBackup;
+const createdPosts = new Set();
+async function newPostCommand(input) {
+  if (input.action === 'reset') {
+    for (const path of createdPosts) await rm(join(characterRoot, path, '..'), { recursive: true });
+    createdPosts.clear();
+    return { restored: true };
+  }
+  return new Promise((resolve, reject) => {
+    const child = execFile('src-tauri/target/debug/examples/blog-workspace', [characterRoot, '--new-post'], (error, stdout) => {
+      if (error) reject(error);
+      else {
+        try {
+          const result = JSON.parse(stdout);
+          if (result.entry) createdPosts.add(result.entry.path);
+          resolve(result);
+        } catch (reason) { reject(reason); }
+      }
+    });
+    child.stdin.on('error', reject);
+    child.stdin.end(JSON.stringify(input));
+  });
+}
 async function characterCommand(input) {
   if (!characterTrash) throw Error('キャラクターの確認を開始してください。');
   return new Promise((resolve, reject) => {
@@ -80,6 +102,17 @@ const server = await createServer({
     {
       name: 'ime-check',
       configureServer(server) {
+        server.middlewares.use('/tests/wkwebview/blog-new-post', async (request, response) => {
+          response.setHeader('Content-Type', 'application/json');
+          try {
+            let body = '';
+            for await (const chunk of request) {
+              body += chunk;
+              if (body.length > 4 * 1024 * 1024) throw Error('確認の入力が大きすぎます。');
+            }
+            response.end(JSON.stringify(await newPostCommand(JSON.parse(body))));
+          } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ error: String(error) })); }
+        });
         server.middlewares.use('/tests/wkwebview/blog-characters', async (request, response) => {
           response.setHeader('Content-Type', 'application/json');
           try {
@@ -253,7 +286,7 @@ const server = await createServer({
       },
     },
   ],
-  server: { host: '127.0.0.1', port: 1438, strictPort: true },
+  server: { host: '127.0.0.1', port: Number(process.env.WKWEBVIEW_PORT ?? 1438), strictPort: true },
 });
 await server.listen();
-console.log('WKWebView確認ページ http://127.0.0.1:1438/tests/wkwebview/ime-check');
+console.log(`WKWebView確認ページ http://127.0.0.1:${server.config.server.port}/tests/wkwebview/ime-check`);

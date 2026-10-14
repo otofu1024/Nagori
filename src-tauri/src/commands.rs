@@ -430,6 +430,21 @@ pub(crate) async fn document_save_as(
     .await
 }
 #[tauri::command]
+pub(crate) async fn blog_post_create(
+    state: State<'_, Backend>,
+    expected_root: String,
+    date: String,
+    text: String,
+) -> Result<Entry> {
+    work(&state, move |w| {
+        if !w.blog_mode || w.root()? != Path::new(&expected_root) {
+            return Err(Error::new("WORKSPACE", "ブログのフォルダが切り替わりました。"));
+        }
+        crate::blog_posts::create(w.root()?, &date, &text)
+    })
+    .await
+}
+#[tauri::command]
 pub(crate) async fn file_create(
     state: State<'_, Backend>,
     path: String,

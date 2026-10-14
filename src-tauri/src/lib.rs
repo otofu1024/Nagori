@@ -1,6 +1,7 @@
 #[cfg(target_os = "macos")]
 mod apple_quit;
 mod blog_characters;
+mod blog_posts;
 mod cli;
 mod commands;
 mod files;
@@ -65,6 +66,7 @@ pub fn run() {
             commands::document_save,
             commands::document_save_as,
             commands::file_create,
+            commands::blog_post_create,
             commands::file_rename,
             commands::file_move,
             commands::file_trash,

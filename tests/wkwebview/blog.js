@@ -1,4 +1,5 @@
 import { checkCharacters } from './blogCharacterChecks.js';
+import { checkNewPosts } from './blogNewPostChecks.js';
 import { mount, tick } from 'svelte';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -27,6 +28,13 @@ window.show = async () => {};
 window.run = async () => {
   let originalTheme;
   let charactersPrepared = false;
+  const created = [];
+  const postRequest = async (input) => {
+    const response = await fetch('./blog-new-post', { method: 'POST', body: JSON.stringify(input) });
+    const result = await response.json();
+    if (!response.ok || result?.error) throw result?.error ?? Error('記事の確認に失敗しました。');
+    return result;
+  };
   const characterRequest = async (input) => {
     const response = await fetch('./blog-characters', { method: 'POST', body: JSON.stringify(input) });
     const result = await response.json();
@@ -117,6 +125,15 @@ window.run = async () => {
           return;
         }
         if (command === 'workspace_blog_config') return blogMode ? data.config : null;
+        if (command === 'blog_post_create') {
+          const result = await postRequest(args);
+          created.push(result);
+          entries.push(result.entry);
+          generic.push(result.entry);
+          files.set(result.entry.path, result.document.text);
+          originals.set(result.entry.path, result.document.baseline);
+          return result.entry;
+        }
         if (command === 'workspace_blog_theme') return blogMode ? (await fetch('./blog-theme')).json() : null;
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return blogMode ? [...entries, ...(charactersPrepared ? [{ path: 'src/content/blog/nagori-character-check.md', name: 'nagori-character-check.md', kind: 'markdown' }] : [])] : generic;
@@ -720,6 +737,7 @@ window.run = async () => {
     check('ブログの機能をオフにしても字下げの値を保つ', !blogToggle(indentLabel).checked);
     check('オフで本文もNagoriの配色へ戻る', getComputedStyle(content).color === 'rgb(219, 230, 244)');
     check('オフで汎用の一覧と自由入力へ戻る', !settings.blogFeatures && !!document.querySelector('.nagori-property-key-input'));
+    check('ブログのモードでない時は新しい記事ボタンを出さない', !document.querySelector('button[aria-label="新しい記事"]'));
     check(
       '切り替えでエディタと本文を保つ',
       view === EditorView.findFromDOM(document.querySelector('.cm-editor')) && view.state.doc.toString() === before,
@@ -749,10 +767,12 @@ window.run = async () => {
       '元のコピーの中身を変える保存がない',
       saves.every((save) => save.text === save.baseline),
     );
+    await checkNewPosts({ check, until, config: data.config, documents: await window.__TAURI_INTERNALS__.invoke('workspace_graph_documents'), created });
     return JSON.stringify({ pass: checks.every((check) => check.pass) && !errors.length, checks, errors, root });
   } catch (error) {
     return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
   } finally {
+    await postRequest({ action: 'reset' });
     if (charactersPrepared) await characterRequest({ action: 'reset' });
     if (originalTheme) {
       await writeTheme('src/theme/theme.css', originalTheme.theme);

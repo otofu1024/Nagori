@@ -1,0 +1,29 @@
+[
+  {
+    "title": "タグありの記事",
+    "description": "短い説明",
+    "category": "daily",
+    "tags": [
+      "日記",
+      "Astro"
+    ],
+    "markdown": "---\ntitle: \"タグありの記事\"\n# 表紙タイトルを手動で改行したい場合だけ使用\n# coverTitleLines:\n#   - \"1行目\"\n#   - \"2行目\"\ndescription: \"短い説明\"\npublishedAt: 2026-10-14\ncategory: daily\ntags:\n  - \"日記\"\n  - \"Astro\"\ndraft: false\n---\n\nここから本文を書きます。\n"
+  },
+  {
+    "title": "タグなしの記事",
+    "description": "タグは空です。",
+    "category": "tech",
+    "tags": [],
+    "markdown": "---\ntitle: \"タグなしの記事\"\n# 表紙タイトルを手動で改行したい場合だけ使用\n# coverTitleLines:\n#   - \"1行目\"\n#   - \"2行目\"\ndescription: \"タグは空です。\"\npublishedAt: 2026-10-14\ncategory: tech\ntags: []\ndraft: false\n---\n\nここから本文を書きます。\n"
+  },
+  {
+    "title": "記号 \"引用\" \\ : # 😀",
+    "description": "説明 \"引用\" \\ # :",
+    "category": "review",
+    "tags": [
+      "記号 \"引用\"",
+      "C:\\notes"
+    ],
+    "markdown": "---\ntitle: \"記号 \\\"引用\\\" \\\\ : # 😀\"\n# 表紙タイトルを手動で改行したい場合だけ使用\n# coverTitleLines:\n#   - \"1行目\"\n#   - \"2行目\"\ndescription: \"説明 \\\"引用\\\" \\\\ # :\"\npublishedAt: 2026-10-14\ncategory: review\ntags:\n  - \"記号 \\\"引用\\\"\"\n  - \"C:\\\\notes\"\ndraft: false\n---\n\nここから本文を書きます。\n"
+  }
+]
