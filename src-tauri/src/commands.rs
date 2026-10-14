@@ -295,6 +295,75 @@ pub(crate) async fn blog_characters_image_baseline(
     })
     .await
 }
+fn theme_root<'a>(workspace: &'a Workspace, project: &str) -> Result<&'a Path> {
+    if !workspace.blog_mode {
+        return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
+    }
+    let root = workspace.root()?;
+    if root != Path::new(project) {
+        return Err(Error::new("WORKSPACE", "開いているブログが変わりました。"));
+    }
+    Ok(root)
+}
+fn theme_history_base(app: &tauri::AppHandle) -> Result<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("blog-theme-history"))
+        .map_err(|error| Error::new("IO", error.to_string()))
+}
+#[tauri::command]
+pub(crate) async fn blog_themes_read(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    project: String,
+) -> Result<crate::blog_themes::Snapshot> {
+    let base = theme_history_base(&app)?;
+    work(&state, move |w| {
+        crate::blog_themes::read(theme_root(w, &project)?, &base)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn blog_themes_apply(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    project: String,
+    preset: String,
+    baseline: String,
+) -> Result<crate::blog_themes::Saved> {
+    let base = theme_history_base(&app)?;
+    work(&state, move |w| {
+        crate::blog_themes::apply(theme_root(w, &project)?, &base, &preset, &baseline)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn blog_themes_delete(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    project: String,
+    id: String,
+) -> Result<crate::blog_themes::Snapshot> {
+    let base = theme_history_base(&app)?;
+    work(&state, move |w| {
+        crate::blog_themes::delete_custom(theme_root(w, &project)?, &base, &id)
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn blog_themes_restore(
+    app: tauri::AppHandle,
+    state: State<'_, Backend>,
+    project: String,
+    id: String,
+    baseline: String,
+) -> Result<crate::blog_themes::Saved> {
+    let base = theme_history_base(&app)?;
+    work(&state, move |w| {
+        crate::blog_themes::restore(theme_root(w, &project)?, &base, &id, &baseline)
+    })
+    .await
+}
 #[tauri::command]
 pub(crate) async fn blog_characters_save(
     app: tauri::AppHandle,

@@ -3,6 +3,9 @@
 #[path = "../src/blog_characters.rs"]
 mod blog_characters;
 #[allow(dead_code)]
+#[path = "../src/blog_themes.rs"]
+mod blog_themes;
+#[allow(dead_code)]
 #[path = "../src/files.rs"]
 mod files;
 #[allow(dead_code)]
@@ -37,6 +40,39 @@ fn character_command(
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::fs::canonicalize(std::env::args().nth(1).ok_or("blog path required")?)?;
+    if std::env::args().nth(2).as_deref() == Some("--themes") {
+        let base = std::env::args().nth(3).ok_or("history path required")?;
+        let input: serde_json::Value = serde_json::from_reader(std::io::stdin())?;
+        let baseline = input["baseline"].as_str().unwrap_or("");
+        let result = match input["action"].as_str().unwrap_or("") {
+            "read" => blog_themes::read(&root, std::path::Path::new(&base))
+                .map(|value| serde_json::to_value(value).unwrap()),
+            "apply" => blog_themes::apply(
+                &root,
+                std::path::Path::new(&base),
+                input["preset"].as_str().unwrap_or(""),
+                baseline,
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            "restore" => blog_themes::restore(
+                &root,
+                std::path::Path::new(&base),
+                input["id"].as_str().unwrap_or(""),
+                baseline,
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            "delete" => blog_themes::delete_custom(
+                &root,
+                std::path::Path::new(&base),
+                input["id"].as_str().unwrap_or(""),
+            )
+            .map(|value| serde_json::to_value(value).unwrap()),
+            _ => Err(files::Error::new("INVALID", "確認の操作がありません。")),
+        }
+        .unwrap_or_else(|error| serde_json::json!({ "error": error }));
+        serde_json::to_writer(std::io::stdout(), &result)?;
+        return Ok(());
+    }
     if std::env::args().nth(2).as_deref() == Some("--characters") {
         let base = std::env::args().nth(3).ok_or("trash path required")?;
         let input = serde_json::from_reader(std::io::stdin())?;

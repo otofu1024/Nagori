@@ -1168,10 +1168,13 @@
   }}
 />
 <SettingsDialog
+  visible={settingsOpen}
   {busy}
   {blogMode}
   {project}
   onCharactersSaved={async () => { releaseImages(); editor?.refreshImages(); await refreshBlogTheme(); }}
+  themeCss={blogTheme?.theme ?? null}
+  onThemeSaved={refreshBlogTheme}
   bind:dialog={settingsDialog}
   settings={settings}
   onChange={applySettings}
