@@ -1,3 +1,4 @@
+import { createReviewMock, checkReview } from './blogReviewChecks.js';
 import { checkCharacters } from './blogCharacterChecks.js';
 import { checkThemes } from './blogThemeChecks.js';
 import { checkNewPosts } from './blogNewPostChecks.js';
@@ -92,6 +93,7 @@ window.run = async () => {
       }
       return [...children.values()];
     };
+    const reviewMock = createReviewMock();
     window.isTauri = true;
     window.__TAURI_INTERNALS__ = {
       transformCallback(callback) {
@@ -102,6 +104,7 @@ window.run = async () => {
         callbacks.delete(id);
       },
       async invoke(command, args = {}) {
+        if (command.startsWith('blog_review_')) return reviewMock.invoke(command, args);
         if (command === 'plugin:dialog|message') { confirmations.push(args.message); return args.buttons.OkCancelCustom[confirmationAnswers.shift() === false ? 1 : 0]; }
         if (command.startsWith('blog_themes_')) {
           if (!blogMode || args.project !== root) throw { code: 'WORKSPACE', message: '開いているブログが変わりました。' };
@@ -199,7 +202,8 @@ window.run = async () => {
     const before = view.state.doc.toString();
     const content = document.querySelector('.cm-content'),
       host = document.querySelector('.editor-host');
-    await until(() => host.hasAttribute('data-blog-theme'));
+    // 属性の反映とテーマのstyleの追加は別なので、配色の反映まで待つ。
+    await until(() => host.hasAttribute('data-blog-theme') && getComputedStyle(host).backgroundColor === 'rgb(255, 255, 255)', '本文の明るい配色');
     check(
       'ダークモードでも本文だけブログの明るい配色',
       getComputedStyle(host).backgroundColor === 'rgb(255, 255, 255)' &&
@@ -608,6 +612,7 @@ window.run = async () => {
       '本番の抽出とグラフでpostsとwikiを解決',
       buildGraph(extracted, true).edges.length === 2 && buildGraph(extracted).edges.length === 1,
     );
+    await checkReview({ check, until, view, mock: reviewMock });
     document.querySelector('.settings-button').click();
     await until(() => document.querySelector('.settings-dialog[open]'));
     [...document.querySelectorAll('.settings-nav button')].find((button) => button.textContent === 'ブログ').click();

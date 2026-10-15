@@ -6,7 +6,8 @@ import { buildGraph } from '../../src/lib/workspace/graph.ts';
 import { defaults } from '../../src/lib/workspace/settings.ts';
 import '../../src/app.css';
 const errors = [],
-  checks = [];
+  checks = [],
+  diagnostics = [];
 window.addEventListener('error', (event) => errors.push(event.message));
 window.addEventListener('unhandledrejection', (event) => errors.push(String(event.reason)));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -194,10 +195,11 @@ window.run = async () => {
     // Synthetic pointer events have no native pointer capture.
     canvas.setPointerCapture = () => {};
     canvas.hasPointerCapture = () => false;
-    const pointer = (type, point) =>
-      canvas.dispatchEvent(
-        new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientX: bounds.left + point.x, clientY: bounds.top + point.y }),
-      );
+    const pointer = (type, point) => {
+      const event = new PointerEvent(type, { bubbles: true, pointerId: 1, button: 0, clientX: bounds.left + point.x, clientY: bounds.top + point.y });
+      canvas.dispatchEvent(event);
+      diagnostics.push({ type, point, bounds: canvas.getBoundingClientRect().toJSON(), pixelWidth: canvas.width, pixelHeight: canvas.height, ratio: window.devicePixelRatio, clientX: event.clientX, clientY: event.clientY, title: canvas.title, draws });
+    };
     // 最初のノートはほかのすべての点とつながるので、つながりの少ない「散歩」でホバーを確かめる
     const walk = painted.nodes[expected.nodes.findIndex((item) => item.path === '日記/散歩.md')];
     pointer('pointermove', walk);
@@ -297,10 +299,11 @@ window.run = async () => {
       nodes: expected.nodes.length,
       edges: expected.edges.length,
       draws,
+      diagnostics,
     });
   } catch (error) {
     errors.push(String(error));
-    return JSON.stringify({ pass: false, checks, errors });
+    return JSON.stringify({ pass: false, checks, errors, diagnostics });
   }
 };
 window.ready = true;

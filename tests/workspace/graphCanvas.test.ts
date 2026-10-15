@@ -108,6 +108,13 @@ test('canvas settles, retains positions, handles drag and cursor zoom, and relea
     const draws = graph.inspect().draws;
     step(10);
     assert.equal(graph.inspect().draws, draws);
+    // 自動保存の再取得と同じ内容を渡しても、位置と描画の停止を保つ。
+    const settled = graph.inspect().nodes;
+    graph.update(JSON.parse(JSON.stringify(data)));
+    assert.equal(graph.inspect().running, false);
+    step(500);
+    assert.deepEqual(graph.inspect().nodes, settled);
+    assert.equal(graph.inspect().draws, draws);
     const previous = graph.inspect().nodes;
     graph.update({ ...data, nodes: [...data.nodes, { id: 'tag:added', kind: 'tag', label: '#added', degree: 0 }] });
     assert.deepEqual(

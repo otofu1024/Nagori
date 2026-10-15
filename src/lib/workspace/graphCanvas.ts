@@ -33,6 +33,7 @@ export function graphCanvas(canvas: HTMLCanvasElement, open: (path: string) => v
   let nodes: Node[] = [],
     edges: Edge[] = [],
     neighbors = new Map<string, Set<string>>();
+  let dataKey = '';
   let active = false,
     current = '',
     hovered: Node | undefined,
@@ -205,6 +206,10 @@ export function graphCanvas(canvas: HTMLCanvasElement, open: (path: string) => v
     else lastFrame = 0;
   }
   function update(data: GraphData) {
+    // 保存で索引が更新されても、点と線が同じなら配置の計算を再開しない。
+    const key = JSON.stringify(data);
+    if (key === dataKey) return;
+    dataKey = key;
     const previous = new Map(nodes.map((node) => [node.id, node]));
     nodes = data.nodes.map((node) => Object.assign(previous.get(node.id) ?? { opacity: 1 }, node));
     const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -397,6 +402,7 @@ export function graphCanvas(canvas: HTMLCanvasElement, open: (path: string) => v
       simulation.stop().force('link', null).nodes([]);
       nodes = [];
       edges = [];
+      dataKey = '';
       neighbors.clear();
       drag = undefined;
       hover();

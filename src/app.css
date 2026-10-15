@@ -262,7 +262,7 @@ main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: flex; 
 /* 押されたスターは塗りつぶして示す */
 .star-toggle { display: grid; place-items: center; padding: 6px 8px; }
 .star-toggle[aria-pressed="true"] svg { fill: currentColor; }
-.outline-toggle { display: grid; place-items: center; padding: 6px; }
+.outline-toggle, .review-toggle { display: grid; place-items: center; padding: 6px; }
 .content { flex: 1; min-height: 0; overflow: hidden; position: relative; }
 .document-body { display: flex; height: 100%; min-height: 0; }
 .editor-column { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }

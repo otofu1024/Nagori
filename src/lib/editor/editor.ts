@@ -4,6 +4,9 @@ export type FormatKind = 'bold' | 'italic' | 'strike' | 'code' | 'link';
 export type EditorContextState = { plain: boolean; editable: boolean; block: boolean; heading: boolean; revision: number };
 export type EditorContextMenu = EditorContextState & { x: number; y: number; position: number };
 export interface EditorApi {
+  reviewSnapshot(): import('../workspace/blogReview.ts').ReviewSnapshot;
+  applyReview(expected: string, changes: import('../workspace/frontMatter.ts').TextChange[], dismiss?: string): boolean;
+  selectReviewRange(from: number, to: number): void;
   replaceText(text: string): void;
   insertText(text: string): void;
   focus(): void;
