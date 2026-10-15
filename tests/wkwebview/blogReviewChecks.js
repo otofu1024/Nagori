@@ -1,4 +1,5 @@
 import { Transaction } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { undo, redo } from '@codemirror/commands';
 import { readProperties } from '../../src/lib/workspace/frontMatter.ts';
 
@@ -69,7 +70,7 @@ export async function checkReview({ check, until, view, mock }) {
     await frame(); check('スクロールバーが出ても結果の文字の色と太さは変わらない', stableResults());
     await new Promise(resolve => setTimeout(resolve, 1300));
     check('スクロールバーが消えても結果の文字の色と太さは変わらない', stableResults());
-    check('見つからない指摘は薄くして直せない', getComputedStyle(cards().at(-1)).opacity === '0.5' && cards().at(-1).querySelector('.review-correct').disabled);
+    check('見つからない指摘は普通の濃さと印で示し、直すだけ押せない', getComputedStyle(cards().at(-1)).opacity === '1' && cards().at(-1).querySelector('.review-missing-label')?.textContent === '本文で見つからない' && [...cards().at(-1).querySelectorAll('button')].every(button => button.disabled === button.classList.contains('review-correct')));
     check('案が空の確認は本文を削除しない', cards()[4].querySelector('.review-correct').disabled);
     cards()[0].querySelector('.review-diff').click(); await frame();
     check('差分を押すと本文の場所へ移って選ぶ', view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) === 'みなさんこんばんわ。');
@@ -126,11 +127,24 @@ export async function checkReview({ check, until, view, mock }) {
     document.querySelector('[aria-label="設定を閉じる"]').click(); mock.mode = 'answer'; await frame();
     check('右の欄はブログのテーマの色を使わない', getComputedStyle(panel()).color === getComputedStyle(root).color && getComputedStyle(panel()).backgroundColor === getComputedStyle(document.body).backgroundColor);
     window.reviewScreens = async (state = 'list', theme = 'light') => {
-      root.style.width = '1500px'; replace(sample); document.documentElement.dataset.theme = theme;
+      root.style.width = '1500px';
       if (!panel()) document.querySelector('.review-toggle').click(); await until(panel);
-      if (!button('添削する')) { button('添削').click(); await frame(); }
-      if (state === 'running') await run('pending'); else { await run('answer'); if (state === 'diff') { cards().filter(card => card.querySelector('.review-kind').textContent !== '読みやすさ').forEach(card => card.querySelector('.review-actions button:last-child').click()); await frame(); } }
-      return stableResults();
+      if (button('取り消す')) { button('取り消す').click(); await until(() => !mock.pendingCount && !button('取り消す'), '画面確認の取り消し'); }
+      button('添削').click(); await frame();
+      // 記事を開き直した後も、今画面にある本文を差し替える。
+      const currentView = EditorView.findFromDOM(document.querySelector('.cm-editor'));
+      currentView.dispatch({ changes: { from: 0, to: currentView.state.doc.length, insert: sample }, selection: { anchor: sample.length }, annotations: Transaction.addToHistory.of(false) });
+      const themeLabel = theme === 'dark' ? 'ダークモードに切り替える' : 'ライトモードに切り替える';
+      document.querySelector(`[aria-label="${themeLabel}"]`)?.click();
+      await until(() => document.documentElement.dataset.theme === theme, '画面確認の配色'); await frame();
+      await until(() => button('添削する') && !button('添削する').disabled, '画面確認の実行前');
+      if (state === 'running') { await run('pending'); return !!button('取り消す') && !panel().querySelector('.review-results').textContent.trim(); }
+      await run('answer');
+      if (state === 'diff') {
+        // 各カードの消去を反映してから次を消す。
+        for (const card of cards().filter(card => card.querySelector('.review-kind').textContent !== '読みやすさ')) { card.querySelector('.review-actions button:last-child').click(); await frame(); }
+      }
+      return stableResults() && currentView.state.doc.toString() === sample && (state === 'diff' ? cards().length === 1 && !panel().querySelector('.review-missing') : cards().length === 6 && panel().querySelectorAll('.review-missing').length === 1);
     };
     root.style.width = '850px'; await until(() => !panel(), '狭い時の添削'); check('幅が足りない時は目次と同じ仕組みで隠す', !panel());
     root.style.width = '1500px'; await until(panel, '再表示'); document.querySelector('.outline-toggle').click(); await frame(); check('目次へ切り替えられる', !panel());

@@ -110,7 +110,8 @@
             {@const diff = reviewDiff(issue.quote, confirmation ? issue.quote : issue.replacement)}
             <li class="review-card" class:review-missing={!!location.reason}>
               <span class="review-kind" class:error-kind={issue.kind === '誤り'} class:variant-kind={issue.kind === '表記ゆれ'}>{issue.kind}</span>
-              <button class="review-diff" disabled={disabled || !!location.reason} title={location.reason || undefined} onclick={() => select(index)}>{diff.prefix}{#if diff.removed}<del>{diff.removed}</del>{/if}{#if diff.added}<ins>{diff.added}</ins>{/if}{diff.suffix}</button>
+              {#if location.reason}<span class="review-missing-label">本文で見つからない</span>{/if}
+              <button class="review-diff" {disabled} title={location.reason || undefined} onclick={() => select(index)}>{diff.prefix}{#if diff.removed}<del>{diff.removed}</del>{/if}{#if diff.added}<ins>{diff.added}</ins>{/if}{diff.suffix}</button>
               <p class="review-reason" title={issue.reason}>{issue.reason}</p>
               <div class="review-actions"><button class="review-correct" disabled={disabled || !!location.reason || confirmation} onclick={() => correct(index)}>直す</button><button disabled={disabled} onclick={() => ignore(index)}>無視</button></div>
             </li>
@@ -158,7 +159,7 @@
   .review-actions { display: flex; justify-content: flex-end; gap: 7px; }
   .review-actions button { border: 1px solid var(--border); padding: 4px 10px; border-radius: 7px; font-size: 12px; }
   .review-actions .review-correct { color: var(--accent); border-color: var(--accent); }
-  .review-missing { opacity: 0.5; }
+  .review-missing-label { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--muted); }
   h3 { font-size: 12px; font-weight: 400; color: var(--muted); margin: 10px 0; }
   .review-suggestions { margin-bottom: 18px; }
   .review-suggestions button { border: 1px solid var(--border); border-radius: 10px; width: 100%; padding: 10px; text-align: left; color: var(--text); font-weight: 400; line-height: 1.8; }
