@@ -930,6 +930,17 @@
   });
 </script>
 
+{#snippet sidebarToggle()}
+  <button
+    class="sidebar-toggle"
+    aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+    title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+    aria-controls="file-sidebar"
+    aria-expanded={sidebarVisible}
+    onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" size={17} /></button
+  >
+{/snippet}
+
 <svelte:window onkeydown={keydown} ondragover={preventFileNavigation} ondrop={preventFileNavigation} />
 <div
   class="app-shell"
@@ -967,14 +978,6 @@
           void persist();
         }}><Icon name={theme === 'dark' ? 'moon' : 'sun'} /></button
       >
-      <button
-        class="icon-button"
-        aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        aria-controls="file-sidebar"
-        aria-expanded={sidebarVisible}
-        onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" /></button
-      >
     </div>
   </header>
   <aside id="file-sidebar" class="sidebar" aria-label="ファイルと設定" hidden={!sidebarVisible}>
@@ -998,6 +1001,8 @@
             void persist();
           }} />
         {/if}
+        <span class="sidebar-divider" aria-hidden="true"></span>
+        {@render sidebarToggle()}
       </div>
     </div>
     {#if project}
@@ -1080,6 +1085,7 @@
   <main>
     <header class="editor-header">
       <div class="breadcrumb">
+        {#if !sidebarVisible}{@render sidebarToggle()}{/if}
         <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'Nagori'}</span
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
@@ -1087,10 +1093,10 @@
         {#if (current?.kind === 'markdown' || plain) && session}<span class="char-count">{chars.toLocaleString()} 文字</span>{#if !plain}<button
               class="mode-toggle"
               aria-pressed={previewOnly}
-              aria-label={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
-              title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
+              aria-label={previewOnly ? 'Previewをやめて編集する' : 'Previewで閲覧する'}
+              title={previewOnly ? 'Previewをやめて編集する' : 'Previewで閲覧する'}
               disabled={busy || composing}
-              onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+              onclick={togglePreview}>Preview</button
             >
             <button
               class="mode-toggle star-toggle"

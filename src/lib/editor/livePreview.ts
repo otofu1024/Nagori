@@ -101,8 +101,15 @@ export function livePreview(options: Options): Extension {
     Prec.highest(
       EditorView.domEventHandlers({
         keydown(event, view) {
-          if (!options.blogMode || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return false;
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return false;
           if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.isComposing || view.composing) return false;
+          if (view.state.field(previewOnlyField)) {
+            // 閲覧時はカーソルを動かさず、キーの繰り返しごとに本文を1行分動かす。
+            view.scrollDOM.scrollTop += view.defaultLineHeight * (event.key === 'ArrowDown' ? 1 : -1);
+            event.preventDefault();
+            return true;
+          }
+          if (!options.blogMode) return false;
           if (!enterBlogComponent(view, event.key === 'ArrowDown') && !stayOnNextLine(view, event.key === 'ArrowDown')) return false;
           event.preventDefault();
           return true;
