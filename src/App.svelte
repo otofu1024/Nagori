@@ -943,6 +943,14 @@
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36" />
       <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36" />
       <img class="brand-wordmark brand-wordmark-dark" src={nagoriWordmarkDark} alt="Nagori" width="108" height="36" />
+      <button
+        class="icon-button"
+        aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+        title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+        aria-controls="file-sidebar"
+        aria-expanded={sidebarVisible}
+        onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" /></button
+      >
     </div>
     <button class="quick-button" onclick={() => void quickOpen()} disabled={!project || busy} aria-label="ファイル名・パスで検索"
       ><Icon name="search" /> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button
@@ -966,14 +974,6 @@
           settings.theme = nextTheme(theme);
           void persist();
         }}><Icon name={theme === 'dark' ? 'moon' : 'sun'} /></button
-      >
-      <button
-        class="icon-button"
-        aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        aria-controls="file-sidebar"
-        aria-expanded={sidebarVisible}
-        onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" /></button
       >
     </div>
   </header>
@@ -1087,10 +1087,10 @@
         {#if (current?.kind === 'markdown' || plain) && session}<span class="char-count">{chars.toLocaleString()} 文字</span>{#if !plain}<button
               class="mode-toggle"
               aria-pressed={previewOnly}
-              aria-label={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
-              title={previewOnly ? 'Live Previewで編集する' : 'Previewで閲覧する'}
+              aria-label={previewOnly ? 'Previewをやめて編集する' : 'Previewで閲覧する'}
+              title={previewOnly ? 'Previewをやめて編集する' : 'Previewで閲覧する'}
               disabled={busy || composing}
-              onclick={togglePreview}>{previewOnly ? 'Preview' : 'Live Preview'}</button
+              onclick={togglePreview}>Preview</button
             >
             <button
               class="mode-toggle star-toggle"

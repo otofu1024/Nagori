@@ -28,18 +28,19 @@ other: {nested: true}
 本文の最初の行
 次の行
 `;
-let component, view, api, composing = false, timer, headings = [];
+let component, view, api, composing = false, timer, headings = [], outlinePosition = -1;
 const saves = [], errors = [];
 window.addEventListener('error', e => errors.push(e.message));
 window.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
 window.native = action => new Promise(resolve => { window.nativeDone = resolve; window.webkit.messageHandlers.ime.postMessage(action); });
 async function create(text = original, config = {}) {
   clearTimeout(timer); if (component) await unmount(component);
-  saves.length = 0; composing = false; headings = [];
+  saves.length = 0; composing = false; headings = []; outlinePosition = -1;
   component = mount(Editor, { target: document.querySelector('#host'), props: {
     initialText: text, documentKey: 'properties',
     onReady: value => api = value,
     onOutline: value => headings = value,
+    onOutlinePosition: value => outlinePosition = value,
     onChange: text => { clearTimeout(timer); if (!composing) timer = setTimeout(() => saves.push(text), 120); },
     onComposition: value => { composing = value; if (value) clearTimeout(timer); },
     onSave: () => {}, onLink: () => {}, resolveImage: async () => '', ...config,
@@ -56,7 +57,7 @@ function addChip(key, value) {
 }
 window.show = async () => { await create(); };
 window.run = async () => {
-  const checks = []; const check = (name, pass) => checks.push({ name, pass: !!pass });
+  const checks = []; const check = (name, pass, details) => checks.push({ name, pass: !!pass, ...(!pass && details ? { details } : {}) });
   await create();
   check('YAML順の3列の一覧', [...document.querySelectorAll('.nagori-property-row')].map(row => row.dataset.key).join(',') === 'title,description,publishedAt,category,tags,draft,authors,count,time,aliases,nullValue,other');
   check('本文の空行を表示だけ詰める', !view.contentDOM.querySelector('.cm-line')?.textContent?.includes('---') && view.state.doc.toString() === original);
@@ -133,6 +134,37 @@ window.run = async () => {
   await create(original, { previewOnly: true }); check('Previewは同じ見た目で読み取り専用', document.querySelector('.nagori-properties') && !document.querySelector('.nagori-properties input:not(:disabled)') && !document.querySelector('.nagori-property-add') && !document.querySelector('.nagori-property-chip button'));
   check('Previewでも直後の見出しと目次を表示', view.contentDOM.querySelector('.nagori-heading.nagori-h2')?.textContent.includes('Markdownを楽に編集したい') && headings[0]?.text === 'Markdownを楽に編集したい');
   check('Previewでも日付の値の前にカレンダーを出さない', !document.querySelector('[data-key="publishedAt"] .nagori-property-value svg'));
+  const longText = '---\ntitle: 閲覧の確認\n---\n\n' + Array.from({ length: 5 }, (_, index) => (index === 2 ? '節3\n===\n\n' : `## 節${index + 1}${index === 3 ? ' ##' : ''}\n\n`) + '段落の本文です。\n\n'.repeat(25)).join('');
+  const arrow = (key, options = {}) => view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
+  for (const blogMode of [false, true]) {
+    await create(longText, { previewOnly: true, blogMode }); api.focus(); await pause();
+    const selection = view.state.selection.main;
+    const start = view.scrollDOM.scrollTop;
+    arrow('ArrowDown'); await pause();
+    const down = view.scrollDOM.scrollTop;
+    check(`Previewの下矢印で約1行スクロール・blog=${blogMode}`, down > start && down - start <= view.defaultLineHeight * 2);
+    arrow('ArrowDown', { repeat: true }); await pause();
+    check(`Previewのキーリピートで続けてスクロール・blog=${blogMode}`, view.scrollDOM.scrollTop > down);
+    const beforeUp = view.scrollDOM.scrollTop; arrow('ArrowUp'); await pause();
+    check(`Previewの上矢印で上へスクロール・blog=${blogMode}`, view.scrollDOM.scrollTop < beforeUp);
+    check(`Previewの矢印で選択を動かさない・blog=${blogMode}`, view.state.selection.main.eq(selection));
+    for (const index of [3, 2]) {
+      api.goToHeading(index); await pause(250);
+      const bounds = view.scrollDOM.getBoundingClientRect();
+      const coords = [...view.contentDOM.querySelectorAll('.nagori-heading')].find(node => node.textContent.includes(`節${index + 1}`))?.getBoundingClientRect();
+      check(`Previewの目次で画面外の節${index + 1}へ移動・blog=${blogMode}`, coords && coords.top >= bounds.top && coords.bottom <= bounds.bottom && view.scrollDOM.scrollTop > down, { scrollTop: view.scrollDOM.scrollTop, selection: view.state.selection.main.head, bounds, start: view.coordsAtPos(headings[index].from), end: view.coordsAtPos(headings[index].lineEnd), heading: coords });
+      check(`Previewの目次移動で節${index + 1}を強調・blog=${blogMode}`, outlinePosition === index);
+    }
+    view.scrollDOM.scrollTop = 0; await pause(180);
+    check(`Previewのスクロールで今の節を更新・blog=${blogMode}`, outlinePosition < 2);
+    api.insertText('変更'); view.dispatch({ changes: { from: 0, insert: '変更' } });
+    check(`Previewで本文を書き換えない・blog=${blogMode}`, view.state.readOnly && view.contentDOM.contentEditable === 'false' && view.state.doc.toString() === longText);
+  }
+  await create('## 最初\n\n本文の一行\n\n次の行'); api.focus();
+  const liveSelection = view.state.selection.main.head; arrow('ArrowDown'); await pause();
+  check('Live Previewの下矢印はカーソルを動かす', view.state.selection.main.head > liveSelection);
+  arrow('ArrowUp'); await pause();
+  check('Live Previewの上矢印は見出しの行へカーソルを戻す', view.state.doc.lineAt(view.state.selection.main.head).number === 1);
   await create('## 普通のノート\n\n本文'); check('Front Matterがないノートは今までどおり', !document.querySelector('.nagori-properties') && view.contentDOM.querySelector('.nagori-heading.nagori-h2'));
   await create(); check('JavaScriptのエラーなし', !errors.length);
   return JSON.stringify({ pass: checks.every(check => check.pass), checks, errors, realIME: !!window.webkit?.messageHandlers?.ime });

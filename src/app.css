@@ -147,6 +147,7 @@ html.pane-resizing, html.pane-resizing * { cursor: col-resize !important; user-s
   width: fit-content;
 }
 .brand img { display: block; flex-shrink: 0; object-fit: contain; }
+.brand .icon-button { flex-shrink: 0; }
 .brand-icon { width: 36px; height: 36px; }
 .brand-wordmark { width: 108px; height: 36px; }
 .brand .brand-wordmark-dark { display: none; }
@@ -343,7 +344,7 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
 .quick-results p { font-size: 14px; color: var(--muted); padding: 12px; }
 .quick-hint { padding: 12px 20px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
 @media (max-width: 900px) {
-  .global-bar { grid-template-columns: 190px minmax(130px, 1fr) auto; gap: 14px; --header-side-padding: 16px; }
+  .global-bar { grid-template-columns: 200px minmax(130px, 1fr) auto; gap: 14px; --header-side-padding: 16px; }
   .global-actions { gap: 8px; }
   .local-label { display: none; }
   .status { min-width: 56px; }
@@ -351,7 +352,7 @@ dialog pre { font-size: 12px; white-space: pre-wrap; max-height: 160px; overflow
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 210px minmax(0, 1fr); }
   .app-shell.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
-  .global-bar { grid-template-columns: 170px minmax(120px, 1fr) auto; gap: 10px; }
+  .global-bar { grid-template-columns: 182px minmax(120px, 1fr) auto; gap: 10px; }
   .global-actions { gap: 6px; }
   .brand { gap: 8px; }
   .brand-icon { width: 30px; height: 30px; }

@@ -98,6 +98,14 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     // 選択変更後の通常の追従が終わってから、見出しを上端付近へ揃える。
     queueMicrotask(() => {
       if (view !== editor) return;
+      if (previewOnly) {
+        // Previewでは見出し記号が幅0なので、文字の矩形ではなく行の位置で移動する。
+        editor.requestMeasure({
+          read: () => editor.scrollDOM.scrollTop + editor.documentTop + editor.lineBlockAt(heading.from).top - editor.scrollDOM.getBoundingClientRect().top - 32,
+          write: top => { if (view === editor) { editor.scrollDOM.scrollTop = top; updateOutlinePosition(); } },
+        });
+        return;
+      }
       // 見出しの行は上側にpaddingがあるため、文字の位置から余白を多めに取る
       editor.dispatch({ effects: EditorView.scrollIntoView(heading.from, { y: 'start', yMargin: 32 }) });
       updateOutlinePosition();
