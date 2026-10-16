@@ -180,6 +180,26 @@ async fn work<T: Send + 'static>(
     .await
     .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
+
+#[tauri::command]
+pub(crate) async fn git_status(state: State<'_, Backend>) -> Result<Option<crate::git::Status>> {
+    work(&state, |workspace| crate::git::status(workspace.root()?)).await
+}
+
+#[tauri::command]
+pub(crate) async fn git_action(
+    state: State<'_, Backend>,
+    project: String,
+    action: crate::git::Action,
+) -> Result<crate::git::Status> {
+    work(&state, move |workspace| {
+        let root = workspace.root()?;
+        if root.to_str() != Some(project.as_str()) {
+            return Err(Error::new("GIT_CHANGED", "開いたフォルダが変わりました。もう一度選んでください。"));
+        }
+        crate::git::action(root, action)
+    }).await
+}
 // アプリ内のゴミ箱の置き場所。アプリのデータの場所の下に作り、ワークスペースには何も作らない
 fn trash_base(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
     app.path()

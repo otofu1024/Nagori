@@ -28,6 +28,8 @@ swift tests/wkwebview/probe.swift /private/tmp/nagori-graph-check http://127.0.0
 
 この確認は`npm test`の対象外です。`npm test`は`tests/editor/*.test.ts`と`tests/workspace/*.test.ts`だけを実行します。
 
+Gitの欄は`git.html`で確認します。右の欄が表示されるように、確認用ウィンドウの幅を1440px以上にしてください。`git.html?theme=dark`では最後の画面をダークで残します。Gitの応答はメモリ上の作り物を使い、一覧、ステージ、コミット前の保存、取り消しの確認、pushが断られた時のpullの選択、pull後の本文の読み直し、エラー、実行中の表示を確かめます。実際のGit操作はRustの単体テストで、`/private/tmp`の一時リポジトリとbareリモートを使って確かめます。
+
 グラフの確認ページは、配信開始時に`/private/tmp`へ作る小さなワークスペースを使います。既存のノートやブログのコピーは不要です。本文の抽出には本番と同じRustのコードを使います。
 
 メモリの確認には`graph-memory.html?phase=before`、`graph-memory.html?phase=open`、`graph-memory.html?phase=closed`を使います。300個の長い文書から抽出したデータで確認し、`sourceBytes`と`payloadBytes`、Canvasの描画領域を記録します。`hold=30`を付けると計測用に30秒待ちます。確認用ウィンドウは閉じるボタン、Esc、Command+Qで止められます。

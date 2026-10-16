@@ -17,6 +17,9 @@
   import GraphView from './lib/components/GraphView.svelte';
   import { buildGraph, type GraphArticle, type GraphData } from './lib/workspace/graph.ts';
   import Outline from './lib/components/Outline.svelte';
+  import GitPanel from './lib/components/GitPanel.svelte';
+  import RightPaneTabs from './lib/components/RightPaneTabs.svelte';
+  import { gitEntry, type GitAction, type GitStatus } from './lib/workspace/git.ts';
   import { COMPOSITION_SETTLE_LIMIT_MS } from './lib/editor/composition.ts';
   import PaneResizer from './lib/components/PaneResizer.svelte';
   import { SIDEBAR, OUTLINE, paneLayout } from './lib/workspace/paneWidths.ts';
@@ -96,6 +99,66 @@
   let editor: EditorApi | null = null;
   let outline = $state.raw<OutlineHeading[]>([]),
     outlinePosition = $state(-1);
+  let rightPane = $state<'outline' | 'git'>('outline');
+  let gitStatus = $state.raw<GitStatus | null>(null);
+  let gitError = $state(''), gitPullRequired = $state(false), gitPending = $state(''), gitMessage = $state('');
+  let gitRequest = 0;
+  const gitVisible = $derived(rightPane === 'git' && !!gitStatus);
+  $effect(() => {
+    project;
+    untrack(() => {
+      gitStatus = null; gitError = ''; gitPullRequired = false; gitMessage = ''; rightPane = 'outline';
+      void refreshGit();
+    });
+  });
+  async function refreshGit(force = false) {
+    const root = project;
+    if (!root || (gitPending && !force)) return;
+    const request = ++gitRequest;
+    try {
+      const result = await invoke<GitStatus | null>('git_status');
+      if (root === project && request === gitRequest) gitStatus = result;
+    } catch (error) {
+      if (root === project && request === gitRequest && gitStatus) gitError = failure(error).message;
+    }
+  }
+  async function runGit(action: GitAction, key: string): Promise<boolean> {
+    if (busy || gitPending) return false;
+    const root = project;
+    gitPending = key;
+    gitError = ''; gitPullRequired = false;
+    let succeeded = false;
+    try {
+      await operation(async () => {
+        try {
+          gitRequest++;
+          const result = await invoke<GitStatus>('git_action', { project: root, action });
+          if (root !== project) return;
+          gitStatus = result;
+          succeeded = true;
+        } catch (error) {
+          if (root !== project) return;
+          const problem = failure(error);
+          gitError = problem.message;
+          gitPullRequired = problem.code === 'GIT_PULL_REQUIRED';
+          await refreshGit(true);
+        }
+        treeQueued = true;
+      });
+      if (action.kind === 'pull' || action.kind === 'undo') await checkExternal();
+    } finally { gitPending = ''; }
+    return succeeded;
+  }
+  function toggleGit() {
+    if (gitVisible) {
+      rightPane = 'outline';
+      settings.outlineVisible = false;
+      void persist();
+    } else {
+      rightPane = 'git';
+      void refreshGit();
+    }
+  }
   let status = $state('saved'),
     chars = $state(0),
     readonly = $state(false),
@@ -155,9 +218,9 @@
   // Markdown以外のファイルを、ただのテキストとして開いているか
   const plain = $derived(current?.kind === 'other');
   // 目次を実際に表示しているか。本文の幅を自動で決める時に、目次の分の空きを引くかどうかに使う
-  const outlineOpen = $derived(!plain && settings.outlineVisible && outline.length > 0);
+  const outlineOpen = $derived(gitVisible || (rightPane === 'outline' && !plain && settings.outlineVisible && outline.length > 0));
   const layout = $derived(paneLayout(shellWidth, sidebarDraft ?? settings.sidebarWidth, outlineWidth, sidebarVisible, settings.editorWidth, { auto: settings.autoEditorWidth, outlineOpen }));
-  const outlineLabel = $derived(settings.outlineVisible
+  const outlineLabel = $derived(rightPane === 'outline' && settings.outlineVisible
     ? outline.length && !layout.showOutline ? '幅が足りないため目次を隠しています' : '目次を隠す'
     : '目次を表示');
   const focusLabel = $derived(settings.focusMode ? '集中モードをオフにする' : '集中モードをオンにする');
@@ -465,6 +528,7 @@
   async function saveDocument(path: string, text: string, baseline: string) {
     const result = await invoke<{ baseline: string }>('document_save', { path, text, baseline });
     index = index.map((entry) => (entry.path === path ? { ...entry, modified: Date.now() } : entry));
+    void refreshGit();
     return result;
   }
   async function loadEntry(entry: Entry) {
@@ -775,7 +839,8 @@
   }
   function toggleOutline() {
     if (starting || !settingsLoaded) return;
-    settings.outlineVisible = !settings.outlineVisible;
+    settings.outlineVisible = rightPane === 'git' || !settings.outlineVisible;
+    rightPane = 'outline';
     void persist();
   }
   const { contextMenu, trashContextMenu, editorContextMenu, menuAction, close: closeMenus } = createMenus({
@@ -787,7 +852,7 @@
   });
   onMount(() => {
     const unlisteners: Array<() => void> = [];
-    const focused = () => void checkExternal();
+    const focused = () => { void checkExternal(); void refreshGit(); };
     window.addEventListener('focus', focused);
     const releaseZoom = fontZoom.mount();
     const releaseWheel = mountSmoothWheel();
@@ -1043,17 +1108,12 @@
               disabled={starting || !settingsLoaded || composing}
               onclick={() => toggleWritingMode('focusMode')}><Icon name="focus" size={16} /></button
             >
-            <button
-              class="mode-toggle outline-toggle"
-              aria-pressed={settings.outlineVisible}
-              aria-label={outlineLabel}
-              title={outlineLabel}
-              disabled={starting || !settingsLoaded}
-              onclick={toggleOutline}><Icon name="outline" size={16} /></button
-            >{/if}
+            {/if}
           {/if}
+        <RightPaneTabs outlineVisible={rightPane === 'outline' && settings.outlineVisible} outlineAvailable={current?.kind === 'markdown' && !!session} {outlineLabel} gitAvailable={!!gitStatus} {gitVisible} disabled={starting || !settingsLoaded || busy} onOutline={toggleOutline} onGit={toggleGit} />
       </div>
     </header>
+    <div class="workspace-body">
     <section class="content" aria-label="記事の編集とプレビュー">
       {#if starting}<div class="empty-state">
           <span class="welcome-mark"><Icon name="file" size={44} /></span>
@@ -1110,21 +1170,6 @@
               <GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
             {/if}
           </div>
-          {#if !plain && settings.outlineVisible && outline.length && layout.showOutline}
-            <div class="outline-boundary">
-              <PaneResizer
-                label="目次の幅"
-                value={layout.outline}
-                min={OUTLINE.min}
-                max={layout.outlineMax}
-                initial={OUTLINE.initial}
-                direction={-1}
-                onChange={(width) => (outlineDraft = width)}
-                onCommit={() => commitPane('outline')}
-              />
-            </div>
-            <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
-          {/if}
         </div>
       {:else if graphOpen}<GraphView data={graphData} active={graphOpen} current={current?.path} loading={graphLoading} onOpen={(path) => void openGraphArticle(path)} onBack={() => void toggleGraph()} />
       {:else if current?.kind === 'image'}<div class="image-preview">
@@ -1152,6 +1197,17 @@
           ><small>{project ? '⌘ P で、記事をすばやく探せます。' : 'Markdown · ローカル保存 · macOS'}</small>
         </div>{/if}
     </section>
+    {#if outlineOpen && layout.showOutline}
+      <div class="outline-boundary">
+        <PaneResizer label={gitVisible ? 'Gitの幅' : '目次の幅'} value={layout.outline} min={OUTLINE.min} max={layout.outlineMax} initial={OUTLINE.initial} direction={-1} onChange={(width) => (outlineDraft = width)} onCommit={() => commitPane('outline')} />
+      </div>
+      {#if gitVisible && gitStatus}
+        {#key project}<GitPanel bind:message={gitMessage} status={gitStatus} error={gitError} pullRequired={gitPullRequired} pending={gitPending} disabled={busy || composing} onAction={runGit} onOpen={path => void selectEntry(index.find(entry => entry.path === path) ?? gitEntry(path))} onDismiss={() => { gitError = ''; gitPullRequired = false; }} />{/key}
+      {:else}
+        <Outline headings={outline} active={outlinePosition} onNavigate={(index) => editor?.goToHeading(index)} />
+      {/if}
+    {/if}
+    </div>
   </main>
 </div>
 {#if notice}<div class="toast" role="status">
