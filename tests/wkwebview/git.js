@@ -116,8 +116,15 @@ window.run = async () => {
     const workspaceName = heading.querySelector('span');
     const nameBounds = workspaceName.getBoundingClientRect();
     const createButton = heading.querySelector('[aria-label="記事を作成"]');
-    check('折りたたみボタンはワークスペース名のすぐ左に置く', sidebarToggle.parentElement === heading && sidebarToggle.nextElementSibling === workspaceName && beforeSidebar.right <= nameBounds.left && beforeSidebar.top >= heading.getBoundingClientRect().top && sidebarToggle.getAttribute('aria-expanded') === 'true' && sidebarToggle.getAttribute('aria-label') === 'サイドバーを隠す' && !document.querySelector('.editor-header [aria-controls="file-sidebar"]'));
-    check('折りたたみボタンは作成ボタンと同じ大きさと線にする', beforeSidebar.width === 30 && beforeSidebar.height === 30 && createButton.getBoundingClientRect().width === beforeSidebar.width && createButton.getBoundingClientRect().height === beforeSidebar.height && sidebarToggle.querySelector('svg').getAttribute('width') === createButton.querySelector('svg').getAttribute('width') && sidebarToggle.querySelector('svg').getAttribute('stroke-width') === createButton.querySelector('svg').getAttribute('stroke-width'));
+    const folderButton = heading.querySelector('[aria-label="フォルダを作成"]');
+    const actions = heading.querySelector('.tree-actions');
+    const divider = heading.querySelector('.sidebar-divider');
+    const dividerBounds = divider.getBoundingClientRect();
+    const toggleStyle = getComputedStyle(sidebarToggle);
+    const createStyle = getComputedStyle(createButton);
+    check('折りたたみボタンはワークスペース名の行の右端に置く', heading.firstElementChild === workspaceName && sidebarToggle.parentElement === actions && actions.lastElementChild === sidebarToggle && nameBounds.right <= createButton.getBoundingClientRect().left && beforeSidebar.right === heading.getBoundingClientRect().right - parseFloat(getComputedStyle(heading).paddingRight) && beforeSidebar.top >= heading.getBoundingClientRect().top && sidebarToggle.getAttribute('aria-expanded') === 'true' && sidebarToggle.getAttribute('aria-label') === 'サイドバーを隠す' && !document.querySelector('.editor-header [aria-controls="file-sidebar"]'));
+    check('作成ボタンの右に短い縦線を挟んで折りたたみボタンを並べる', createButton.nextElementSibling === folderButton && folderButton.nextElementSibling === divider && divider.nextElementSibling === sidebarToggle && divider.getAttribute('aria-hidden') === 'true' && dividerBounds.width === 1 && dividerBounds.height > 0 && dividerBounds.height < beforeSidebar.height && dividerBounds.left > folderButton.getBoundingClientRect().right && dividerBounds.right < beforeSidebar.left && dividerBounds.top > beforeSidebar.top && dividerBounds.bottom < beforeSidebar.bottom && getComputedStyle(divider).backgroundColor === toggleStyle.borderTopColor);
+    check('折りたたみボタンは作成ボタンと同じ大きさと線と角丸にする', beforeSidebar.width === 30 && beforeSidebar.height === 30 && createButton.getBoundingClientRect().width === beforeSidebar.width && createButton.getBoundingClientRect().height === beforeSidebar.height && sidebarToggle.querySelector('svg').getAttribute('width') === createButton.querySelector('svg').getAttribute('width') && sidebarToggle.querySelector('svg').getAttribute('stroke-width') === createButton.querySelector('svg').getAttribute('stroke-width') && toggleStyle.borderRadius === createStyle.borderRadius && toggleStyle.borderTopWidth === createStyle.borderTopWidth);
     check('上のバーに折りたたみボタンを残さずロゴは信号ボタンと重ならない', !document.querySelector('.global-bar [aria-controls="file-sidebar"]') && logo.left > 80 && logo.right <= search.left);
     check('ライトとダークの切り替えは右側に残す', !!document.querySelector('.global-actions button[title*="モードに切り替える"]') && !document.querySelector('.global-actions [aria-controls="file-sidebar"]'));
     const originalName = workspaceName.textContent;
@@ -126,7 +133,8 @@ window.run = async () => {
       heading.style.width = `${width}px`;
       const bounds = heading.getBoundingClientRect();
       const actions = [...heading.querySelectorAll('button')];
-      check(`長いワークスペース名を省略してボタンを収める 幅${width}px`, workspaceName.scrollWidth > workspaceName.clientWidth && getComputedStyle(workspaceName).textOverflow === 'ellipsis' && heading.scrollWidth <= heading.clientWidth && actions.every(action => { const rect = action.getBoundingClientRect(); return rect.width === 30 && rect.left >= bounds.left && rect.right <= bounds.right && rect.top === beforeSidebar.top; }));
+      const line = divider.getBoundingClientRect();
+      check(`長いワークスペース名を省略してボタンと区切り線を収める 幅${width}px`, workspaceName.scrollWidth > workspaceName.clientWidth && getComputedStyle(workspaceName).textOverflow === 'ellipsis' && heading.scrollWidth <= heading.clientWidth && actions.every(action => { const rect = action.getBoundingClientRect(); return rect.width === 30 && rect.left >= bounds.left && rect.right <= bounds.right && rect.top === beforeSidebar.top; }) && line.width === 1 && line.left > folderButton.getBoundingClientRect().right && line.right < sidebarToggle.getBoundingClientRect().left && line.left >= bounds.left && line.right <= bounds.right);
     }
     heading.style.removeProperty('width');
     workspaceName.textContent = originalName;

@@ -982,7 +982,6 @@
   </header>
   <aside id="file-sidebar" class="sidebar" aria-label="ファイルと設定" hidden={!sidebarVisible}>
     <div class="workspace-heading" role="presentation" class:drop-target={rootHot} ondragover={rootDragOver} ondragleave={() => (rootHot = false)} ondrop={rootDropped}>
-      {@render sidebarToggle()}
       <span title={project}>{project ? projectName : 'WORKSPACE'}</span>
       <div class="tree-actions">
         <button aria-label="記事を作成" title="記事を作成" disabled={!project || busy} onclick={() => void startName('markdown')}
@@ -1002,6 +1001,8 @@
             void persist();
           }} />
         {/if}
+        <span class="sidebar-divider" aria-hidden="true"></span>
+        {@render sidebarToggle()}
       </div>
     </div>
     {#if project}
