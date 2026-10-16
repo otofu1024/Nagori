@@ -7,6 +7,7 @@ mod cli;
 mod commands;
 mod files;
 mod graph;
+mod git;
 mod image;
 mod link_cards;
 mod menu;
@@ -53,6 +54,8 @@ pub fn run() {
             cli::cli_uninstall,
             commands::open_request_take,
             commands::workspace_open,
+            commands::git_status,
+            commands::git_action,
             commands::workspace_list,
             commands::workspace_index,
             commands::workspace_blog_theme,

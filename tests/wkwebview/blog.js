@@ -206,6 +206,11 @@ window.run = async () => {
         getComputedStyle(content).color === 'rgb(30, 42, 63)' &&
         getComputedStyle(document.querySelector('.sidebar')).backgroundColor === 'rgb(19, 32, 49)',
     );
+    window.blogStyleDiagnostics = {
+      background: getComputedStyle(host).backgroundColor,
+      color: getComputedStyle(content).color,
+      sidebar: getComputedStyle(document.querySelector('.sidebar')).backgroundColor,
+    };
     const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const snapshot = () => view.state.doc.toString();
     const value = (key) => readProperties(snapshot()).properties.find((property) => property.key === key)?.value;
@@ -261,6 +266,12 @@ window.run = async () => {
         getComputedStyle(card).display === 'grid' &&
         getComputedStyle(talk).display === 'grid',
     );
+    window.blogStyleDiagnostics.components = [card, talk].map(element => ({
+      className: element.className,
+      display: getComputedStyle(element).display,
+      parentClass: element.parentElement.className,
+      parentDisplay: getComputedStyle(element.parentElement).display,
+    }));
     card.click();
     await frame();
     check('カードを押すと既存のリンクの開き方を使う', openedLinks.includes(data.linkCards[cardUrl].url));
@@ -801,9 +812,9 @@ window.run = async () => {
       saves.every((save) => save.text === save.baseline),
     );
     await checkNewPosts({ check, until, config: data.config, documents: await window.__TAURI_INTERNALS__.invoke('workspace_graph_documents'), created });
-    return JSON.stringify({ pass: checks.every((check) => check.pass) && !errors.length, checks, errors, root });
+    return JSON.stringify({ pass: checks.every((check) => check.pass) && !errors.length, checks, errors, root, styles: window.blogStyleDiagnostics });
   } catch (error) {
-    return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)] });
+    return JSON.stringify({ pass: false, checks, errors: [...errors, String(error)], styles: window.blogStyleDiagnostics });
   } finally {
     await postRequest({ action: 'reset' });
     if (themesPrepared) await themeRequest({ action: 'reset' });
