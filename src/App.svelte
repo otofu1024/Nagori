@@ -930,6 +930,17 @@
   });
 </script>
 
+{#snippet sidebarToggle()}
+  <button
+    class="sidebar-toggle"
+    aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+    title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
+    aria-controls="file-sidebar"
+    aria-expanded={sidebarVisible}
+    onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" size={17} /></button
+  >
+{/snippet}
+
 <svelte:window onkeydown={keydown} ondragover={preventFileNavigation} ondrop={preventFileNavigation} />
 <div
   class="app-shell"
@@ -943,14 +954,6 @@
       <img class="brand-icon" src={nagoriIcon} alt="" width="36" height="36" />
       <img class="brand-wordmark brand-wordmark-light" src={nagoriWordmark} alt="Nagori" width="108" height="36" />
       <img class="brand-wordmark brand-wordmark-dark" src={nagoriWordmarkDark} alt="Nagori" width="108" height="36" />
-      <button
-        class="icon-button"
-        aria-label={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        title={sidebarVisible ? 'サイドバーを隠す' : 'サイドバーを表示'}
-        aria-controls="file-sidebar"
-        aria-expanded={sidebarVisible}
-        onclick={() => (sidebarVisible = !sidebarVisible)}><Icon name="sidebar" /></button
-      >
     </div>
     <button class="quick-button" onclick={() => void quickOpen()} disabled={!project || busy} aria-label="ファイル名・パスで検索"
       ><Icon name="search" /> <span>ファイル名・パスで検索…</span><kbd>⌘ P</kbd></button
@@ -979,6 +982,7 @@
   </header>
   <aside id="file-sidebar" class="sidebar" aria-label="ファイルと設定" hidden={!sidebarVisible}>
     <div class="workspace-heading" role="presentation" class:drop-target={rootHot} ondragover={rootDragOver} ondragleave={() => (rootHot = false)} ondrop={rootDropped}>
+      {@render sidebarToggle()}
       <span title={project}>{project ? projectName : 'WORKSPACE'}</span>
       <div class="tree-actions">
         <button aria-label="記事を作成" title="記事を作成" disabled={!project || busy} onclick={() => void startName('markdown')}
@@ -1080,6 +1084,7 @@
   <main>
     <header class="editor-header">
       <div class="breadcrumb">
+        {#if !sidebarVisible}{@render sidebarToggle()}{/if}
         <Icon name={current?.kind === 'image' ? 'image' : 'file'} size={17} /><span>{project ? projectName : 'Nagori'}</span
         >{#if current}<span class="slash">/</span><strong title={current.path}>{current.path}</strong>{/if}
       </div>
