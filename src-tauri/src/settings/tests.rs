@@ -567,3 +567,131 @@ fn a_legacy_recent_list_in_the_stored_file_is_migrated_on_a_patch() {
     assert_eq!(merged.font_size, 20);
     assert_eq!(merged.recent_files["/work"], ["a.md"]);
 }
+
+// 使ったフォルダが count 個ある記録を作る。番号が大きいルートほど新しい時刻を持つ
+fn many_roots(count: usize) -> Value {
+    let roots: Vec<String> = (0..count).map(|i| format!("/root/{i:02}")).collect();
+    let files: Map<String, Value> = roots
+        .iter()
+        .map(|root| (root.clone(), serde_json::json!(["a.md"])))
+        .collect();
+    let times: Map<String, Value> = roots
+        .iter()
+        .enumerate()
+        .map(|(i, root)| {
+            (
+                root.clone(),
+                serde_json::json!({ "a.md": 1_000 + i as u64 }),
+            )
+        })
+        .collect();
+    serde_json::json!({ "recentFiles": files, "recentOpenedAt": times })
+}
+
+#[test]
+fn recent_roots_over_the_limit_are_dropped_oldest_first_on_read() {
+    // 25個のフォルダの記録があっても読み込みは失敗せず、古い5個のルートが捨てられる
+    let bytes = serde_json::to_vec(&many_roots(25)).unwrap();
+    let settings = parse_stored(&bytes).unwrap();
+    assert_eq!(settings.recent_files.len(), RECENT_ROOT_LIMIT);
+    assert_eq!(settings.recent_opened_at.len(), RECENT_ROOT_LIMIT);
+    for i in 0..5 {
+        let root = format!("/root/{i:02}");
+        assert!(!settings.recent_files.contains_key(&root));
+        assert!(!settings.recent_opened_at.contains_key(&root));
+    }
+    assert_eq!(settings.recent_files["/root/05"], ["a.md"]);
+    assert_eq!(settings.recent_opened_at["/root/24"]["a.md"], 1_024);
+}
+
+#[test]
+fn a_patch_keeps_the_root_it_sends_even_when_it_is_the_oldest() {
+    // 上限いっぱいの記録に、最も古い時刻のルートを送っても、送ったルートは残る。代わりに古いほかのルートが捨てられる
+    let patch = serde_json::json!({
+        "recentFiles": { "/root/new": ["n.md"] },
+        "recentOpenedAt": { "/root/new": { "n.md": 1 } },
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let merged = merge(many_roots(20), patch).unwrap();
+    assert_eq!(merged.recent_files.len(), RECENT_ROOT_LIMIT);
+    assert_eq!(merged.recent_opened_at.len(), RECENT_ROOT_LIMIT);
+    assert_eq!(merged.recent_files["/root/new"], ["n.md"]);
+    assert_eq!(merged.recent_opened_at["/root/new"]["n.md"], 1);
+    assert!(!merged.recent_files.contains_key("/root/00"));
+    assert!(!merged.recent_opened_at.contains_key("/root/00"));
+    assert_eq!(merged.recent_files["/root/01"], ["a.md"]);
+    // 保存したものは、上限内の大きさで、読み直しても同じ
+    let saved = encode(&merged).unwrap();
+    let restored = parse_stored(&saved).unwrap();
+    assert_eq!(restored.recent_files, merged.recent_files);
+    assert_eq!(restored.recent_opened_at, merged.recent_opened_at);
+}
+
+#[test]
+fn starred_roots_are_never_dropped_by_the_recent_root_limit() {
+    // スターはユーザーが付けた印なので、最近使ったフォルダの上限で捨てない
+    let mut value = many_roots(25);
+    value["starred"] = Value::Object(
+        (0..25)
+            .map(|i| (format!("/root/{i:02}"), serde_json::json!(["s.md"])))
+            .collect(),
+    );
+    let settings = parse_stored(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(settings.recent_files.len(), RECENT_ROOT_LIMIT);
+    assert_eq!(settings.starred.len(), 25);
+    assert_eq!(settings.starred["/root/00"], ["s.md"]);
+}
+
+#[test]
+fn twenty_roots_with_200_opened_times_read_and_save_within_the_limit() {
+    // 1ルート200件の時刻と100件のノートを20ルート分持っても、読み書きでき、保存の上限に収まる
+    let opened: Map<String, Value> = (0..20)
+        .map(|r| {
+            let entries: Map<String, Value> = (0..200u64)
+                .map(|i| {
+                    (
+                        format!("posts/2026/note-{r:02}-{i:03}-title.md"),
+                        serde_json::json!(1_700_000_000_000u64 + i),
+                    )
+                })
+                .collect();
+            (
+                format!("/Users/me/workspaces/project-{r:02}"),
+                Value::Object(entries),
+            )
+        })
+        .collect();
+    let files: Map<String, Value> = opened
+        .keys()
+        .map(|root| {
+            let paths: Vec<String> = (0..100)
+                .map(|i| format!("posts/2026/note-{i:03}.md"))
+                .collect();
+            (root.clone(), serde_json::json!(paths))
+        })
+        .collect();
+    let value = serde_json::json!({ "recentFiles": files, "recentOpenedAt": opened });
+    let settings = parse_stored(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(settings.recent_opened_at.len(), 20);
+    assert!(settings
+        .recent_opened_at
+        .values()
+        .all(|entries| entries.len() == 200));
+    let saved = encode(&settings).unwrap();
+    assert!(saved.len() <= SETTINGS_LIMIT);
+    let restored = parse_stored(&saved).unwrap();
+    assert_eq!(restored.recent_opened_at, settings.recent_opened_at);
+    assert_eq!(restored.recent_files, settings.recent_files);
+}
+
+#[test]
+fn a_save_over_the_size_limit_is_refused() {
+    // 上限を超える大きさは保存しない。上限の検査は保存と同じ値を使う
+    let settings = Settings {
+        starred: BTreeMap::from([("/x".to_owned(), vec!["a".repeat(1500); 1000])]),
+        ..Settings::default()
+    };
+    assert!(encode(&settings).is_err());
+}

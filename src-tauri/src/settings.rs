@@ -1,7 +1,7 @@
 use crate::files::{self, Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, PoisonError};
 use tauri::Manager;
 
@@ -201,16 +201,19 @@ fn recent_opened(entries: BTreeMap<String, serde_json::Value>) -> BTreeMap<Strin
 // ワークスペースのルートごとに持つ項目。保存は項目の丸ごとではなく、変わったルートだけを送り、保存されている値へルートごとに重ねる
 const ROOT_KEYED: [&str; 3] = ["starred", "recentFiles", "recentOpenedAt"];
 
+// 設定ファイルの大きさの上限。ルートごとの記録が上限いっぱいでも読み書きできるよう、64KBから1MBへ広げる
+const SETTINGS_LIMIT: usize = 1024 * 1024;
+// recentFilesとrecentOpenedAtが持つルートの数の上限。超えた時は拒否せず、最後に使った時刻の古いルートから捨てる
+const RECENT_ROOT_LIMIT: usize = 20;
+
 impl Settings {
     pub fn validate(&self) -> Result<()> {
         if !["system", "light", "dark"].contains(&self.theme.as_str())
             || !(12..=32).contains(&self.font_size)
-            || self.recent_files.len() > 100
             || self
                 .recent_files
                 .iter()
                 .any(|(root, files)| root.is_empty() || files.len() > 100)
-            || self.recent_opened_at.len() > 100
             || self.recent_opened_at.keys().any(|root| root.is_empty())
             || self
                 .open_windows
@@ -250,10 +253,17 @@ pub fn read(app: &tauri::AppHandle) -> Result<Settings> {
     if !path.exists() {
         return Ok(Settings::default());
     }
-    let bytes = files::read_limited(&path, 64 * 1024)?;
+    let bytes = files::read_limited(&path, SETTINGS_LIMIT)?;
+    parse_stored(&bytes)
+}
+
+// 保存された設定のバイト列を読む。読み込みでも上限を超えたルートを捨てる
+fn parse_stored(bytes: &[u8]) -> Result<Settings> {
     let value: Value =
-        serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-    from_stored(value)
+        serde_json::from_slice(bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+    let mut settings = from_stored(value)?;
+    prune_roots(&mut settings, &[]);
+    Ok(settings)
 }
 
 // 保存された形のままの設定を、移行してから読む
@@ -309,7 +319,7 @@ pub fn update(app: &tauri::AppHandle, patch: Map<String, Value>) -> Result<Setti
     let _guard = WRITE_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     let path = settings_path(app)?;
     let current = if path.exists() {
-        let bytes = files::read_limited(&path, 64 * 1024)?;
+        let bytes = files::read_limited(&path, SETTINGS_LIMIT)?;
         serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?
     } else {
         serde_json::to_value(Settings::default())
@@ -328,9 +338,19 @@ pub fn merge(mut current: Value, patch: Map<String, Value>) -> Result<Settings> 
         .ok_or_else(|| Error::new("SETTINGS", "設定の形式が正しくありません。"))?;
     migrate_recent(object);
     let mut patch = patch;
+    // 今回送られたルートは、このウィンドウが開いているルートなので、上限で捨てない
+    let mut sent = Vec::new();
     for key in ROOT_KEYED {
         match patch.remove(key) {
-            Some(Value::Object(roots)) => apply_roots(object, key, roots),
+            Some(Value::Object(roots)) => {
+                sent.extend(
+                    roots
+                        .iter()
+                        .filter(|(_, value)| !value.is_null())
+                        .map(|(root, _)| root.clone()),
+                );
+                apply_roots(object, key, roots)
+            }
             // 型が違う値は、読み込みの検査で拒否する
             Some(value) => {
                 object.insert(key.to_owned(), value);
@@ -339,7 +359,41 @@ pub fn merge(mut current: Value, patch: Map<String, Value>) -> Result<Settings> 
         }
     }
     object.extend(patch);
-    from_stored(current)
+    let mut settings = from_stored(current)?;
+    prune_roots(&mut settings, &sent);
+    Ok(settings)
+}
+
+// ルートの数が上限を超えたら、最後に使った時刻の古いルートから捨てる。keepのルートは捨てない。
+// 最後に使った時刻は、recentOpenedAtのそのルートの最大値とし、時刻のないルートは最も古いものとして扱う。
+// 前提: 別のウィンドウが開いているルートは最近使われているので、古い順に捨てても開いているルートの記録は残る
+fn prune_roots(settings: &mut Settings, keep: &[String]) {
+    let roots: BTreeSet<String> = settings
+        .recent_files
+        .keys()
+        .chain(settings.recent_opened_at.keys())
+        .cloned()
+        .collect();
+    if roots.len() <= RECENT_ROOT_LIMIT {
+        return;
+    }
+    let last_used = |root: &String| {
+        settings
+            .recent_opened_at
+            .get(root)
+            .and_then(|entries| entries.values().max().copied())
+            .unwrap_or(0)
+    };
+    let (mut kept, mut others): (Vec<String>, Vec<String>) =
+        roots.into_iter().partition(|root| keep.contains(root));
+    others.sort_by(|a, b| last_used(b).cmp(&last_used(a)).then_with(|| a.cmp(b)));
+    let room = RECENT_ROOT_LIMIT.saturating_sub(kept.len());
+    kept.extend(others.into_iter().take(room));
+    let kept: BTreeSet<String> = kept.into_iter().collect();
+    settings.recent_files.retain(|root, _| kept.contains(root));
+    settings
+        .recent_opened_at
+        .retain(|root, _| kept.contains(root));
 }
 
 // ルートごとの項目を重ねる。nullのルートは外し、送られなかったルートは残す
@@ -393,6 +447,16 @@ fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
         .join("settings.json"))
 }
 
+// 保存する形に直し、読み込みの上限を超えていないか確かめる。超えていれば保存しない
+fn encode(settings: &Settings) -> Result<Vec<u8>> {
+    let bytes =
+        serde_json::to_vec_pretty(settings).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+    if bytes.len() > SETTINGS_LIMIT {
+        return Err(Error::new("LIMIT", "設定サイズの上限を超えています。"));
+    }
+    Ok(bytes)
+}
+
 fn save(app: &tauri::AppHandle, settings: &Settings) -> Result<()> {
     use std::io::Write;
     let directory = app
@@ -400,11 +464,7 @@ fn save(app: &tauri::AppHandle, settings: &Settings) -> Result<()> {
         .app_config_dir()
         .map_err(|e| Error::new("SETTINGS", e.to_string()))?;
     std::fs::create_dir_all(&directory)?;
-    let bytes =
-        serde_json::to_vec_pretty(settings).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-    if bytes.len() > 64 * 1024 {
-        return Err(Error::new("LIMIT", "設定サイズの上限を超えています。"));
-    }
+    let bytes = encode(settings)?;
     let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
     temporary.write_all(&bytes)?;
     temporary.flush()?;
