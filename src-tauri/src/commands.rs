@@ -854,16 +854,12 @@ pub(crate) async fn settings_save(
 ) -> Result<()> {
     let source = window.label().to_owned();
     tauri::async_runtime::spawn_blocking(move || {
-        let keys: Vec<String> = patch.keys().cloned().collect();
+        let sent = patch.clone();
         let saved = settings::update(&app, patch)?;
         let stored =
             serde_json::to_value(&saved).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
         // 範囲外の値は読み込みと同じ規則で直されるので、直した後の値を知らせる
-        let values: serde_json::Map<String, serde_json::Value> = keys
-            .into_iter()
-            .filter_map(|key| stored.get(&key).cloned().map(|value| (key, value)))
-            .collect();
-        windows::broadcast_settings(&app, &source, values);
+        windows::broadcast_settings(&app, &source, settings::broadcast_values(&stored, &sent));
         Ok(())
     })
     .await

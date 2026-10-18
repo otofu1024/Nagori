@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::{Map, Value};
 
 #[test]
 fn settings_defaults_and_resolved_theme_roundtrip() {
@@ -10,7 +11,10 @@ fn settings_defaults_and_resolved_theme_roundtrip() {
             theme: theme.into(),
             last_project: Some("/fixture/project".into()),
             last_file: Some("posts/note.md".into()),
-            recent_files: vec!["posts/note.md".into(), "other.md".into()],
+            recent_files: BTreeMap::from([(
+                "/fixture/project".to_owned(),
+                vec!["posts/note.md".to_owned(), "other.md".to_owned()],
+            )]),
             font_size: 17,
             ..defaults.clone()
         };
@@ -174,7 +178,7 @@ fn settings_panel_fields_default_and_read_back_in_range() {
     assert!(old.heading_rule && !old.start_in_preview);
     assert!(old.recent_opened_at.is_empty());
     // 範囲内の値は保存して読み直しても同じ
-    let stored = r#"{"editorWidth":900,"lineHeight":2.2,"fontFamily":"serif","autosaveDelay":1200,"startInPreview":true,"headingRule":false,"recentEditedCount":45,"trashRetentionDays":90,"recentOpenedAt":{"posts/a.md":1700000000000}}"#;
+    let stored = r#"{"editorWidth":900,"lineHeight":2.2,"fontFamily":"serif","autosaveDelay":1200,"startInPreview":true,"headingRule":false,"recentEditedCount":45,"trashRetentionDays":90,"recentOpenedAt":{"/work":{"posts/a.md":1700000000000}}}"#;
     let settings: Settings = serde_json::from_str(stored).unwrap();
     settings.validate().unwrap();
     assert_eq!(settings.editor_width, 900);
@@ -184,7 +188,10 @@ fn settings_panel_fields_default_and_read_back_in_range() {
     assert!(settings.start_in_preview && !settings.heading_rule);
     assert_eq!(settings.recent_edited_count, 45);
     assert_eq!(settings.trash_retention_days, Some(90));
-    assert_eq!(settings.recent_opened_at["posts/a.md"], 1700000000000);
+    assert_eq!(
+        settings.recent_opened_at["/work"]["posts/a.md"],
+        1700000000000
+    );
     let restored: Settings =
         serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert_eq!(restored.editor_width, 900);
@@ -265,27 +272,28 @@ fn settings_panel_fields_default_and_read_back_in_range() {
 fn recent_opened_times_drop_bad_entries_and_keep_the_newest_200() {
     // 時刻が数でない項目は捨て、残りはそのまま読む
     let settings: Settings = serde_json::from_str(
-        r#"{"recentOpenedAt":{"a.md":1000,"b.md":"2026","c.md":null,"d.md":-5,"e.md":2000.0}}"#,
+        r#"{"recentOpenedAt":{"/work":{"a.md":1000,"b.md":"2026","c.md":null,"d.md":-5,"e.md":2000.0}}}"#,
     )
     .unwrap();
     assert_eq!(
-        settings.recent_opened_at,
+        settings.recent_opened_at["/work"],
         BTreeMap::from([("a.md".to_owned(), 1000), ("e.md".to_owned(), 2000)])
     );
-    // 上限を超えたら、古いものから捨てる
+    // 上限はワークスペースのルートごとに当てる。上限を超えたら、古いものから捨てる
     let entries: Vec<String> = (0..205)
         .map(|i| format!(r#""n{i:03}.md":{}"#, 1_000 + i))
         .collect();
     let settings: Settings = serde_json::from_str(&format!(
-        r#"{{"recentOpenedAt":{{{}}}}}"#,
+        r#"{{"recentOpenedAt":{{"/work":{{{0}}},"/other":{{"x.md":1}}}}}}"#,
         entries.join(",")
     ))
     .unwrap();
-    assert_eq!(settings.recent_opened_at.len(), 200);
-    assert!(!settings.recent_opened_at.contains_key("n000.md"));
-    assert!(!settings.recent_opened_at.contains_key("n004.md"));
-    assert_eq!(settings.recent_opened_at["n005.md"], 1_005);
-    assert_eq!(settings.recent_opened_at["n204.md"], 1_204);
+    assert_eq!(settings.recent_opened_at["/work"].len(), 200);
+    assert!(!settings.recent_opened_at["/work"].contains_key("n000.md"));
+    assert!(!settings.recent_opened_at["/work"].contains_key("n004.md"));
+    assert_eq!(settings.recent_opened_at["/work"]["n005.md"], 1_005);
+    assert_eq!(settings.recent_opened_at["/work"]["n204.md"], 1_204);
+    assert_eq!(settings.recent_opened_at["/other"]["x.md"], 1);
     // 配列など、対応しない型は読み込みを失敗させる
     assert!(serde_json::from_str::<Settings>(r#"{"recentOpenedAt":[]}"#).is_err());
 }
@@ -397,4 +405,165 @@ fn a_patch_keeps_the_changes_other_windows_saved() {
         .unwrap()
         .clone();
     assert!(merge(current, invalid).is_err());
+}
+
+fn with_root_keys(recent: &[(&str, &[&str])], opened: &[(&str, &[(&str, u64)])]) -> Value {
+    let files: Map<String, Value> = recent
+        .iter()
+        .map(|(root, paths)| ((*root).to_owned(), serde_json::json!(paths)))
+        .collect();
+    let times: Map<String, Value> = opened
+        .iter()
+        .map(|(root, entries)| {
+            let map: Map<String, Value> = entries
+                .iter()
+                .map(|(path, time)| ((*path).to_owned(), serde_json::json!(time)))
+                .collect();
+            ((*root).to_owned(), Value::Object(map))
+        })
+        .collect();
+    serde_json::json!({ "recentFiles": files, "recentOpenedAt": times })
+}
+
+#[test]
+fn legacy_recent_lists_move_to_the_last_project_and_are_dropped_without_one() {
+    // 移行前の最近見たノートは、lastProjectがあればそのルートの記録になる
+    let legacy: Settings = from_stored(serde_json::json!({
+        "lastProject": "/work",
+        "recentFiles": ["a.md", "b/c.md"],
+        "recentOpenedAt": { "a.md": 1700000000000u64 },
+    }))
+    .unwrap();
+    assert_eq!(
+        legacy.recent_files,
+        BTreeMap::from([(
+            "/work".to_owned(),
+            vec!["a.md".to_owned(), "b/c.md".to_owned()]
+        )])
+    );
+    assert_eq!(
+        legacy.recent_opened_at,
+        BTreeMap::from([(
+            "/work".to_owned(),
+            BTreeMap::from([("a.md".to_owned(), 1700000000000)]),
+        )])
+    );
+    // lastProjectがなければ、どのフォルダの記録か分からないので捨てる
+    let orphan = from_stored(serde_json::json!({
+        "recentFiles": ["a.md"],
+        "recentOpenedAt": { "a.md": 1 },
+    }))
+    .unwrap();
+    assert!(orphan.recent_files.is_empty());
+    assert!(orphan.recent_opened_at.is_empty());
+    // 新しい形で保存されたものは、そのまま読む
+    let stored = from_stored(serde_json::json!({
+        "lastProject": "/work",
+        "recentFiles": { "/a": ["x.md"] },
+        "recentOpenedAt": { "/a": { "x.md": 5 } },
+    }))
+    .unwrap();
+    assert_eq!(stored.recent_files["/a"], ["x.md"]);
+    assert_eq!(stored.recent_opened_at["/a"]["x.md"], 5);
+    assert!(!stored.recent_files.contains_key("/work"));
+}
+
+#[test]
+fn a_patch_for_one_root_keeps_the_records_of_another_root() {
+    // 2つのフォルダの記録が混ざらず、片方を書き換えても、もう片方は残る
+    let current = with_root_keys(
+        &[("/a", &["one.md"]), ("/b", &["two.md"])],
+        &[("/a", &[("one.md", 10)]), ("/b", &[("two.md", 20)])],
+    );
+    let patch = serde_json::json!({
+        "recentFiles": { "/a": ["three.md"] },
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let merged = merge(current, patch).unwrap();
+    assert_eq!(merged.recent_files["/a"], ["three.md"]);
+    assert_eq!(merged.recent_files["/b"], ["two.md"]);
+    assert_eq!(merged.recent_opened_at["/a"]["one.md"], 10);
+    assert_eq!(merged.recent_opened_at["/b"]["two.md"], 20);
+}
+
+#[test]
+fn saves_from_two_windows_on_different_roots_do_not_erase_each_other() {
+    // 同じ時点の設定を見た2つのウィンドウが、別のフォルダの記録を続けて保存しても、互いの変更を消さない
+    let base = serde_json::to_value(Settings::default()).unwrap();
+    let window_a = serde_json::json!({
+        "starred": { "/a": ["a.md"] },
+        "recentFiles": { "/a": ["a.md"] },
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let window_b = serde_json::json!({
+        "starred": { "/b": ["b.md"] },
+        "recentOpenedAt": { "/b": { "b.md": 7 } },
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let after_a = merge(base, window_a).unwrap();
+    let after_b = merge(serde_json::to_value(&after_a).unwrap(), window_b).unwrap();
+    assert_eq!(after_b.starred["/a"], ["a.md"]);
+    assert_eq!(after_b.starred["/b"], ["b.md"]);
+    assert_eq!(after_b.recent_files["/a"], ["a.md"]);
+    assert_eq!(after_b.recent_opened_at["/b"]["b.md"], 7);
+    // 外したルートはnullで消え、ほかのルートは残る
+    let removed = merge(
+        serde_json::to_value(&after_b).unwrap(),
+        serde_json::json!({ "starred": { "/a": null } })
+            .as_object()
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
+    assert!(!removed.starred.contains_key("/a"));
+    assert_eq!(removed.starred["/b"], ["b.md"]);
+    assert_eq!(removed.recent_files["/a"], ["a.md"]);
+}
+
+#[test]
+fn broadcast_sends_the_saved_value_of_each_sent_root_and_null_for_removed_ones() {
+    // 別のウィンドウには、送ったルートの保存後の値だけを送る。外したルートはnullにする
+    let stored = serde_json::json!({
+        "starred": { "/a": ["a.md"], "/other": ["x.md"] },
+        "theme": "dark",
+    });
+    let sent = serde_json::json!({
+        "starred": { "/a": ["a.md"], "/gone": null },
+        "theme": "dark",
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let values = broadcast_values(&stored, &sent);
+    assert_eq!(
+        values["starred"],
+        serde_json::json!({ "/a": ["a.md"], "/gone": null })
+    );
+    assert_eq!(values["theme"], "dark");
+}
+
+#[test]
+fn a_legacy_recent_list_in_the_stored_file_is_migrated_on_a_patch() {
+    // 古いファイルに送られた保存でも、移行してから重ねる
+    let current = serde_json::json!({
+        "lastProject": "/work",
+        "recentFiles": ["a.md"],
+        "fontSize": 19,
+    });
+    let merged = merge(
+        current,
+        serde_json::json!({ "fontSize": 20 })
+            .as_object()
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
+    assert_eq!(merged.font_size, 20);
+    assert_eq!(merged.recent_files["/work"], ["a.md"]);
 }

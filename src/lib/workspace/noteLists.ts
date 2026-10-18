@@ -36,6 +36,14 @@ export function allNotes(entries: Entry[]): NoteItem[] {
 // 開いた時刻の記録は、この件数までを新しい順に残す
 export const OPENED_LIMIT = 200;
 
+// 最近開いたファイルは、この件数までを新しい順に残す。ワークスペースのルートごとに持つ
+export const RECENT_FILE_LIMIT = 30;
+
+// 開いたファイルを新しい順の先頭に置き、同じファイルが重ならないよう上限までを残す
+export function pushRecentFile(recent: string[], path: string): string[] {
+  return [path, ...recent.filter((item) => item !== path)].slice(0, RECENT_FILE_LIMIT);
+}
+
 // 最近見たノート: 更新日時と最後に開いた時刻のうち新しい方の順に、Markdownの記事を最大件数まで並べる。
 // 開いただけの記事も入る。どちらも取れない記事は外す。並べた日時は新しい方で置き換える
 export function recentlyEdited(entries: Entry[], opened: Record<string, number> = {}, limit = RECENT_NOTE_LIMIT): NoteItem[] {

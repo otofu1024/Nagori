@@ -9,6 +9,8 @@ import {
   renameOpened,
   removeOpened,
   OPENED_LIMIT,
+  RECENT_FILE_LIMIT,
+  pushRecentFile,
   removeStarred,
   renameStarred,
   setStarred,
@@ -169,4 +171,14 @@ test('サイドバーとノート一覧の表示は「最近見たノート」�
 
 test('設定の項目名recentEditedCountは変えず、保存した設定との互換を保つ', () => {
   assert.match(read('../../src/lib/workspace/settings.ts'), /recentEditedCount/);
+});
+
+test('最近開いたファイルは、開いた順に先頭へ置き直し、同じファイルを重ねず、上限までを残す', () => {
+  assert.deepEqual(pushRecentFile(['a.md', 'b.md'], 'b.md'), ['b.md', 'a.md']);
+  assert.deepEqual(pushRecentFile([], 'a.md'), ['a.md']);
+  const full = Array.from({ length: RECENT_FILE_LIMIT }, (_, index) => `${index}.md`);
+  const next = pushRecentFile(full, 'new.md');
+  assert.equal(next.length, RECENT_FILE_LIMIT);
+  assert.equal(next[0], 'new.md');
+  assert.equal(next.includes(`${RECENT_FILE_LIMIT - 1}.md`), false);
 });

@@ -23,7 +23,8 @@ pub struct Settings {
     pub open_windows: Option<Vec<OpenWindow>>,
     pub theme: String,
     pub font_size: u8,
-    pub recent_files: Vec<String>,
+    // キーはワークスペースのルートの絶対パス、値はそのルートで最近開いたファイルの相対パス（新しい順）
+    pub recent_files: BTreeMap<String, Vec<String>>,
     #[serde(
         deserialize_with = "deserialize_ranged::<_, 200, 420, 272>",
         serialize_with = "serialize_ranged::<_, 200, 420, 272>"
@@ -65,9 +66,9 @@ pub struct Settings {
     pub blog_characters_enabled: bool,
     pub blog_body_theme: bool,
     pub blog_indent_on_enter: bool,
-    // キーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
+    // キーはワークスペースのルートの絶対パス、その中のキーはワークスペース基準の相対パス、値は最後にNagoriで開いた時刻（Unixのミリ秒）
     #[serde(deserialize_with = "deserialize_recent_opened")]
-    pub recent_opened_at: BTreeMap<String, u64>,
+    pub recent_opened_at: BTreeMap<String, BTreeMap<String, u64>>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -77,7 +78,7 @@ impl Default for Settings {
             open_windows: None,
             theme: "system".into(),
             font_size: 19,
-            recent_files: vec![],
+            recent_files: BTreeMap::new(),
             sidebar_width: 272,
             outline_width: 220,
             outline_visible: true,
@@ -170,12 +171,19 @@ fn deserialize_retention<'de, D: serde::Deserializer<'de>>(
     })
 }
 
-// 最近開いた時刻は、時刻が数でない項目を捨て、上限を超えたら古いものから捨てる
+// 最近開いた時刻は、ルートごとに、時刻が数でない項目を捨て、上限を超えたら古いものから捨てる
 const RECENT_OPENED_LIMIT: usize = 200;
 fn deserialize_recent_opened<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> std::result::Result<BTreeMap<String, u64>, D::Error> {
-    let entries = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+) -> std::result::Result<BTreeMap<String, BTreeMap<String, u64>>, D::Error> {
+    let roots = BTreeMap::<String, BTreeMap<String, serde_json::Value>>::deserialize(deserializer)?;
+    Ok(roots
+        .into_iter()
+        .map(|(root, entries)| (root, recent_opened(entries)))
+        .collect())
+}
+
+fn recent_opened(entries: BTreeMap<String, serde_json::Value>) -> BTreeMap<String, u64> {
     let mut opened: Vec<(String, u64)> = entries
         .into_iter()
         .filter_map(|(path, time)| {
@@ -187,14 +195,23 @@ fn deserialize_recent_opened<'de, D: serde::Deserializer<'de>>(
         .collect();
     opened.sort_by_key(|(_, time)| std::cmp::Reverse(*time));
     opened.truncate(RECENT_OPENED_LIMIT);
-    Ok(opened.into_iter().collect())
+    opened.into_iter().collect()
 }
+
+// ワークスペースのルートごとに持つ項目。保存は項目の丸ごとではなく、変わったルートだけを送り、保存されている値へルートごとに重ねる
+const ROOT_KEYED: [&str; 3] = ["starred", "recentFiles", "recentOpenedAt"];
 
 impl Settings {
     pub fn validate(&self) -> Result<()> {
         if !["system", "light", "dark"].contains(&self.theme.as_str())
             || !(12..=32).contains(&self.font_size)
             || self.recent_files.len() > 100
+            || self
+                .recent_files
+                .iter()
+                .any(|(root, files)| root.is_empty() || files.len() > 100)
+            || self.recent_opened_at.len() > 100
+            || self.recent_opened_at.keys().any(|root| root.is_empty())
             || self
                 .open_windows
                 .as_ref()
@@ -234,10 +251,57 @@ pub fn read(app: &tauri::AppHandle) -> Result<Settings> {
         return Ok(Settings::default());
     }
     let bytes = files::read_limited(&path, 64 * 1024)?;
-    let settings: Settings =
+    let value: Value =
         serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+    from_stored(value)
+}
+
+// 保存された形のままの設定を、移行してから読む
+fn from_stored(mut value: Value) -> Result<Settings> {
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| Error::new("SETTINGS", "設定の形式が正しくありません。"))?;
+    migrate_recent(object);
+    let settings: Settings =
+        serde_json::from_value(value).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
     settings.validate()?;
     Ok(settings)
+}
+
+// 移行前の設定は、最近見たノートを全ウィンドウで1つだけ持っていた。lastProjectがあればそのルートの記録として移し、なければ捨てる
+fn migrate_recent(object: &mut Map<String, Value>) {
+    let root = object
+        .get("lastProject")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if matches!(object.get("recentFiles"), Some(Value::Array(_))) {
+        let files = object.remove("recentFiles").unwrap_or(Value::Null);
+        object.insert(
+            "recentFiles".to_owned(),
+            keyed_by_root(root.as_deref(), files),
+        );
+    }
+    // 移行前は、時刻のマップが1つだけだった。新しい形ではルートの中にマップが入る
+    let legacy_opened = matches!(
+        object.get("recentOpenedAt"),
+        Some(Value::Object(entries)) if entries.values().any(|time| !time.is_object())
+    );
+    if legacy_opened {
+        let opened = object.remove("recentOpenedAt").unwrap_or(Value::Null);
+        object.insert(
+            "recentOpenedAt".to_owned(),
+            keyed_by_root(root.as_deref(), opened),
+        );
+    }
+}
+
+// ルートが分からない古い記録は、ルートなしの空の記録にする
+fn keyed_by_root(root: Option<&str>, value: Value) -> Value {
+    let mut keyed = Map::new();
+    if let Some(root) = root {
+        keyed.insert(root.to_owned(), value);
+    }
+    Value::Object(keyed)
 }
 
 // 送られた項目だけを、いま保存されている設定へ重ねて書く。送られなかった項目は、ほかのウィンドウの変更をそのまま残す
@@ -256,16 +320,69 @@ pub fn update(app: &tauri::AppHandle, patch: Map<String, Value>) -> Result<Setti
     Ok(settings)
 }
 
-// 現在の設定に項目を重ね、読み込みと同じ規則で整えてから確かめる。範囲外の値は保存させない
+// 現在の設定に項目を重ね、読み込みと同じ規則で整えてから確かめる。範囲外の値は保存させない。
+// ルートごとの項目は、送られたルートだけを差し替え、nullのルートは外す。ほかのルートは残す
 pub fn merge(mut current: Value, patch: Map<String, Value>) -> Result<Settings> {
     let object = current
         .as_object_mut()
         .ok_or_else(|| Error::new("SETTINGS", "設定の形式が正しくありません。"))?;
+    migrate_recent(object);
+    let mut patch = patch;
+    for key in ROOT_KEYED {
+        match patch.remove(key) {
+            Some(Value::Object(roots)) => apply_roots(object, key, roots),
+            // 型が違う値は、読み込みの検査で拒否する
+            Some(value) => {
+                object.insert(key.to_owned(), value);
+            }
+            None => {}
+        }
+    }
     object.extend(patch);
-    let settings: Settings =
-        serde_json::from_value(current).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
-    settings.validate()?;
-    Ok(settings)
+    from_stored(current)
+}
+
+// ルートごとの項目を重ねる。nullのルートは外し、送られなかったルートは残す
+fn apply_roots(object: &mut Map<String, Value>, key: &str, roots: Map<String, Value>) {
+    let entry = object
+        .entry(key)
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !entry.is_object() {
+        *entry = Value::Object(Map::new());
+    }
+    if let Value::Object(saved) = entry {
+        for (root, value) in roots {
+            if value.is_null() {
+                saved.remove(&root);
+            } else {
+                saved.insert(root, value);
+            }
+        }
+    }
+}
+
+// 別のウィンドウへ知らせる値。ルートごとの項目は、送ったルートの保存後の値を送り、外したルートはnullにする
+pub fn broadcast_values(stored: &Value, patch: &Map<String, Value>) -> Map<String, Value> {
+    let mut values = Map::new();
+    for (key, sent) in patch {
+        let Some(saved) = stored.get(key.as_str()) else {
+            continue;
+        };
+        let value = match sent.as_object() {
+            Some(roots) if ROOT_KEYED.contains(&key.as_str()) => Value::Object(
+                roots
+                    .keys()
+                    .map(|root| {
+                        let value = saved.get(root.as_str()).cloned().unwrap_or(Value::Null);
+                        (root.clone(), value)
+                    })
+                    .collect(),
+            ),
+            _ => saved.clone(),
+        };
+        values.insert(key.clone(), value);
+    }
+    values
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {

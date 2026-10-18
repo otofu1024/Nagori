@@ -122,9 +122,13 @@ export function createFileActions(deps: FileActionDeps) {
       if (deps.session) deps.editor?.refreshImages();
       else if (deps.current.kind === 'image') deps.imageUrl = await deps.blobImage(deps.current.path);
     }
-    deps.settings.recentFiles = deps.settings.recentFiles.map((path) => renamedPath(path, old, entry.path));
-    deps.settings.recentOpenedAt = renameOpened(deps.settings.recentOpenedAt, old, entry.path);
-    if (deps.project) deps.settings.starred = renameStarred(deps.settings.starred, deps.project, old, entry.path);
+    // 最近見た記録とスターは、今のワークスペースのルートの分だけを直す
+    if (deps.project) {
+      const root = deps.project;
+      deps.settings.recentFiles[root] = (deps.settings.recentFiles[root] ?? []).map((path) => renamedPath(path, old, entry.path));
+      deps.settings.recentOpenedAt[root] = renameOpened(deps.settings.recentOpenedAt[root] ?? {}, old, entry.path);
+      deps.settings.starred = renameStarred(deps.settings.starred, root, old, entry.path);
+    }
     deps.expanded = deps.expanded.map((path) => renamedPath(path, old, entry.path));
     deps.selected = entry.path;
   }
@@ -151,9 +155,12 @@ export function createFileActions(deps: FileActionDeps) {
       if (deps.current && containsPath(entry.path, deps.current.path)) {
         deps.clearDocument();
       }
-      deps.settings.recentFiles = deps.settings.recentFiles.filter((path) => !containsPath(entry.path, path));
-      deps.settings.recentOpenedAt = removeOpened(deps.settings.recentOpenedAt, entry.path);
-      if (deps.project) deps.settings.starred = removeStarred(deps.settings.starred, deps.project, entry.path);
+      if (deps.project) {
+        const root = deps.project;
+        deps.settings.recentFiles[root] = (deps.settings.recentFiles[root] ?? []).filter((path) => !containsPath(entry.path, path));
+        deps.settings.recentOpenedAt[root] = removeOpened(deps.settings.recentOpenedAt[root] ?? {}, entry.path);
+        deps.settings.starred = removeStarred(deps.settings.starred, root, entry.path);
+      }
       deps.expanded = deps.expanded.filter((path) => !containsPath(entry.path, path));
       deps.selected = '';
       await deps.refreshTree();

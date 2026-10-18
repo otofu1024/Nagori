@@ -3,7 +3,7 @@ use crate::commands::{self, Backend, OpenRequest};
 use crate::files::{Error, Result};
 use crate::settings::{self, OpenWindow};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{atomic::Ordering, Mutex, MutexGuard, PoisonError};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -260,7 +260,7 @@ pub(crate) fn begin_quit(app: &AppHandle) {
     }
     let labels: HashSet<String> = app.webview_windows().into_keys().collect();
     if labels.is_empty() {
-        finish_quit(app);
+        finish_quit(app, open_records(app));
         return;
     }
     {
@@ -301,16 +301,16 @@ fn settle(app: &AppHandle, label: &str) {
         }
     };
     if finished {
-        finish_quit(app);
+        finish_quit(app, open_records(app));
     }
 }
 
 // 終了する時点のウィンドウを開き直し用に記録してから終える
-fn finish_quit(app: &AppHandle) {
+fn finish_quit(app: &AppHandle, records: Vec<OpenWindow>) {
     let backend = app.state::<Backend>();
     backend.allow_exit.store(true, Ordering::SeqCst);
     let mut patch = serde_json::Map::new();
-    if let Ok(value) = serde_json::to_value(restore_records(app)) {
+    if let Ok(value) = serde_json::to_value(records) {
         patch.insert("openWindows".to_owned(), value);
     }
     let _ = settings::update(app, patch);
@@ -318,24 +318,43 @@ fn finish_quit(app: &AppHandle) {
 }
 
 // 開いているウィンドウのフォルダとファイル。フォルダのないウィンドウは記録しない
-fn restore_records(app: &AppHandle) -> Vec<OpenWindow> {
+fn open_records(app: &AppHandle) -> Vec<OpenWindow> {
     let backend = app.state::<Backend>();
-    let mut labels: Vec<String> = app.webview_windows().into_keys().collect();
-    labels.sort();
+    let labels: Vec<String> = app.webview_windows().into_keys().collect();
     let projects = locked(&backend.projects);
+    window_records(&projects, &labels)
+}
+
+// 1つの窓のフォルダとファイル。窓の一覧に残っているかは見ない。フォルダのない窓はNone
+fn window_record(projects: &HashMap<String, Project>, label: &str) -> Option<OpenWindow> {
+    projects.get(label).map(|project| OpenWindow {
+        project: project.root.clone(),
+        file: project.file.clone(),
+    })
+}
+
+// 指定した窓の記録を、labelの順に並べる。フォルダのない窓は記録しない
+fn window_records(projects: &HashMap<String, Project>, labels: &[String]) -> Vec<OpenWindow> {
+    let mut labels = labels.to_vec();
+    labels.sort();
     labels
         .iter()
-        .filter_map(|label| projects.get(label))
-        .map(|project| OpenWindow {
-            project: project.root.clone(),
-            file: project.file.clone(),
-        })
+        .filter_map(|label| window_record(projects, label))
         .collect()
 }
 
-// ウィンドウが閉じた時に、その窓の状態を捨てる。最後の1枚なら終了する
+// ウィンドウが閉じた時に、その窓の状態を捨てる。最後の1枚なら、その窓の記録を残して終了する
 pub(crate) fn forget(app: &AppHandle, label: &str) {
     let backend = app.state::<Backend>();
+    let last = !app.webview_windows().keys().any(|other| other != label);
+    // 最後の1枚の記録は、状態を捨てる前に作る。Destroyedの時点で窓が一覧に残っているかは当てにしない
+    let closing = if last {
+        window_record(&locked(&backend.projects), label)
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
+    };
     backend.remove_workspace(label);
     locked(&backend.projects).remove(label);
     locked(&backend.open_requests).remove(label);
@@ -349,9 +368,8 @@ pub(crate) fn forget(app: &AppHandle, label: &str) {
     if backend.allow_exit.load(Ordering::SeqCst) {
         return;
     }
-    let last = !app.webview_windows().keys().any(|other| other != label);
     if last {
-        finish_quit(app);
+        finish_quit(app, closing);
     } else {
         settle(app, label);
     }
