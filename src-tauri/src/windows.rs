@@ -27,8 +27,10 @@ pub(crate) struct Candidate {
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Route {
-    // 同じフォルダを開いているウィンドウを前に出す
-    Focus(String),
+    // 同じフォルダを開いているウィンドウを前に出すだけにする。依頼は積まない
+    Show(String),
+    // 同じフォルダを開いているウィンドウで、指定のファイルだけを開く
+    Open(String),
     // 起動直後の空のウィンドウを使う
     Reuse(String),
     // どちらもなければ新しいウィンドウを作る
@@ -36,12 +38,16 @@ pub(crate) enum Route {
 }
 
 // 同じフォルダを開いているウィンドウを優先し、なければ空の最初のウィンドウを使い、どちらもなければ新しく作る
-pub(crate) fn route(candidates: &[Candidate], workspace: &str) -> Route {
+pub(crate) fn route(candidates: &[Candidate], workspace: &str, file: Option<&str>) -> Route {
     if let Some(candidate) = candidates
         .iter()
         .find(|candidate| candidate.root.as_deref() == Some(workspace))
     {
-        return Route::Focus(candidate.label.clone());
+        // フォルダは開き直さない。ファイルの指定がなければ前に出すだけにする
+        return match file {
+            Some(_) => Route::Open(candidate.label.clone()),
+            None => Route::Show(candidate.label.clone()),
+        };
     }
     match candidates.iter().find(|candidate| candidate.idle) {
         Some(candidate) => Route::Reuse(candidate.label.clone()),
@@ -154,14 +160,19 @@ pub(crate) fn open_window(app: &AppHandle, request: Option<OpenRequest>) -> Resu
     Ok(())
 }
 
-fn deliver(app: &AppHandle, label: &str, request: Result<OpenRequest>) {
-    app.state::<Backend>().push_request(label, request);
-    let _ = app.emit_to(label, "nagori:open-requested", ());
+// 窓を前に出す。依頼は積まない
+fn show(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn deliver(app: &AppHandle, label: &str, request: Result<OpenRequest>) {
+    app.state::<Backend>().push_request(label, request);
+    let _ = app.emit_to(label, "nagori:open-requested", ());
+    show(app, label);
 }
 
 // FinderやCLIからの開く依頼を、既存のウィンドウへ振り分ける。合わなければ新しいウィンドウで開く
@@ -179,8 +190,9 @@ pub(crate) fn open_urls(app: &AppHandle, urls: Vec<url::Url>) {
             return;
         }
     };
-    match route(&candidates(app), &request.workspace) {
-        Route::Focus(label) | Route::Reuse(label) => deliver(app, &label, Ok(request)),
+    match route(&candidates(app), &request.workspace, request.path.as_deref()) {
+        Route::Show(label) => show(app, &label),
+        Route::Open(label) | Route::Reuse(label) => deliver(app, &label, Ok(request)),
         Route::Create => {
             let _ = open_window(app, Some(request));
         }

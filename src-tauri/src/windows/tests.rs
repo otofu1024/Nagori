@@ -9,16 +9,29 @@ fn candidate(label: &str, root: Option<&str>, idle: bool) -> Candidate {
 }
 
 #[test]
-fn open_request_focuses_the_window_that_already_has_the_folder() {
-    // 同じフォルダを開いていれば、空の窓があっても前に出す
+fn open_request_shows_the_window_that_has_the_folder_when_no_file_is_given() {
+    // 同じフォルダを開いていれば、空の窓があっても前に出すだけにする。依頼は積まない
     let candidates = [
         candidate("main", Some("/a"), false),
         candidate("window-000001", Some("/b"), false),
         candidate("window-000002", None, true),
     ];
     assert_eq!(
-        route(&candidates, "/b"),
-        Route::Focus("window-000001".into())
+        route(&candidates, "/b", None),
+        Route::Show("window-000001".into())
+    );
+}
+
+#[test]
+fn open_request_opens_only_the_file_in_the_window_that_has_the_folder() {
+    // 同じフォルダにファイルの指定があれば、そのウィンドウでファイルだけを開く
+    let candidates = [
+        candidate("main", Some("/a"), false),
+        candidate("window-000001", Some("/b"), false),
+    ];
+    assert_eq!(
+        route(&candidates, "/b", Some("note.md")),
+        Route::Open("window-000001".into())
     );
 }
 
@@ -30,7 +43,11 @@ fn open_request_reuses_the_first_idle_window_when_no_window_has_the_folder() {
         candidate("window-000002", None, true),
     ];
     assert_eq!(
-        route(&candidates, "/c"),
+        route(&candidates, "/c", None),
+        Route::Reuse("window-000002".into())
+    );
+    assert_eq!(
+        route(&candidates, "/c", Some("note.md")),
         Route::Reuse("window-000002".into())
     );
 }
@@ -41,8 +58,8 @@ fn open_request_creates_a_window_when_nothing_matches_or_is_idle() {
         candidate("main", Some("/a"), false),
         candidate("window-000001", None, false),
     ];
-    assert_eq!(route(&candidates, "/c"), Route::Create);
-    assert_eq!(route(&[], "/c"), Route::Create);
+    assert_eq!(route(&candidates, "/c", None), Route::Create);
+    assert_eq!(route(&[], "/c", None), Route::Create);
 }
 
 fn project(root: &str, file: Option<&str>) -> Project {

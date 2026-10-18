@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { planOpenRequest } from './lib/workspace/openRequest.ts';
   import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
   import { createSettingsDialog } from './lib/workspace/settingsDialog.ts';
   import { createFontZoom } from './lib/workspace/fontZoom.ts';
@@ -368,7 +369,10 @@
             return;
           }
           try {
-            await openProject(request.workspace, request.path);
+            // 同じフォルダを開いている窓では、フォルダを開き直さずにファイルだけを開く
+            const plan = planOpenRequest(request, project);
+            if (plan.kind === 'project') await openProject(request.workspace, request.path);
+            else if (plan.kind === 'file') await openRequestedFile(plan.path);
             if (request.path && !request.restore && current?.path !== request.path) throw new Error('指定されたファイルを開けません: ' + request.path);
           } catch (error) {
             notify(failure(error).message);
@@ -615,18 +619,27 @@
     void persist();
     if (restoreFile) {
       const entry = entries.find((item) => item.path === restoreFile);
-      if (entry) {
-        const parent = parentPath(entry.path);
-        const folders = parent.split('/').filter(Boolean);
-        let built = rootDirectory;
-        for (const name of (rootDirectory ? parent.slice(rootDirectory.length).split('/').filter(Boolean) : folders)) {
-          built = built ? built + '/' + name : name;
-          await list(built);
-          expanded = [...expanded, built];
-        }
-        await loadEntry(entry);
-      }
+      if (entry) await showEntry(entry);
     }
+  }
+  // ファイルの親フォルダを開いてツリーに見せ、ファイルを読み込む
+  async function showEntry(entry: Entry) {
+    const parent = parentPath(entry.path);
+    const folders = parent.split('/').filter(Boolean);
+    let built = rootDirectory;
+    for (const name of (rootDirectory ? parent.slice(rootDirectory.length).split('/').filter(Boolean) : folders)) {
+      built = built ? built + '/' + name : name;
+      await list(built);
+      expanded = [...expanded, built];
+    }
+    await loadEntry(entry);
+  }
+  // 開いているフォルダの中のファイルを、この窓で開く。一覧にないファイルは何もしない
+  async function openRequestedFile(path: string) {
+    const entries = await refreshIndex();
+    const entry = entries.find((item) => item.path === path);
+    if (!entry || entry.path === current?.path) return;
+    await showEntry(entry);
   }
   async function quickOpen() {
     if (!project || busy || composing || errorDialog?.open || saveAsDialog?.open) return;
@@ -879,8 +892,10 @@
         return;
       }
       try {
+        // この窓あての知らせだけを受ける。全体へ送られた知らせは、どの窓でも受け取らない
+        const windowEvents = getCurrentWebviewWindow();
         unlisteners.push(
-          await listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
+          await windowEvents.listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
             if (event.payload.project !== project) return;
             if (blogMode && event.payload.paths.some(path => [...blogThemePaths, 'src/config.ts', 'src/data/link-cards.json'].includes(path))) void refreshBlogTheme();
             treeQueued = true;
@@ -889,12 +904,12 @@
             fsTimer = setTimeout(() => void processChanges(), 150);
           }),
         );
-        unlisteners.push(await listen<string>('nagori:fs-error', (event) => notify('ファイル監視のエラー: ' + event.payload)));
-        unlisteners.push(await listen('nagori:quit-requested', () => void quit()));
-        unlisteners.push(await listen('nagori:close-requested', () => void flow.closeWindow()));
+        unlisteners.push(await windowEvents.listen<string>('nagori:fs-error', (event) => notify('ファイル監視のエラー: ' + event.payload)));
+        unlisteners.push(await windowEvents.listen('nagori:quit-requested', () => void quit()));
+        unlisteners.push(await windowEvents.listen('nagori:close-requested', () => void flow.closeWindow()));
         // ほかのウィンドウが保存した設定を、この窓の表示にも反映する
         unlisteners.push(
-          await listen<{ values: Record<string, unknown> }>('nagori:settings-changed', (event) => {
+          await windowEvents.listen<{ values: Record<string, unknown> }>('nagori:settings-changed', (event) => {
             if (!settingsLoaded) return;
             const values = JSON.parse(JSON.stringify(event.payload.values)) as Record<string, unknown>;
             applyValues(settings, values);
@@ -904,12 +919,12 @@
           }),
         );
         unlisteners.push(
-          await listen('nagori:open-requested', () => {
+          await windowEvents.listen('nagori:open-requested', () => {
             openRequestsQueued = true;
             void drainOpenRequests();
           }),
         );
-        unlisteners.push(await listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
+        unlisteners.push(await windowEvents.listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
         const saved = await invoke<Settings>('settings_get');
         settings = startupSettings(saved);
         // 読んだ時点の値を保存済みとして覚え、読み込みで直された項目だけを書き直す
