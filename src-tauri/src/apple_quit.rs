@@ -2,10 +2,11 @@
 // applicationWillTerminateへ直行し、ExitRequestedもフロントの保存も通らない。
 // そこでデリゲートへapplicationShouldTerminate:を足し、保存が済むまで終了を取り消す。
 use crate::commands::Backend;
+use crate::windows;
 use std::ffi::{c_char, c_void};
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 type Id = *mut c_void;
 type Sel = *mut c_void;
@@ -27,8 +28,13 @@ extern "C" fn should_terminate(_this: Id, _sel: Sel, _sender: Id) -> usize {
     if app.state::<Backend>().allow_exit.load(Ordering::SeqCst) {
         return 1;
     }
-    let _ = app.emit("nagori:quit-requested", ());
-    0
+    // 全ウィンドウの保存が済むまで終了を取り消す。全部済んだ時は、そのまま終了する
+    windows::begin_quit(app);
+    if app.state::<Backend>().allow_exit.load(Ordering::SeqCst) {
+        1
+    } else {
+        0
+    }
 }
 
 pub fn install(app: &tauri::AppHandle) {

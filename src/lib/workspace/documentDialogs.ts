@@ -139,7 +139,6 @@ export function createDocumentDialogs(deps: DocumentDialogDeps) {
       deps.selected = opened.path;
       deps.releaseImages();
       deps.editor?.refreshImages();
-      deps.settings.lastFile = opened.path;
       deps.settings.recentFiles = [opened.path, ...deps.settings.recentFiles.filter((path) => path !== opened.path)].slice(0, 30);
       deps.settings.recentOpenedAt = recordOpened(deps.settings.recentOpenedAt, opened.path);
       deps.syncSession();
@@ -172,7 +171,6 @@ export function createDocumentDialogs(deps: DocumentDialogDeps) {
       return;
     if (deps.session !== target) return;
     deps.clearDocument();
-    deps.settings.lastFile = null;
     deps.errorDialog?.close();
     void deps.persist();
   }

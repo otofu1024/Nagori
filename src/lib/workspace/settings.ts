@@ -4,7 +4,7 @@ type Theme = 'light' | 'dark';
 // 'system'はmacOSの外観に従うことを表す。保存した値は変えず、表示する時に決める
 // starredはワークスペースのルートの絶対パスをキーに、スターを付けた記事の相対パスを新しい順に持つ
 export type Settings = {
-  lastProject: string | null; lastFile: string | null; theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean; starred: Record<string, string[]>;
+  theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean; starred: Record<string, string[]>;
   // 記事を最後に開いた時刻（ミリ秒）を相対パスごとに持つ。最近見たノートの並びに使う
   recentOpenedAt: Record<string, number>;
   // 設定画面の項目。範囲外の値は読み込み時に範囲の端へ直す
@@ -27,7 +27,7 @@ export const RANGES = {
   recentEditedCount: { min: 10, max: 50 },
 } as const;
 export const defaults: Settings = {
-  lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
+  theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
   editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, blogFeatures: true, blogArticleHeader: true, blogLinkCardsEnabled: true, blogCharactersEnabled: true, blogBodyTheme: true, blogIndentOnEnter: true,
 };
 
@@ -114,12 +114,15 @@ export function nextTheme(theme: Theme): Theme {
 export function resetPreferences(current: Settings): Settings {
   return {
     ...defaults,
-    lastProject: current.lastProject,
-    lastFile: current.lastFile,
     recentFiles: [...current.recentFiles],
     starred: structuredClone(current.starred),
     recentOpenedAt: { ...current.recentOpenedAt },
   };
+}
+
+// 前回保存した設定と比べて、値が変わった項目だけを取り出す。ウィンドウごとに送る保存の中身に使う
+export function changedSettings(previous: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(previous[key]) !== JSON.stringify(value)));
 }
 
 // 本文の見た目に使うCSS変数の値

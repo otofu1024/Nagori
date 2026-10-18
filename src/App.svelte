@@ -48,8 +48,9 @@
   import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/workspace/imageDrop';
 
   import SettingsDialog from './lib/components/SettingsDialog.svelte';
-  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, type Settings } from './lib/workspace/settings';
-  type OpenRequest = { workspace: string; path: string | null };
+  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, changedSettings, type Settings } from './lib/workspace/settings';
+  // restoreは前回終了した時のウィンドウを開き直す依頼。ファイルがなくても、その窓は開き直す
+  type OpenRequest = { workspace: string; path: string | null; restore: boolean };
   let settings = $state<Settings>({ ...defaults, theme: 'light' });
   let settingsLoaded = $state(false);
   // macOSの外観。theme が 'system' の時だけ使う
@@ -364,8 +365,8 @@
             return;
           }
           try {
-            await openProject(request.workspace, request.path);
-            if (request.path && current?.path !== request.path) throw new Error('指定されたファイルを開けません: ' + request.path);
+            await openProject(request.workspace, request.path, request.restore);
+            if (request.path && !request.restore && current?.path !== request.path) throw new Error('指定されたファイルを開けません: ' + request.path);
           } catch (error) {
             notify(failure(error).message);
           }
@@ -416,6 +417,8 @@
     }
   }
   let settingsQueue = Promise.resolve();
+  // ディスクで最後に確かめた設定。ここから変わった項目だけを保存し、ほかのウィンドウの変更を古い値で消さないようにする
+  let synced: Record<string, unknown> = {};
   const flow = new AppFlow({
     getSession: () => session,
     isBusy: () => busy,
@@ -431,7 +434,9 @@
       await persist();
     },
     settingsQueue: () => settingsQueue,
-    exitApp: () => invoke('app_exit'),
+    quitReady: () => invoke<void>('quit_ready'),
+    cancelQuit: () => invoke<void>('quit_cancel'),
+    closeWindow: () => invoke<void>('window_close'),
     resumeTree: () => {
       if (treeQueued) void processChanges();
     },
@@ -442,10 +447,23 @@
   });
   function persist() {
     if (!settingsLoaded) return settingsQueue;
-    const snapshot = JSON.parse(JSON.stringify(settings));
+    const snapshot = JSON.parse(JSON.stringify(settings)) as Record<string, unknown>;
+    const previous = synced;
+    const patch = changedSettings(previous, snapshot);
+    synced = snapshot;
+    if (Object.keys(patch).length === 0) return settingsQueue;
     settingsQueue = settingsQueue
-      .then(() => invoke<void>('settings_save', { settings: snapshot }))
-      .catch((error) => notify('設定を保存できません: ' + failure(error).message));
+      .then(() => invoke<void>('settings_save', { patch }))
+      .catch((error) => {
+        // 保存できなかった項目は、次の保存で改めて送る
+        const restored = { ...synced };
+        for (const key of Object.keys(patch)) {
+          if (key in previous) restored[key] = previous[key];
+          else delete restored[key];
+        }
+        synced = restored;
+        notify('設定を保存できません: ' + failure(error).message);
+      });
     return settingsQueue;
   }
   function commitPane(pane: 'sidebar' | 'outline') {
@@ -549,7 +567,6 @@
     } catch (error) {
       contentError = failure(error).message;
     }
-    settings.lastFile = entry.path;
     settings.recentFiles = [entry.path, ...settings.recentFiles.filter((path) => path !== entry.path)].slice(0, 30);
     if (entry.kind === 'markdown') settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, entry.path);
     void persist();
@@ -579,7 +596,8 @@
       await openProject(picked);
     });
   }
-  async function openProject(path: string, restoreFile?: string | null) {
+  // restoreは起動時の開き直しで、最近見たノートの記録を残す
+  async function openProject(path: string, restoreFile?: string | null, restore = false) {
     const opened = await invoke<{ root: string; blogMode: boolean }>('workspace_open', { path, blogFeatures: settings.blogFeatures });
     const root = opened.root;
     blogMode = opened.blogMode;
@@ -594,10 +612,10 @@
     index = [];
     view = 'tree';
     trashItems = [];
-    settings.lastProject = root;
-    settings.lastFile = null;
-    settings.recentFiles = [];
-    settings.recentOpenedAt = {};
+    if (!restore) {
+      settings.recentFiles = [];
+      settings.recentOpenedAt = {};
+    }
     await refreshTree();
     const entries = await refreshIndex();
     void loadTrash();
@@ -850,6 +868,10 @@
     notify, reveal, toggleStar, startName, trash, restoreTrash, deleteTrash, insertImage, runCli, chooseProject, quickOpen,
     flush, workspaceSearchOpen, togglePreview, toggleOutline, toggleWritingMode, openSettings, zoomFont,
   });
+  // この窓で開いているファイルを覚える。ウィンドウを開き直す時に、同じファイルを開くため
+  $effect(() => {
+    if (project) void invoke('workspace_last_file', { path: current?.path ?? null }).catch(() => {});
+  });
   onMount(() => {
     const unlisteners: Array<() => void> = [];
     const focused = () => { void checkExternal(); void refreshGit(); };
@@ -875,6 +897,16 @@
         );
         unlisteners.push(await listen<string>('nagori:fs-error', (event) => notify('ファイル監視のエラー: ' + event.payload)));
         unlisteners.push(await listen('nagori:quit-requested', () => void quit()));
+        unlisteners.push(await listen('nagori:close-requested', () => void flow.closeWindow()));
+        // ほかのウィンドウが保存した設定を、この窓の表示にも反映する
+        unlisteners.push(
+          await listen<{ values: Partial<Settings> }>('nagori:settings-changed', (event) => {
+            if (!settingsLoaded) return;
+            const values = JSON.parse(JSON.stringify(event.payload.values)) as Partial<Settings>;
+            Object.assign(settings, values);
+            synced = { ...synced, ...values };
+          }),
+        );
         unlisteners.push(
           await listen('nagori:open-requested', () => {
             openRequestsQueued = true;
@@ -884,23 +916,15 @@
         unlisteners.push(await listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
         const saved = await invoke<Settings>('settings_get');
         settings = startupSettings(saved);
+        // 読んだ時点の値を保存済みとして覚え、読み込みで直された項目だけを書き直す
+        synced = JSON.parse(JSON.stringify(saved));
         settingsLoaded = true;
-        if (JSON.stringify(settings) !== JSON.stringify(saved)) await persist();
+        await persist();
+        // 前回の窓の開き直しも、Finderからの開く依頼も、この窓への依頼として受け取る
         const requested = await invoke<OpenRequest | null>('open_request_take');
         if (requested) {
-          await openProject(requested.workspace, requested.path);
-          if (requested.path && current?.path !== requested.path) throw new Error('指定されたファイルを開けません: ' + requested.path);
-        } else if (settings.lastProject) {
-          const recent = settings.recentFiles,
-            last = settings.lastFile;
-          try {
-            await openProject(settings.lastProject, last);
-            settings.recentFiles = [...new Set([...(settings.lastFile ? [settings.lastFile] : []), ...recent])];
-            void persist();
-          } catch (error) {
-            project = '';
-            notify('前回のプロジェクトを開けません: ' + failure(error).message);
-          }
+          await openProject(requested.workspace, requested.path, requested.restore);
+          if (requested.path && !requested.restore && current?.path !== requested.path) throw new Error('指定されたファイルを開けません: ' + requested.path);
         }
       } catch (error) {
         notify(failure(error).message);

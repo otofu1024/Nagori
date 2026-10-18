@@ -119,7 +119,7 @@ window.run = async () => {
         if (command === 'plugin:event|unlisten') return;
         if (command === 'settings_get') return settings;
         if (command === 'settings_save') {
-          settings = args.settings;
+          settings = { ...settings, ...args.patch };
           return;
         }
         if (command === 'open_request_take') return null;

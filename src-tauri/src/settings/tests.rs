@@ -330,3 +330,71 @@ fn blog_display_flags_default_on_and_persist_independently() {
         assert_eq!(serde_json::to_value(restored).unwrap(), saved);
     }
 }
+
+#[test]
+fn open_windows_restore_list_falls_back_to_the_last_project_before_migration() {
+    let legacy: Settings =
+        serde_json::from_str(r#"{"lastProject":"/work","lastFile":"a.md"}"#).unwrap();
+    assert_eq!(
+        legacy.restored_windows(),
+        vec![OpenWindow {
+            project: "/work".into(),
+            file: Some("a.md".into()),
+        }]
+    );
+    let fresh: Settings = serde_json::from_str("{}").unwrap();
+    assert!(fresh.restored_windows().is_empty());
+    let saved: Settings = serde_json::from_str(
+        r#"{"lastProject":"/old","openWindows":[{"project":"/a","file":null},{"project":"/b","file":"x/y.md"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        saved.restored_windows(),
+        vec![
+            OpenWindow {
+                project: "/a".into(),
+                file: None,
+            },
+            OpenWindow {
+                project: "/b".into(),
+                file: Some("x/y.md".into()),
+            },
+        ]
+    );
+    // 開いていたウィンドウが0枚で終了した時は、古い lastProject を開き直さない
+    let emptied: Settings =
+        serde_json::from_str(r#"{"lastProject":"/old","openWindows":[]}"#).unwrap();
+    assert!(emptied.restored_windows().is_empty());
+    let stored = serde_json::to_value(&saved).unwrap();
+    assert_eq!(stored["openWindows"][1]["file"], "x/y.md");
+    let restored: Settings = serde_json::from_value(stored).unwrap();
+    assert_eq!(restored.restored_windows(), saved.restored_windows());
+}
+
+#[test]
+fn a_patch_keeps_the_changes_other_windows_saved() {
+    // 別のウィンドウが保存した theme を、このウィンドウが送らなかった項目で消さない
+    let current = serde_json::to_value(Settings {
+        theme: "dark".into(),
+        ..Settings::default()
+    })
+    .unwrap();
+    let patch = serde_json::json!({ "fontSize": 21 })
+        .as_object()
+        .unwrap()
+        .clone();
+    let merged = merge(current.clone(), patch).unwrap();
+    assert_eq!(merged.theme, "dark");
+    assert_eq!(merged.font_size, 21);
+    // 範囲外の値は保存させず、読み込みと同じ規則で直す
+    let line = serde_json::json!({ "lineHeight": 9.0 })
+        .as_object()
+        .unwrap()
+        .clone();
+    assert_eq!(merge(current.clone(), line).unwrap().line_height, 1.9);
+    let invalid = serde_json::json!({ "theme": "blue" })
+        .as_object()
+        .unwrap()
+        .clone();
+    assert!(merge(current, invalid).is_err());
+}

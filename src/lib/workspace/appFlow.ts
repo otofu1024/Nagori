@@ -14,7 +14,12 @@ export type AppFlowDeps = {
   notify: (message: string) => void;
   persist: () => Promise<void>;
   settingsQueue: () => Promise<unknown>;
-  exitApp: () => Promise<void>;
+  // このウィンドウの保存が済んだことを知らせる。全ウィンドウが済んだら、アプリは終了する
+  quitReady: () => Promise<void>;
+  // 保存できなかった時に、終了の待ちを取り消す
+  cancelQuit: () => Promise<void>;
+  // このウィンドウを閉じる。最後の1枚なら、アプリも終了する
+  closeWindow: () => Promise<void>;
   // 操作の終了時に再開する、ファイルツリー更新と開く要求の処理
   resumeTree: () => void;
   resumeOpenRequests: () => void;
@@ -108,13 +113,24 @@ export class AppFlow {
     }
   }
 
-  // Cmd+Q、Cmd+W、閉じる、Dock終了はすべてこの経路で、保存に成功したときだけ終了する
+  // Cmd+Q、Dock終了は、全ウィンドウがこの経路で保存を終えた時だけ終了する。どこかが保存できなければ取り消す
   async quit() {
+    const d = this.deps;
+    const ok = await this.operation(async () => {
+      await d.persist();
+      await d.settingsQueue();
+      await d.quitReady();
+    });
+    if (ok !== true) await d.cancelQuit();
+  }
+
+  // Cmd+Wと閉じるボタンは、このウィンドウだけを保存してから閉じる
+  async closeWindow() {
     const d = this.deps;
     await this.operation(async () => {
       await d.persist();
       await d.settingsQueue();
-      await d.exitApp();
+      await d.closeWindow();
     });
   }
 }

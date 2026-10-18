@@ -23,7 +23,9 @@ function setup(write: (path: string, text: string, baseline: string) => Promise<
     notify: (message) => log.push('notify:' + message),
     persist: async () => { log.push('persist'); },
     settingsQueue: () => Promise.resolve(),
-    exitApp: async () => { log.push('exit'); },
+    quitReady: async () => { log.push('quitReady'); },
+    cancelQuit: async () => { log.push('cancelQuit'); },
+    closeWindow: async () => { log.push('closeWindow'); },
     resumeTree: () => {},
     resumeOpenRequests: () => {},
     defer: (run) => run(),
@@ -35,8 +37,32 @@ test('終了前のflushが共通経路を通り、保存後に設定保存と終
   const { flow, session, log } = setup();
   session.edit('edited');
   await flow.quit();
-  assert.deepEqual(log, ['settle', 'cancelSave', 'settle', 'flush', 'persist', 'exit']);
+  assert.deepEqual(log, ['settle', 'cancelSave', 'settle', 'flush', 'persist', 'quitReady']);
   assert.equal(session.dirty, false);
+});
+
+test('保存に失敗したら、終了の待ちを取り消して終了しない', async () => {
+  const { flow, session, log } = setup(async () => { throw { code: 'PERMISSION', message: 'ro' }; });
+  session.edit('edited');
+  await flow.quit();
+  assert.equal(log.includes('quitReady'), false);
+  assert.equal(log.at(-1), 'cancelQuit');
+});
+
+test('閉じる時は、このウィンドウの保存を済ませてから閉じる', async () => {
+  const { flow, session, log } = setup();
+  session.edit('edited');
+  await flow.closeWindow();
+  assert.deepEqual(log, ['settle', 'cancelSave', 'settle', 'flush', 'persist', 'closeWindow']);
+  assert.equal(session.dirty, false);
+});
+
+test('閉じる時の保存に失敗したら、閉じずに問題を見せる', async () => {
+  const { flow, session, log } = setup(async () => { throw { code: 'PERMISSION', message: 'ro' }; });
+  session.edit('edited');
+  await flow.closeWindow();
+  assert.equal(log.includes('closeWindow'), false);
+  assert.equal(log.includes('showProblem'), true);
 });
 
 test('保存失敗中は終了が止まり、再書き込みも設定保存も行わない', async () => {
@@ -45,7 +71,7 @@ test('保存失敗中は終了が止まり、再書き込みも設定保存も�
   session.edit('edited');
   await flow.quit();
   await flow.quit();
-  assert.equal(log.includes('exit'), false);
+  assert.equal(log.includes('quitReady'), false);
   assert.equal(log.includes('persist'), false);
   assert.equal(log.filter((entry) => entry === 'showProblem').length, 2);
   assert.equal(writes, 1);
@@ -58,7 +84,7 @@ test('操作中の終了要求は二重に実行しない', async () => {
   const { flow, log, state } = setup();
   state.busy = true;
   await flow.quit();
-  assert.equal(log.includes('exit'), false);
+  assert.equal(log.includes('quitReady'), false);
   assert.equal(log.includes('flush'), false);
 });
 

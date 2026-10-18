@@ -1,13 +1,26 @@
 use crate::files::{self, Error, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use std::sync::{Mutex, PoisonError};
 use tauri::Manager;
+
+// 終了した時に開いていたウィンドウ。フォルダと、そのウィンドウで最後に開いていたファイル
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenWindow {
+    pub project: String,
+    pub file: Option<String>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    // 移行前の設定の項目。ウィンドウごとの状態になったので、新しい保存では書かない。openWindowsがない時だけ読む
     pub last_project: Option<String>,
     pub last_file: Option<String>,
+    // 終了した時に開いていたウィンドウ。nullは移行前の設定で、その時はlastProjectとlastFileを読む
+    pub open_windows: Option<Vec<OpenWindow>>,
     pub theme: String,
     pub font_size: u8,
     pub recent_files: Vec<String>,
@@ -61,6 +74,7 @@ impl Default for Settings {
         Self {
             last_project: None,
             last_file: None,
+            open_windows: None,
             theme: "system".into(),
             font_size: 19,
             recent_files: vec![],
@@ -181,6 +195,10 @@ impl Settings {
         if !["system", "light", "dark"].contains(&self.theme.as_str())
             || !(12..=32).contains(&self.font_size)
             || self.recent_files.len() > 100
+            || self
+                .open_windows
+                .as_ref()
+                .is_some_and(|windows| windows.len() > 100)
             || self.starred.len() > 100
             || self.starred.iter().any(|(root, paths)| {
                 root.is_empty() || paths.len() > 1000 || paths.iter().any(|path| path.is_empty())
@@ -190,15 +208,28 @@ impl Settings {
         }
         Ok(())
     }
+    // 開き直すウィンドウの一覧。openWindowsがない移行前の設定は、lastProjectがあれば1つだけ開く
+    pub fn restored_windows(&self) -> Vec<OpenWindow> {
+        match &self.open_windows {
+            Some(windows) => windows.clone(),
+            None => self
+                .last_project
+                .iter()
+                .map(|project| OpenWindow {
+                    project: project.clone(),
+                    file: self.last_file.clone(),
+                })
+                .collect(),
+        }
+    }
 }
+
+// 設定ファイルの読み書きを1つずつに直列化する。ウィンドウごとの保存が互いの変更を消さないように、読み直してから書く
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 // 保存された設定を読む。ファイルがなければ初期値を返す
 pub fn read(app: &tauri::AppHandle) -> Result<Settings> {
-    let path = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| Error::new("SETTINGS", e.to_string()))?
-        .join("settings.json");
+    let path = settings_path(app)?;
     if !path.exists() {
         return Ok(Settings::default());
     }
@@ -209,7 +240,43 @@ pub fn read(app: &tauri::AppHandle) -> Result<Settings> {
     Ok(settings)
 }
 
-pub fn save(app: tauri::AppHandle, settings: Settings) -> Result<()> {
+// 送られた項目だけを、いま保存されている設定へ重ねて書く。送られなかった項目は、ほかのウィンドウの変更をそのまま残す
+pub fn update(app: &tauri::AppHandle, patch: Map<String, Value>) -> Result<Settings> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    let path = settings_path(app)?;
+    let current = if path.exists() {
+        let bytes = files::read_limited(&path, 64 * 1024)?;
+        serde_json::from_slice(&bytes).map_err(|e| Error::new("SETTINGS", e.to_string()))?
+    } else {
+        serde_json::to_value(Settings::default())
+            .map_err(|e| Error::new("SETTINGS", e.to_string()))?
+    };
+    let settings = merge(current, patch)?;
+    save(app, &settings)?;
+    Ok(settings)
+}
+
+// 現在の設定に項目を重ね、読み込みと同じ規則で整えてから確かめる。範囲外の値は保存させない
+pub fn merge(mut current: Value, patch: Map<String, Value>) -> Result<Settings> {
+    let object = current
+        .as_object_mut()
+        .ok_or_else(|| Error::new("SETTINGS", "設定の形式が正しくありません。"))?;
+    object.extend(patch);
+    let settings: Settings =
+        serde_json::from_value(current).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+    settings.validate()?;
+    Ok(settings)
+}
+
+fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| Error::new("SETTINGS", e.to_string()))?
+        .join("settings.json"))
+}
+
+fn save(app: &tauri::AppHandle, settings: &Settings) -> Result<()> {
     use std::io::Write;
     let directory = app
         .path()
@@ -217,7 +284,7 @@ pub fn save(app: tauri::AppHandle, settings: Settings) -> Result<()> {
         .map_err(|e| Error::new("SETTINGS", e.to_string()))?;
     std::fs::create_dir_all(&directory)?;
     let bytes =
-        serde_json::to_vec_pretty(&settings).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+        serde_json::to_vec_pretty(settings).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
     if bytes.len() > 64 * 1024 {
         return Err(Error::new("LIMIT", "設定サイズの上限を超えています。"));
     }

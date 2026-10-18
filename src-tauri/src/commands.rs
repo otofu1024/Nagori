@@ -2,13 +2,14 @@ use crate::files::{self, Entry, Error, OpenedDocument, Result, Saved};
 use crate::image::{self, InsertedImage};
 use crate::settings::{self, Settings};
 use crate::trash::TrashItem;
+use crate::windows;
 use crate::{search, trash};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize},
         Arc, Mutex,
     },
 };
@@ -65,16 +66,44 @@ impl Workspace {
 #[derive(Clone, Default)]
 pub(crate) struct Backend {
     // shortcut: ワークスペースの操作は1つのロックで直列化する。画面の処理量を測って必要になった時だけ、読み取り用のロックを分ける。
-    workspace: Arc<Mutex<Workspace>>,
+    // ウィンドウのlabelごとに持ち、閉じた時に外す
+    workspaces: Arc<Mutex<HashMap<String, Arc<Mutex<Workspace>>>>>,
+    pub(crate) projects: Arc<Mutex<HashMap<String, crate::windows::Project>>>,
     pub(crate) allow_exit: Arc<AtomicBool>,
-    pub(crate) open_requests: Arc<Mutex<VecDeque<Result<OpenRequest>>>>,
+    // ウィンドウのlabelごとに、まだ読まれていない開く依頼
+    pub(crate) open_requests: Arc<Mutex<HashMap<String, VecDeque<Result<OpenRequest>>>>>,
+    // 終了の保存を待っているウィンドウ。終了していない時はNone
+    pub(crate) quit: Arc<Mutex<Option<HashSet<String>>>>,
+    // 起動直後の、まだ何も開いていない最初のウィンドウ
+    pub(crate) fresh: Arc<Mutex<Option<String>>>,
+    pub(crate) focused: Arc<Mutex<Option<String>>>,
+    pub(crate) created: Arc<AtomicUsize>,
     previews: Arc<Mutex<image::PreviewCache>>,
     link_cards: Arc<crate::link_cards::Fetcher>,
 }
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct OpenRequest {
-    workspace: String,
-    path: Option<String>,
+    pub(crate) workspace: String,
+    pub(crate) path: Option<String>,
+    // 終了前に開いていたウィンドウを開き直す依頼。ファイルがなくても開き直しを止めない
+    pub(crate) restore: bool,
+}
+
+impl Backend {
+    // ウィンドウのワークスペース。初めて使う時に空のものを作る
+    fn workspace(&self, label: &str) -> Result<Arc<Mutex<Workspace>>> {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .map_err(|_| Error::new("INTERNAL", "ファイル処理のロックに失敗しました。"))?;
+        Ok(workspaces.entry(label.to_owned()).or_default().clone())
+    }
+    // 閉じたウィンドウのワークスペースを捨てる。フォルダの監視もここで止まる
+    pub(crate) fn remove_workspace(&self, label: &str) {
+        if let Ok(mut workspaces) = self.workspaces.lock() {
+            workspaces.remove(label);
+        }
+    }
 }
 
 pub(crate) fn open_request(urls: Vec<url::Url>) -> Result<OpenRequest> {
@@ -124,10 +153,11 @@ pub(crate) fn open_request(urls: Vec<url::Url>) -> Result<OpenRequest> {
             .ok_or_else(|| Error::new("INVALID", "UTF-8で表現できないパスです。"))?
             .to_owned(),
         path,
+        restore: false,
     })
 }
 
-fn blog_request(mut request: OpenRequest, enabled: bool) -> Result<OpenRequest> {
+pub(crate) fn blog_request(mut request: OpenRequest, enabled: bool) -> Result<OpenRequest> {
     if !enabled {
         return Ok(request);
     }
@@ -148,29 +178,18 @@ fn blog_request(mut request: OpenRequest, enabled: bool) -> Result<OpenRequest> 
 
 #[tauri::command]
 pub(crate) fn open_request_take(
-    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
 ) -> Result<Option<OpenRequest>> {
-    state
-        .open_requests
-        .lock()
-        .map_err(|_| Error::new("INTERNAL", "起動要求のロックに失敗しました。"))?
-        .pop_front()
-        .transpose()?
-        .map(|request| {
-            blog_request(
-                request,
-                settings::read(&app).unwrap_or_default().blog_features,
-            )
-        })
-        .transpose()
+    state.take_request(window.label())
 }
 
 async fn work<T: Send + 'static>(
     state: &Backend,
+    label: &str,
     task: impl FnOnce(&mut Workspace) -> Result<T> + Send + 'static,
 ) -> Result<T> {
-    let workspace = state.workspace.clone();
+    let workspace = state.workspace(label)?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut workspace = workspace
             .lock()
@@ -182,23 +201,34 @@ async fn work<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub(crate) async fn git_status(state: State<'_, Backend>) -> Result<Option<crate::git::Status>> {
-    work(&state, |workspace| crate::git::status(workspace.root()?)).await
+pub(crate) async fn git_status(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+) -> Result<Option<crate::git::Status>> {
+    work(&state, window.label(), |workspace| {
+        crate::git::status(workspace.root()?)
+    })
+    .await
 }
 
 #[tauri::command]
 pub(crate) async fn git_action(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     project: String,
     action: crate::git::Action,
 ) -> Result<crate::git::Status> {
-    work(&state, move |workspace| {
+    work(&state, window.label(), move |workspace| {
         let root = workspace.root()?;
         if root.to_str() != Some(project.as_str()) {
-            return Err(Error::new("GIT_CHANGED", "開いたフォルダが変わりました。もう一度選んでください。"));
+            return Err(Error::new(
+                "GIT_CHANGED",
+                "開いたフォルダが変わりました。もう一度選んでください。",
+            ));
         }
         crate::git::action(root, action)
-    }).await
+    })
+    .await
 }
 // アプリ内のゴミ箱の置き場所。アプリのデータの場所の下に作り、ワークスペースには何も作らない
 fn trash_base(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
@@ -217,6 +247,7 @@ pub(crate) struct OpenedWorkspace {
 #[tauri::command]
 pub(crate) async fn workspace_open(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     blog_features: bool,
@@ -226,7 +257,10 @@ pub(crate) async fn workspace_open(
     let retention_days = settings::read(&app)
         .unwrap_or_default()
         .trash_retention_days;
-    work(&state, move |workspace| {
+    let label = window.label().to_owned();
+    let watched_label = label.clone();
+    let emitter = app.clone();
+    let opened = work(&state, &label, move |workspace| {
         let root = std::fs::canonicalize(&path)?;
         if !root.is_dir() {
             return Err(Error::new("INVALID", "フォルダを選択してください。"));
@@ -241,6 +275,7 @@ pub(crate) async fn workspace_open(
             trash::purge_expired(base, &root, retention_days);
         }
         let watched_root = root.clone();
+        // 監視の知らせは、このフォルダを開いているウィンドウだけへ送る
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
                 Ok(event) if !matches!(event.kind, notify::EventKind::Access(_)) => {
@@ -252,14 +287,19 @@ pub(crate) async fn workspace_open(
                         .filter_map(|p| p.to_str().map(str::to_owned))
                         .collect();
                     if !paths.is_empty() {
-                        let _ = app.emit(
+                        let _ = emitter.emit_to(
+                            watched_label.as_str(),
                             "nagori:fs-changed",
                             serde_json::json!({ "paths": paths, "project": watched_root }),
                         );
                     }
                 }
                 Err(error) => {
-                    let _ = app.emit("nagori:fs-error", error.to_string());
+                    let _ = emitter.emit_to(
+                        watched_label.as_str(),
+                        "nagori:fs-error",
+                        error.to_string(),
+                    );
                 }
                 _ => {}
             })
@@ -275,25 +315,39 @@ pub(crate) async fn workspace_open(
             blog_mode: workspace.blog_mode,
         })
     })
-    .await
+    .await?;
+    state.set_root(&label, opened.root.clone());
+    windows::release_fresh(&app, &label);
+    Ok(opened)
 }
 #[tauri::command]
-pub(crate) async fn workspace_list(state: State<'_, Backend>, path: String) -> Result<Vec<Entry>> {
-    work(&state, move |w| w.list(&path)).await
+pub(crate) async fn workspace_list(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+    path: String,
+) -> Result<Vec<Entry>> {
+    work(&state, window.label(), move |w| w.list(&path)).await
 }
 #[tauri::command]
-pub(crate) async fn workspace_index(state: State<'_, Backend>) -> Result<Vec<Entry>> {
-    work(&state, move |w| w.index()).await
+pub(crate) async fn workspace_index(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+) -> Result<Vec<Entry>> {
+    work(&state, window.label(), move |w| w.index()).await
 }
 #[tauri::command]
 pub(crate) async fn workspace_blog_theme(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
 ) -> Result<Option<files::BlogTheme>> {
-    work(&state, move |w| Ok(w.blog_theme())).await
+    work(&state, window.label(), move |w| Ok(w.blog_theme())).await
 }
 #[tauri::command]
-pub(crate) async fn workspace_blog_config(state: State<'_, Backend>) -> Result<Option<String>> {
-    work(&state, move |w| {
+pub(crate) async fn workspace_blog_config(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+) -> Result<Option<String>> {
+    work(&state, window.label(), move |w| {
         Ok(if w.blog_mode {
             files::read_blog_config(w.root()?)
         } else {
@@ -304,10 +358,11 @@ pub(crate) async fn workspace_blog_config(state: State<'_, Backend>) -> Result<O
 }
 #[tauri::command]
 pub(crate) async fn blog_characters_image_baseline(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
 ) -> Result<Option<String>> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         if !w.blog_mode {
             return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
         }
@@ -334,11 +389,12 @@ fn theme_history_base(app: &tauri::AppHandle) -> Result<PathBuf> {
 #[tauri::command]
 pub(crate) async fn blog_themes_read(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     project: String,
 ) -> Result<crate::blog_themes::Snapshot> {
     let base = theme_history_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         crate::blog_themes::read(theme_root(w, &project)?, &base)
     })
     .await
@@ -346,13 +402,14 @@ pub(crate) async fn blog_themes_read(
 #[tauri::command]
 pub(crate) async fn blog_themes_apply(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     project: String,
     preset: String,
     baseline: String,
 ) -> Result<crate::blog_themes::Saved> {
     let base = theme_history_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         crate::blog_themes::apply(theme_root(w, &project)?, &base, &preset, &baseline)
     })
     .await
@@ -360,12 +417,13 @@ pub(crate) async fn blog_themes_apply(
 #[tauri::command]
 pub(crate) async fn blog_themes_delete(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     project: String,
     id: String,
 ) -> Result<crate::blog_themes::Snapshot> {
     let base = theme_history_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         crate::blog_themes::delete_custom(theme_root(w, &project)?, &base, &id)
     })
     .await
@@ -373,13 +431,14 @@ pub(crate) async fn blog_themes_delete(
 #[tauri::command]
 pub(crate) async fn blog_themes_restore(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     project: String,
     id: String,
     baseline: String,
 ) -> Result<crate::blog_themes::Saved> {
     let base = theme_history_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         crate::blog_themes::restore(theme_root(w, &project)?, &base, &id, &baseline)
     })
     .await
@@ -387,11 +446,12 @@ pub(crate) async fn blog_themes_restore(
 #[tauri::command]
 pub(crate) async fn blog_characters_save(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     request: crate::blog_characters::SaveRequest,
 ) -> Result<crate::blog_characters::Saved> {
     let base = trash_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         if !w.blog_mode {
             return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
         }
@@ -401,9 +461,10 @@ pub(crate) async fn blog_characters_save(
 }
 #[tauri::command]
 pub(crate) async fn workspace_link_cards(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
 ) -> Result<crate::link_cards::Cache> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         Ok(if w.blog_mode {
             crate::link_cards::load(w.root()?)
         } else {
@@ -414,10 +475,11 @@ pub(crate) async fn workspace_link_cards(
 }
 #[tauri::command]
 pub(crate) async fn workspace_link_card(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     url: String,
 ) -> Result<Option<crate::link_cards::Preview>> {
-    let root = work(&state, move |w| {
+    let root = work(&state, window.label(), move |w| {
         if !w.blog_mode {
             return Err(Error::new("BLOG", "ブログのモードで開いてください。"));
         }
@@ -437,10 +499,11 @@ pub(crate) struct GraphDraft {
 
 #[tauri::command]
 pub(crate) async fn workspace_graph_documents(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     draft: Option<GraphDraft>,
 ) -> Result<Vec<crate::graph::GraphArticle>> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         let root = w.root()?;
         w.index()?
             .into_iter()
@@ -462,14 +525,15 @@ pub(crate) async fn workspace_graph_documents(
 // 検索は時間がかかるため、ワークスペースのロックを持たずに別のスレッドで動かす。保存などの処理を待たせない
 #[tauri::command]
 pub(crate) async fn workspace_search(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     query: String,
     case_sensitive: bool,
     regexp: bool,
 ) -> Result<search::SearchResult> {
     let (root, directory) = {
-        let workspace = state
-            .workspace
+        let handle = state.workspace(window.label())?;
+        let workspace = handle
             .lock()
             .map_err(|_| Error::new("INTERNAL", "ファイル処理のロックに失敗しました。"))?;
         (
@@ -489,45 +553,55 @@ pub(crate) async fn workspace_search(
 }
 #[tauri::command]
 pub(crate) async fn document_open(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
 ) -> Result<OpenedDocument> {
-    work(&state, move |w| files::open(w.root()?, &path)).await
+    work(&state, window.label(), move |w| {
+        files::open(w.root()?, &path)
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) async fn document_save(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     text: String,
     baseline: String,
 ) -> Result<Saved> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         files::save(w.root()?, &path, &text, &baseline)
     })
     .await
 }
 #[tauri::command]
 pub(crate) async fn document_save_as(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     source_path: String,
     path: String,
     text: String,
 ) -> Result<OpenedDocument> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         files::save_as(w.root()?, &source_path, &path, &text)
     })
     .await
 }
 #[tauri::command]
 pub(crate) async fn blog_post_create(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     expected_root: String,
     date: String,
     text: String,
 ) -> Result<Entry> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         if !w.blog_mode || w.root()? != Path::new(&expected_root) {
-            return Err(Error::new("WORKSPACE", "ブログのフォルダが切り替わりました。"));
+            return Err(Error::new(
+                "WORKSPACE",
+                "ブログのフォルダが切り替わりました。",
+            ));
         }
         crate::blog_posts::create(w.root()?, &date, &text)
     })
@@ -535,27 +609,36 @@ pub(crate) async fn blog_post_create(
 }
 #[tauri::command]
 pub(crate) async fn file_create(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     kind: String,
 ) -> Result<Entry> {
-    work(&state, move |w| files::create(w.root()?, &path, &kind)).await
+    work(&state, window.label(), move |w| {
+        files::create(w.root()?, &path, &kind)
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) async fn file_rename(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     new_name: String,
 ) -> Result<Entry> {
-    work(&state, move |w| files::rename(w.root()?, &path, &new_name)).await
+    work(&state, window.label(), move |w| {
+        files::rename(w.root()?, &path, &new_name)
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) async fn file_move(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     to_directory: String,
 ) -> Result<Entry> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         files::move_entry(w.root()?, &path, &to_directory)
     })
     .await
@@ -563,11 +646,12 @@ pub(crate) async fn file_move(
 #[tauri::command]
 pub(crate) async fn file_trash(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
 ) -> Result<TrashItem> {
     let base = trash_base(&app)?;
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         trash::move_to_trash(&base, w.root()?, &path)
     })
     .await
@@ -575,33 +659,52 @@ pub(crate) async fn file_trash(
 #[tauri::command]
 pub(crate) async fn trash_list(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
 ) -> Result<Vec<TrashItem>> {
     let base = trash_base(&app)?;
-    work(&state, move |w| trash::list(&base, w.root()?)).await
+    work(&state, window.label(), move |w| {
+        trash::list(&base, w.root()?)
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) async fn trash_restore(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     id: String,
 ) -> Result<Entry> {
     let base = trash_base(&app)?;
-    work(&state, move |w| trash::restore(&base, w.root()?, &id)).await
+    work(&state, window.label(), move |w| {
+        trash::restore(&base, w.root()?, &id)
+    })
+    .await
 }
 #[tauri::command]
 pub(crate) async fn trash_delete(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     id: String,
 ) -> Result<()> {
     let base = trash_base(&app)?;
-    work(&state, move |w| trash::delete(&base, w.root()?, &id)).await
+    work(&state, window.label(), move |w| {
+        trash::delete(&base, w.root()?, &id)
+    })
+    .await
 }
 #[tauri::command]
-pub(crate) async fn trash_empty(app: tauri::AppHandle, state: State<'_, Backend>) -> Result<()> {
+pub(crate) async fn trash_empty(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+) -> Result<()> {
     let base = trash_base(&app)?;
-    work(&state, move |w| trash::empty(&base, w.root()?)).await
+    work(&state, window.label(), move |w| {
+        trash::empty(&base, w.root()?)
+    })
+    .await
 }
 fn blog_image_path(workspace: &Workspace, path: &str) -> Result<String> {
     if workspace.blog_mode && path.starts_with('/') && !path.starts_with("//") {
@@ -621,6 +724,7 @@ fn blog_image_path(workspace: &Workspace, path: &str) -> Result<String> {
 }
 #[tauri::command]
 pub(crate) async fn image_read(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
     document_path: Option<String>,
@@ -628,7 +732,7 @@ pub(crate) async fn image_read(
 ) -> Result<tauri::ipc::Response> {
     // JSONの数値配列にせず、バイナリのままWebViewへ渡す
     if !preview.unwrap_or(false) {
-        return work(&state, move |w| {
+        return work(&state, window.label(), move |w| {
             image::read_image(&image::image_path(
                 w.root()?,
                 &blog_image_path(w, &path)?,
@@ -644,7 +748,7 @@ pub(crate) async fn image_read(
     }
     // 記事中の表示は縮小版を使う。ワークスペースのロックの中ではファイルを開いてヘッダーを読み、
     // 縮小とキャッシュはロックの外で行う
-    let source = work(&state, move |w| {
+    let source = work(&state, window.label(), move |w| {
         image::PreviewSource::read(&image::image_path(
             w.root()?,
             &blog_image_path(w, &path)?,
@@ -665,6 +769,7 @@ pub(crate) async fn image_read(
 #[tauri::command]
 pub(crate) async fn image_insert(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     source_path: String,
     document_path: String,
@@ -675,7 +780,7 @@ pub(crate) async fn image_insert(
             "ファイル選択で明示された画像だけを取り込めます。",
         ));
     }
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         image::insert_image(w.root()?, &source_path, &document_path)
     })
     .await
@@ -683,6 +788,7 @@ pub(crate) async fn image_insert(
 // 貼り付けた画像は、JSONにせずバイト列のまま受け取る。記事のパスはヘッダーで渡す
 #[tauri::command]
 pub(crate) async fn image_paste(
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<InsertedImage> {
@@ -701,7 +807,7 @@ pub(crate) async fn image_paste(
         })
         .ok_or_else(|| Error::new("INVALID", "貼り付け先の記事が分かりません。"))?;
     let data = data.clone();
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         image::paste_image(w.root()?, &document_path, data)
     })
     .await
@@ -709,10 +815,11 @@ pub(crate) async fn image_paste(
 #[tauri::command]
 pub(crate) async fn workspace_reveal(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Backend>,
     path: String,
 ) -> Result<()> {
-    work(&state, move |w| {
+    work(&state, window.label(), move |w| {
         app.opener()
             .reveal_item_in_dir(files::resolve(w.root()?, &path, false)?)
             .map_err(|e| Error::new("OPENER", e.to_string()))
@@ -738,17 +845,55 @@ pub(crate) async fn settings_get(app: tauri::AppHandle) -> Result<Settings> {
         .await
         .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
+// 送られた項目だけを保存し、同じ設定を見ているほかのウィンドウへ知らせる
 #[tauri::command]
-pub(crate) async fn settings_save(app: tauri::AppHandle, settings: Settings) -> Result<()> {
-    settings.validate()?;
-    tauri::async_runtime::spawn_blocking(move || settings::save(app, settings))
-        .await
-        .map_err(|e| Error::new("INTERNAL", e.to_string()))?
+pub(crate) async fn settings_save(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    patch: serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let source = window.label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let keys: Vec<String> = patch.keys().cloned().collect();
+        let saved = settings::update(&app, patch)?;
+        let stored =
+            serde_json::to_value(&saved).map_err(|e| Error::new("SETTINGS", e.to_string()))?;
+        // 範囲外の値は読み込みと同じ規則で直されるので、直した後の値を知らせる
+        let values: serde_json::Map<String, serde_json::Value> = keys
+            .into_iter()
+            .filter_map(|key| stored.get(&key).cloned().map(|value| (key, value)))
+            .collect();
+        windows::broadcast_settings(&app, &source, values);
+        Ok(())
+    })
+    .await
+    .map_err(|e| Error::new("INTERNAL", e.to_string()))?
 }
+// 開いているファイルを、このウィンドウの最後のファイルとして覚える。開き直す時に使う
 #[tauri::command]
-pub(crate) fn app_exit(app: tauri::AppHandle, state: State<'_, Backend>) {
-    state.allow_exit.store(true, Ordering::SeqCst);
-    app.exit(0);
+pub(crate) fn workspace_last_file(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+    path: Option<String>,
+) {
+    state.set_file(window.label(), path);
+}
+// 保存を済ませたこのウィンドウを閉じる。最後の1枚なら、終了の処理へ進む
+#[tauri::command]
+pub(crate) async fn window_close(window: tauri::WebviewWindow) -> Result<()> {
+    window
+        .destroy()
+        .map_err(|e| Error::new("WINDOW", e.to_string()))
+}
+// 終了の前の保存が済んだことを知らせる。全ウィンドウが済んだら終了する
+#[tauri::command]
+pub(crate) async fn quit_ready(app: tauri::AppHandle, window: tauri::WebviewWindow) {
+    windows::quit_ready(&app, window.label());
+}
+// 保存できなかったウィンドウがあった時に、終了を取り消す
+#[tauri::command]
+pub(crate) async fn quit_cancel(app: tauri::AppHandle) {
+    windows::quit_cancel(&app);
 }
 
 #[cfg(test)]

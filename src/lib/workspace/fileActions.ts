@@ -118,7 +118,6 @@ export function createFileActions(deps: FileActionDeps) {
         name: deps.current.path === old ? entry.name : deps.current.name,
       };
       if (deps.session) deps.session.path = deps.current.path;
-      deps.settings.lastFile = deps.current.path;
       deps.releaseImages();
       if (deps.session) deps.editor?.refreshImages();
       else if (deps.current.kind === 'image') deps.imageUrl = await deps.blobImage(deps.current.path);
@@ -151,7 +150,6 @@ export function createFileActions(deps: FileActionDeps) {
       await invoke('file_trash', { path: entry.path });
       if (deps.current && containsPath(entry.path, deps.current.path)) {
         deps.clearDocument();
-        deps.settings.lastFile = null;
       }
       deps.settings.recentFiles = deps.settings.recentFiles.filter((path) => !containsPath(entry.path, path));
       deps.settings.recentOpenedAt = removeOpened(deps.settings.recentOpenedAt, entry.path);
