@@ -1,5 +1,6 @@
 use super::*;
 use std::fs;
+use std::path::PathBuf;
 
 #[test]
 fn native_open_requests_validate_and_preserve_workspace() {
@@ -47,19 +48,77 @@ fn native_open_requests_validate_and_preserve_workspace() {
         "EXCLUDED"
     );
     let backend = Backend::default();
-    backend.open_requests.lock().unwrap().extend([
-        Ok(folder),
-        Err(Error::new("INVALID", "invalid")),
-        Ok(alone),
-    ]);
-    let mut queue = backend.open_requests.lock().unwrap();
-    assert!(queue.pop_front().unwrap().unwrap().path.is_none());
-    assert!(queue.pop_front().unwrap().is_err());
+    backend.push_request(windows::MAIN, Ok(folder));
+    backend.push_request(windows::MAIN, Err(Error::new("INVALID", "invalid")));
+    backend.push_request(windows::MAIN, Ok(alone));
+    assert!(backend
+        .take_request(windows::MAIN)
+        .unwrap()
+        .unwrap()
+        .path
+        .is_none());
+    assert!(backend.take_request(windows::MAIN).is_err());
     assert_eq!(
-        queue.pop_front().unwrap().unwrap().path.as_deref(),
+        backend
+            .take_request(windows::MAIN)
+            .unwrap()
+            .unwrap()
+            .path
+            .as_deref(),
         Some("test file.md")
     );
-    assert!(queue.is_empty());
+    assert!(backend.take_request(windows::MAIN).unwrap().is_none());
+    // 依頼はウィンドウごとに分かれ、ほかのウィンドウの依頼は受け取れない
+    assert!(backend.take_request("window-000001").unwrap().is_none());
+}
+
+#[test]
+fn each_window_keeps_its_own_workspace_and_project() {
+    let backend = Backend::default();
+    let first = backend.workspace("main").unwrap();
+    let second = backend.workspace("window-000001").unwrap();
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &backend.workspace("main").unwrap()));
+    first.lock().unwrap().root = Some(PathBuf::from("/fixture/first"));
+    second.lock().unwrap().root = Some(PathBuf::from("/fixture/second"));
+    assert_eq!(
+        first.lock().unwrap().root().unwrap(),
+        Path::new("/fixture/first")
+    );
+    assert_eq!(
+        second.lock().unwrap().root().unwrap(),
+        Path::new("/fixture/second")
+    );
+    // 同じフォルダを2つのウィンドウで開いてもよい。ワークスペースは別々に持つ
+    second.lock().unwrap().root = Some(PathBuf::from("/fixture/first"));
+    assert_eq!(
+        first.lock().unwrap().root().unwrap(),
+        second.lock().unwrap().root().unwrap()
+    );
+    backend.set_root("main", "/fixture/first".into());
+    backend.set_file("main", Some("a.md".into()));
+    assert_eq!(
+        backend.project_root("main").as_deref(),
+        Some("/fixture/first")
+    );
+    assert!(backend.project_root("window-000001").is_none());
+    // 同じフォルダを開き直しても、開いていたファイルは残る。別のフォルダへ変えたら空になる
+    backend.set_root("main", "/fixture/first".into());
+    assert_eq!(
+        backend.projects.lock().unwrap()["main"].file.as_deref(),
+        Some("a.md")
+    );
+    backend.set_root("main", "/fixture/second".into());
+    assert_eq!(backend.projects.lock().unwrap()["main"].file, None);
+    // 閉じたウィンドウのワークスペースは捨てられ、同じ名前で作り直すと空になる
+    backend.workspaces.lock().unwrap().remove("main");
+    assert!(backend
+        .workspace("main")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .root()
+        .is_err());
 }
 
 #[test]

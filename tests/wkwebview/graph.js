@@ -78,7 +78,9 @@ window.run = async () => {
     const files = new Map(documents.map((doc) => [doc.path, doc.text]));
     const article = documents.find((doc) => doc.path === 'notes/first.md');
     if (!article) throw new Error('テスト用ワークスペースにノートがありません');
-    let settings = { ...defaults, theme: 'light', lastProject: root, lastFile: article.path, autosaveDelay: 5000, zoomFontSize: true };
+    let settings = { ...defaults, theme: 'light', autosaveDelay: 5000, zoomFontSize: true };
+    // 開いているファイルは、設定ではなく workspace_last_file で受け取る
+    let lastFile = article.path;
     const callbacks = new Map(),
       listeners = new Map(),
       opened = [],
@@ -113,10 +115,11 @@ window.run = async () => {
         if (command === 'plugin:event|unlisten') return;
         if (command === 'settings_get') return settings;
         if (command === 'settings_save') {
-          settings = args.settings;
+          settings = { ...settings, ...args.patch };
           return;
         }
         if (command === 'open_request_take') return null;
+        if (command === 'workspace_last_file') { lastFile = args.path; return; }
         if (command === 'workspace_open') return { root, blogMode: false };
         if (command === 'workspace_list') return listing(args.path);
         if (command === 'workspace_index') return entries();
@@ -209,7 +212,7 @@ window.run = async () => {
     pointer('pointerup', node);
     await tick();
     check('閉じたCanvasの描画領域が解放される', canvas.width === 0 && canvas.height === 0 && !canvas.isConnected);
-    check('点を押すと記事へ戻る', !document.querySelector('.graph-view:not([hidden])') && settings.lastFile === article.path);
+    check('点を押すと記事へ戻る', !document.querySelector('.graph-view:not([hidden])') && lastFile === article.path);
     check(
       '戻ったエディタで編集中の本文とUndo履歴が保たれる',
       document.querySelector('.cm-editor') === editorElement &&
@@ -245,7 +248,7 @@ window.run = async () => {
     await pause(300);
     check(
       'ファイル一覧で記事を開くとエディタに戻る',
-      !document.querySelector('.graph-view:not([hidden])') && settings.lastFile === note.title,
+      !document.querySelector('.graph-view:not([hidden])') && lastFile === note.title,
     );
     nav().click();
     await pause(600);

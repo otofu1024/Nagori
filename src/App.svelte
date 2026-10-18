@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import { invoke, isTauri } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { planOpenRequest } from './lib/workspace/openRequest.ts';
   import { createDocumentDialogs } from './lib/workspace/documentDialogs.ts';
   import { createSettingsDialog } from './lib/workspace/settingsDialog.ts';
   import { createFontZoom } from './lib/workspace/fontZoom.ts';
@@ -33,7 +34,7 @@
   import NoteList from './lib/components/NoteList.svelte';
   import TrashList from './lib/components/TrashList.svelte';
   import { endDrag, rootDrop } from './lib/workspace/fileDrag.ts';
-  import { allNotes, recentlyEdited, starredNotes, recordOpened, type NoteItem, type TrashItem } from './lib/workspace/noteLists.ts';
+  import { allNotes, recentlyEdited, starredNotes, recordOpened, pushRecentFile, type NoteItem, type TrashItem } from './lib/workspace/noteLists.ts';
   import ProblemDialog from './lib/components/ProblemDialog.svelte';
   import SaveAsDialog from './lib/components/SaveAsDialog.svelte';
   import NewPostButton from './lib/components/NewPostButton.svelte';
@@ -48,8 +49,9 @@
   import { imageDropReason, importDroppedImages, preventFileNavigation } from './lib/workspace/imageDrop';
 
   import SettingsDialog from './lib/components/SettingsDialog.svelte';
-  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, type Settings } from './lib/workspace/settings';
-  type OpenRequest = { workspace: string; path: string | null };
+  import { defaults, startupSettings, resolvedTheme, nextTheme, resetPreferences, editorStyle, changedSettings, applyValues, rollbackSettings, type Settings } from './lib/workspace/settings';
+  // restoreは前回終了した時のウィンドウを開き直す依頼。ファイルがなくても、その窓は開き直す
+  type OpenRequest = { workspace: string; path: string | null; restore: boolean };
   let settings = $state<Settings>({ ...defaults, theme: 'light' });
   let settingsLoaded = $state(false);
   // macOSの外観。theme が 'system' の時だけ使う
@@ -271,9 +273,12 @@
   };
   const projectName = $derived(project.split('/').filter(Boolean).at(-1) ?? 'Workspace');
   const starredPaths = $derived(settings.starred[project] ?? []);
+  // 最近見たノートは、今のワークスペースのフォルダの記録だけを使う
+  const recentPaths = $derived(settings.recentFiles[project] ?? []);
+  const openedAt = $derived(settings.recentOpenedAt[project] ?? {});
   const allList = $derived(allNotes(index));
   const starredList = $derived(starredNotes(starredPaths, index));
-  const recentList = $derived(recentlyEdited(index, settings.recentOpenedAt, settings.recentEditedCount));
+  const recentList = $derived(recentlyEdited(index, openedAt, settings.recentEditedCount));
   const navCounts = $derived({ all: allList.length, starred: starredList.length, recent: recentList.length, trash: trashItems.length });
   // ナビで選んだ一覧の見出し。フォルダの表示のときは使わない
   const viewTitles: Record<Exclude<SidebarView, 'tree'>, string> = { all: 'すべてのノート', starred: 'スター付き', recent: '最近見たノート', trash: 'ゴミ箱' };
@@ -364,8 +369,11 @@
             return;
           }
           try {
-            await openProject(request.workspace, request.path);
-            if (request.path && current?.path !== request.path) throw new Error('指定されたファイルを開けません: ' + request.path);
+            // 同じフォルダを開いている窓では、フォルダを開き直さずにファイルだけを開く
+            const plan = planOpenRequest(request, project);
+            if (plan.kind === 'project') await openProject(request.workspace, request.path);
+            else if (plan.kind === 'file') await openRequestedFile(plan.path);
+            if (request.path && !request.restore && current?.path !== request.path) throw new Error('指定されたファイルを開けません: ' + request.path);
           } catch (error) {
             notify(failure(error).message);
           }
@@ -416,6 +424,8 @@
     }
   }
   let settingsQueue = Promise.resolve();
+  // ディスクで最後に確かめた設定。ここから変わった項目だけを保存し、ほかのウィンドウの変更を古い値で消さないようにする
+  let synced: Record<string, unknown> = {};
   const flow = new AppFlow({
     getSession: () => session,
     isBusy: () => busy,
@@ -431,7 +441,9 @@
       await persist();
     },
     settingsQueue: () => settingsQueue,
-    exitApp: () => invoke('app_exit'),
+    quitReady: () => invoke<void>('quit_ready'),
+    cancelQuit: () => invoke<void>('quit_cancel'),
+    closeWindow: () => invoke<void>('window_close'),
     resumeTree: () => {
       if (treeQueued) void processChanges();
     },
@@ -442,10 +454,18 @@
   });
   function persist() {
     if (!settingsLoaded) return settingsQueue;
-    const snapshot = JSON.parse(JSON.stringify(settings));
+    const snapshot = JSON.parse(JSON.stringify(settings)) as Record<string, unknown>;
+    const previous = synced;
+    const patch = changedSettings(previous, snapshot);
+    synced = snapshot;
+    if (Object.keys(patch).length === 0) return settingsQueue;
     settingsQueue = settingsQueue
-      .then(() => invoke<void>('settings_save', { settings: snapshot }))
-      .catch((error) => notify('設定を保存できません: ' + failure(error).message));
+      .then(() => invoke<void>('settings_save', { patch }))
+      .catch((error) => {
+        // 保存できなかった項目は、次の保存で改めて送る。ルートごとの項目は、送ったルートだけを戻す
+        synced = rollbackSettings(synced, previous, patch);
+        notify('設定を保存できません: ' + failure(error).message);
+      });
     return settingsQueue;
   }
   function commitPane(pane: 'sidebar' | 'outline') {
@@ -549,9 +569,8 @@
     } catch (error) {
       contentError = failure(error).message;
     }
-    settings.lastFile = entry.path;
-    settings.recentFiles = [entry.path, ...settings.recentFiles.filter((path) => path !== entry.path)].slice(0, 30);
-    if (entry.kind === 'markdown') settings.recentOpenedAt = recordOpened(settings.recentOpenedAt, entry.path);
+    settings.recentFiles[project] = pushRecentFile(recentPaths, entry.path);
+    if (entry.kind === 'markdown') settings.recentOpenedAt[project] = recordOpened(openedAt, entry.path);
     void persist();
     await tick();
     editor?.focus();
@@ -594,28 +613,33 @@
     index = [];
     view = 'tree';
     trashItems = [];
-    settings.lastProject = root;
-    settings.lastFile = null;
-    settings.recentFiles = [];
-    settings.recentOpenedAt = {};
     await refreshTree();
     const entries = await refreshIndex();
     void loadTrash();
     void persist();
     if (restoreFile) {
       const entry = entries.find((item) => item.path === restoreFile);
-      if (entry) {
-        const parent = parentPath(entry.path);
-        const folders = parent.split('/').filter(Boolean);
-        let built = rootDirectory;
-        for (const name of (rootDirectory ? parent.slice(rootDirectory.length).split('/').filter(Boolean) : folders)) {
-          built = built ? built + '/' + name : name;
-          await list(built);
-          expanded = [...expanded, built];
-        }
-        await loadEntry(entry);
-      }
+      if (entry) await showEntry(entry);
     }
+  }
+  // ファイルの親フォルダを開いてツリーに見せ、ファイルを読み込む
+  async function showEntry(entry: Entry) {
+    const parent = parentPath(entry.path);
+    const folders = parent.split('/').filter(Boolean);
+    let built = rootDirectory;
+    for (const name of (rootDirectory ? parent.slice(rootDirectory.length).split('/').filter(Boolean) : folders)) {
+      built = built ? built + '/' + name : name;
+      await list(built);
+      expanded = [...expanded, built];
+    }
+    await loadEntry(entry);
+  }
+  // 開いているフォルダの中のファイルを、この窓で開く。一覧にないファイルは何もしない
+  async function openRequestedFile(path: string) {
+    const entries = await refreshIndex();
+    const entry = entries.find((item) => item.path === path);
+    if (!entry || entry.path === current?.path) return;
+    await showEntry(entry);
   }
   async function quickOpen() {
     if (!project || busy || composing || errorDialog?.open || saveAsDialog?.open) return;
@@ -747,6 +771,7 @@
     get current() { return current; }, set current(value) { current = value; },
     get selected() { return selected; }, set selected(value) { selected = value; },
     get settings() { return settings; },
+    get project() { return project; },
     get editor() { return editor; },
     get openRequestsQueued() { return openRequestsQueued; },
     settleComposition, flush, releaseImages, syncSession, refreshTree, refreshIndex, persist, scheduleSave, notify, drainOpenRequests, clearDocument,
@@ -850,6 +875,10 @@
     notify, reveal, toggleStar, startName, trash, restoreTrash, deleteTrash, insertImage, runCli, chooseProject, quickOpen,
     flush, workspaceSearchOpen, togglePreview, toggleOutline, toggleWritingMode, openSettings, zoomFont,
   });
+  // この窓で開いているファイルを覚える。ウィンドウを開き直す時に、同じファイルを開くため
+  $effect(() => {
+    if (project) void invoke('workspace_last_file', { path: current?.path ?? null }).catch(() => {});
+  });
   onMount(() => {
     const unlisteners: Array<() => void> = [];
     const focused = () => { void checkExternal(); void refreshGit(); };
@@ -863,8 +892,10 @@
         return;
       }
       try {
+        // この窓あての知らせだけを受ける。全体へ送られた知らせは、どの窓でも受け取らない
+        const windowEvents = getCurrentWebviewWindow();
         unlisteners.push(
-          await listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
+          await windowEvents.listen<{ paths: string[]; project: string }>('nagori:fs-changed', (event) => {
             if (event.payload.project !== project) return;
             if (blogMode && event.payload.paths.some(path => [...blogThemePaths, 'src/config.ts', 'src/data/link-cards.json'].includes(path))) void refreshBlogTheme();
             treeQueued = true;
@@ -873,34 +904,38 @@
             fsTimer = setTimeout(() => void processChanges(), 150);
           }),
         );
-        unlisteners.push(await listen<string>('nagori:fs-error', (event) => notify('ファイル監視のエラー: ' + event.payload)));
-        unlisteners.push(await listen('nagori:quit-requested', () => void quit()));
+        unlisteners.push(await windowEvents.listen<string>('nagori:fs-error', (event) => notify('ファイル監視のエラー: ' + event.payload)));
+        unlisteners.push(await windowEvents.listen('nagori:quit-requested', () => void quit()));
+        unlisteners.push(await windowEvents.listen('nagori:close-requested', () => void flow.closeWindow()));
+        // ほかのウィンドウが保存した設定を、この窓の表示にも反映する
         unlisteners.push(
-          await listen('nagori:open-requested', () => {
+          await windowEvents.listen<{ values: Record<string, unknown> }>('nagori:settings-changed', (event) => {
+            if (!settingsLoaded) return;
+            const values = JSON.parse(JSON.stringify(event.payload.values)) as Record<string, unknown>;
+            applyValues(settings, values);
+            const next = { ...synced };
+            applyValues(next, values);
+            synced = next;
+          }),
+        );
+        unlisteners.push(
+          await windowEvents.listen('nagori:open-requested', () => {
             openRequestsQueued = true;
             void drainOpenRequests();
           }),
         );
-        unlisteners.push(await listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
+        unlisteners.push(await windowEvents.listen<{ action: string }>('nagori:menu', (event) => void menuAction(event.payload.action)));
         const saved = await invoke<Settings>('settings_get');
         settings = startupSettings(saved);
+        // 読んだ時点の値を保存済みとして覚え、読み込みで直された項目だけを書き直す
+        synced = JSON.parse(JSON.stringify(saved));
         settingsLoaded = true;
-        if (JSON.stringify(settings) !== JSON.stringify(saved)) await persist();
+        await persist();
+        // 前回の窓の開き直しも、Finderからの開く依頼も、この窓への依頼として受け取る
         const requested = await invoke<OpenRequest | null>('open_request_take');
         if (requested) {
           await openProject(requested.workspace, requested.path);
-          if (requested.path && current?.path !== requested.path) throw new Error('指定されたファイルを開けません: ' + requested.path);
-        } else if (settings.lastProject) {
-          const recent = settings.recentFiles,
-            last = settings.lastFile;
-          try {
-            await openProject(settings.lastProject, last);
-            settings.recentFiles = [...new Set([...(settings.lastFile ? [settings.lastFile] : []), ...recent])];
-            void persist();
-          } catch (error) {
-            project = '';
-            notify('前回のプロジェクトを開けません: ' + failure(error).message);
-          }
+          if (requested.path && !requested.restore && current?.path !== requested.path) throw new Error('指定されたファイルを開けません: ' + requested.path);
         }
       } catch (error) {
         notify(failure(error).message);
@@ -1223,7 +1258,7 @@
   bind:this={quickPanel}
   bind:open={quick}
   entries={index}
-  recent={settings.recentFiles}
+  recent={recentPaths}
   onOpen={(entry) => void selectEntry(entry)}
 />
 <WorkspaceSearch bind:this={workspaceSearch} bind:open={searchOpen} onOpen={(hit) => void openSearchHit(hit)} />

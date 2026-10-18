@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, WHEEL_STEP, type Settings } from '../../src/lib/workspace/settings.ts';
+import { defaults, startupSettings, nextTheme, resolvedTheme, resetPreferences, editorStyle, stepFontSize, pinchFontSize, wheelFontSize, changedSettings, applyValues, applyRootPatch, rollbackSettings, WHEEL_STEP, type Settings } from '../../src/lib/workspace/settings.ts';
 
 test('集中モードとタイプライター表示は旧設定でオフになり、独立して保存・復元できる', () => {
   const { focusMode: _, typewriterMode: __, ...legacy } = defaults;
@@ -48,7 +48,7 @@ test('first launch keeps system so the appearance follows macOS, and the toggle 
 });
 
 test('undecided theme keeps system and resolves to the OS appearance without changing project or custom sizes', () => {
-  const saved: Settings = { ...defaults, theme: 'system', fontSize: 17, lastProject: '/fixture', lastFile: 'a.md', recentFiles: ['a.md'] };
+  const saved: Settings = { ...defaults, theme: 'system', fontSize: 17, recentFiles: { '/p': ['a.md'] } };
   assert.deepEqual(startupSettings(saved), saved);
   assert.equal(resolvedTheme('system', true), 'dark');
   assert.equal(resolvedTheme('system', false), 'light');
@@ -76,7 +76,7 @@ test('設定画面の項目は、古い設定では初期値になり、保存�
   assert.equal(restored.recentEditedCount, 30);
   assert.deepEqual(restored.recentOpenedAt, {});
   assert.equal(restored.trashRetentionDays, 30);
-  const saved: Settings = { ...defaults, theme: 'system', editorWidth: 880, lineHeight: 2.2, fontFamily: 'serif', autosaveDelay: 1500, startInPreview: true, headingRule: false, recentEditedCount: 42, trashRetentionDays: null, recentOpenedAt: { 'a.md': 1700000000000 } };
+  const saved: Settings = { ...defaults, theme: 'system', editorWidth: 880, lineHeight: 2.2, fontFamily: 'serif', autosaveDelay: 1500, startInPreview: true, headingRule: false, recentEditedCount: 42, trashRetentionDays: null, recentOpenedAt: { '/p': { 'a.md': 1700000000000 } } };
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
 });
 
@@ -110,10 +110,10 @@ test('すべて初期値に戻しても、最近開いたファイル・最近�
     ...defaults, theme: 'dark', fontSize: 25, editorWidth: 900, lineHeight: 2.3, fontFamily: 'serif', autosaveDelay: 2000,
     startInPreview: true, headingRule: false, recentEditedCount: 12, trashRetentionDays: 90,
     outlineVisible: false, focusMode: true, typewriterMode: true, sidebarWidth: 380, outlineWidth: 300,
-    lastProject: '/work', lastFile: 'a.md', recentFiles: ['a.md', 'b/c.md'], starred: { '/work': ['a.md'] }, recentOpenedAt: { 'b/c.md': 1700000000000 },
+    recentFiles: { '/work': ['a.md', 'b/c.md'] }, starred: { '/work': ['a.md'] }, recentOpenedAt: { '/work': { 'b/c.md': 1700000000000 } },
   };
   const reset = resetPreferences(current);
-  assert.deepEqual(reset, { ...defaults, lastProject: '/work', lastFile: 'a.md', recentFiles: ['a.md', 'b/c.md'], starred: { '/work': ['a.md'] }, recentOpenedAt: { 'b/c.md': 1700000000000 } });
+  assert.deepEqual(reset, { ...defaults, recentFiles: { '/work': ['a.md', 'b/c.md'] }, starred: { '/work': ['a.md'] }, recentOpenedAt: { '/work': { 'b/c.md': 1700000000000 } } });
   assert.notEqual(reset.starred, current.starred);
   assert.equal(reset.theme, 'system');
 });
@@ -131,11 +131,13 @@ test('本文の見た目はCSS変数に直し、字体と幅と行間を反映�
 
 test('開いた時刻の記録は、数値だけを新しい順に200件まで残し、壊れた値は捨てる', () => {
   const many = Object.fromEntries(Array.from({ length: 250 }, (_, index) => [`${index}.md`, index]));
-  const restored = startupSettings({ ...defaults, recentOpenedAt: { ...many, 'bad.md': 'x' as never, 'nan.md': Number.NaN } });
-  assert.equal(Object.keys(restored.recentOpenedAt).length, 200);
-  assert.equal(restored.recentOpenedAt['249.md'], 249);
-  assert.equal(restored.recentOpenedAt['0.md'], undefined);
-  assert.equal('bad.md' in restored.recentOpenedAt, false);
+  const restored = startupSettings({ ...defaults, recentOpenedAt: { '/work': { ...many, 'bad.md': 'x' as never, 'nan.md': Number.NaN } } });
+  assert.equal(Object.keys(restored.recentOpenedAt['/work']).length, 200);
+  assert.equal(restored.recentOpenedAt['/work']['249.md'], 249);
+  assert.equal(restored.recentOpenedAt['/work']['0.md'], undefined);
+  assert.equal('bad.md' in restored.recentOpenedAt['/work'], false);
+  // 型が違うルートは捨て、ほかのルートは残す
+  assert.deepEqual(startupSettings({ ...defaults, recentOpenedAt: { '/a': [] as never, '/b': { 'x.md': 1 } } }).recentOpenedAt, { '/b': { 'x.md': 1 } });
   assert.deepEqual(startupSettings({ ...defaults, recentOpenedAt: [] as never }).recentOpenedAt, {});
   assert.deepEqual(startupSettings({ ...defaults, recentOpenedAt: null as never }).recentOpenedAt, {});
 });
@@ -166,7 +168,7 @@ test('設定画面の範囲内の値と最近開いた時刻は保存したと�
     headingRule: false,
     recentEditedCount: 50,
     trashRetentionDays: null,
-    recentOpenedAt: { 'posts/a.md': 1700000000000, 'b.md': 1700000001000 },
+    recentOpenedAt: { '/work': { 'posts/a.md': 1700000000000, 'b.md': 1700000001000 } },
   };
   assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved)), () => true), saved);
   for (const days of [7, 14, 30, 60, 90]) {
@@ -282,4 +284,38 @@ test('ブログの表示設定は古い設定でオンになり、個別の値�
     assert.deepEqual(startupSettings(JSON.parse(JSON.stringify(saved))), saved);
     assert.equal(resetPreferences(saved)[key], true);
   }
+});
+
+test('保存する項目は、前回保存した値から変わったものだけを取り出す', () => {
+  const previous = { theme: 'dark', fontSize: 19, recentFiles: { '/a': ['a.md'] } };
+  assert.deepEqual(changedSettings(previous, { theme: 'dark', fontSize: 19, recentFiles: { '/a': ['a.md'] } }), {});
+  assert.deepEqual(changedSettings(previous, { theme: 'light', fontSize: 19, recentFiles: { '/a': ['a.md'] } }), { theme: 'light' });
+  // 前回の保存に含まれていなかったルートは、新しく送る
+  assert.deepEqual(changedSettings({}, { starred: {} }), {});
+  assert.deepEqual(changedSettings({}, { starred: { '/a': ['x.md'] } }), { starred: { '/a': ['x.md'] } });
+});
+
+test('ルートごとの項目は、変わったルートだけを送り、消えたルートはnullで送る', () => {
+  const previous = { starred: { '/a': ['a.md'], '/b': ['b.md'] }, recentFiles: { '/a': ['a.md'] } };
+  const next = { starred: { '/a': ['a.md', 'c.md'], '/b': ['b.md'] }, recentFiles: {} };
+  assert.deepEqual(changedSettings(previous, next), { starred: { '/a': ['a.md', 'c.md'] }, recentFiles: { '/a': null } });
+});
+
+test('別のウィンドウが保存したルートは、この窓の別のルートの変更を消さずに重なる', () => {
+  // この窓は /a を変え、別の窓は /b を保存した。受け取った差分は /b だけを差し替える
+  const local = { starred: { '/a': ['mine.md'] }, recentFiles: { '/a': ['mine.md'] } } as Record<string, unknown>;
+  applyValues(local, { starred: { '/b': ['theirs.md'] }, recentFiles: { '/a': null } });
+  assert.deepEqual(local.starred, { '/a': ['mine.md'], '/b': ['theirs.md'] });
+  assert.deepEqual(local.recentFiles, {});
+  assert.deepEqual(applyRootPatch({ '/a': 1, '/b': 2 }, { '/a': null, '/c': 3 }), { '/b': 2, '/c': 3 });
+});
+
+test('保存できなかったルートは、送った分だけ前回保存した値へ戻す', () => {
+  const previous = { starred: { '/a': ['a.md'] } };
+  const current = { starred: { '/a': ['a.md', 'x.md'], '/b': ['other.md'] } };
+  const patch = { starred: { '/a': ['a.md', 'x.md'] } };
+  assert.deepEqual(rollbackSettings(current, previous, patch), { starred: { '/a': ['a.md'], '/b': ['other.md'] } });
+  // 前回の保存になかったルートは、送って失敗したら外す
+  assert.deepEqual(rollbackSettings({ starred: { '/a': ['x.md'] } }, { starred: {} }, { starred: { '/a': ['x.md'] } }), { starred: {} });
+  assert.deepEqual(rollbackSettings({ starred: {} }, previous, { starred: { '/a': ['a.md'] } }), { starred: { '/a': ['a.md'] } });
 });

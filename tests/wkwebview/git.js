@@ -41,7 +41,7 @@ window.__TAURI_INTERNALS__ = {
     if (command === 'plugin:event|listen') return args.handler;
     if (command === 'plugin:event|unlisten') return;
     if (command === 'settings_get') return settings;
-    if (command === 'settings_save') { settings = args.settings; return; }
+    if (command === 'settings_save') { settings = { ...settings, ...args.patch }; return; }
     if (command === 'open_request_take') return null;
     if (command === 'workspace_open') return { root, blogMode: false };
     if (command === 'workspace_list') return args.path ? [] : [{ path: 'notes', name: 'notes', kind: 'directory' }];

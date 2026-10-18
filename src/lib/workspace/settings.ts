@@ -1,12 +1,13 @@
 import { SIDEBAR, OUTLINE, EDITOR_WIDTH, storedPaneWidth } from './paneWidths.ts';
-import { OPENED_LIMIT } from './noteLists.ts';
+import { OPENED_LIMIT, RECENT_FILE_LIMIT } from './noteLists.ts';
 type Theme = 'light' | 'dark';
 // 'system'はmacOSの外観に従うことを表す。保存した値は変えず、表示する時に決める
-// starredはワークスペースのルートの絶対パスをキーに、スターを付けた記事の相対パスを新しい順に持つ
+// starredとrecentFilesとrecentOpenedAtは、ワークスペースのルートの絶対パスをキーに持つ。ウィンドウごとのフォルダの記録を、ほかのフォルダと混ぜない
+// starredはスターを付けた記事の相対パスを新しい順に、recentFilesは最近開いた記事の相対パスを新しい順に持つ
 export type Settings = {
-  lastProject: string | null; lastFile: string | null; theme: Theme | 'system'; fontSize: number; recentFiles: string[]; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean; starred: Record<string, string[]>;
-  // 記事を最後に開いた時刻（ミリ秒）を相対パスごとに持つ。最近見たノートの並びに使う
-  recentOpenedAt: Record<string, number>;
+  theme: Theme | 'system'; fontSize: number; recentFiles: Record<string, string[]>; sidebarWidth: number; outlineWidth: number; outlineVisible: boolean; focusMode: boolean; typewriterMode: boolean; starred: Record<string, string[]>;
+  // 記事を最後に開いた時刻（ミリ秒）を、ルートごとに相対パスごとに持つ。最近見たノートの並びに使う
+  recentOpenedAt: Record<string, Record<string, number>>;
   // 設定画面の項目。範囲外の値は読み込み時に範囲の端へ直す
   editorWidth: number; lineHeight: number; fontFamily: FontFamily; autosaveDelay: number; startInPreview: boolean; headingRule: boolean; recentEditedCount: number; trashRetentionDays: TrashRetentionDays;
   // オンの時、拡大縮小のショートカットとピンチで本文の文字サイズを変える
@@ -27,7 +28,7 @@ export const RANGES = {
   recentEditedCount: { min: 10, max: 50 },
 } as const;
 export const defaults: Settings = {
-  lastProject: null, lastFile: null, theme: 'system', fontSize: 19, recentFiles: [], sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
+  theme: 'system', fontSize: 19, recentFiles: {}, sidebarWidth: SIDEBAR.initial, outlineWidth: OUTLINE.initial, outlineVisible: true, focusMode: false, typewriterMode: false, starred: {}, recentOpenedAt: {},
   editorWidth: 720, lineHeight: 1.9, fontFamily: 'sans', autosaveDelay: 500, startInPreview: false, headingRule: true, recentEditedCount: 30, trashRetentionDays: 30, zoomFontSize: false, autoEditorWidth: false, blogFeatures: true, blogArticleHeader: true, blogLinkCardsEnabled: true, blogCharactersEnabled: true, blogBodyTheme: true, blogIndentOnEnter: true,
 };
 
@@ -44,9 +45,23 @@ function flag(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-// 開いた時刻の記録は、数値だけを新しい順に上限まで残す
-function readOpened(value: unknown): Record<string, number> {
+// ルートごとの記録を読む。型が違うルートは捨てる
+export const ROOT_KEYS = ['starred', 'recentFiles', 'recentOpenedAt'] as const;
+function readRoots<T>(value: unknown, readItem: (item: unknown) => T | null): Record<string, T> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([root, item]) => {
+    const parsed = readItem(item);
+    return parsed === null ? [] : [[root, parsed] as const];
+  }));
+}
+
+function readPaths(value: unknown): string[] | null {
+  return Array.isArray(value) ? value.filter((path): path is string => typeof path === 'string') : null;
+}
+
+// 開いた時刻の記録は、数値だけを新しい順に上限まで残す
+function readOpened(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const entries = Object.entries(value).filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]));
   return Object.fromEntries(entries.sort(([, a], [, b]) => b - a).slice(0, OPENED_LIMIT));
 }
@@ -63,7 +78,9 @@ export function startupSettings(saved: Partial<Settings>): Settings {
   settings.startInPreview = flag(settings.startInPreview, defaults.startInPreview);
   settings.headingRule = flag(settings.headingRule, defaults.headingRule);
   settings.recentEditedCount = Math.round(inRange(settings.recentEditedCount, defaults.recentEditedCount, RANGES.recentEditedCount));
-  settings.recentOpenedAt = readOpened(settings.recentOpenedAt);
+  settings.starred = readRoots(settings.starred, readPaths);
+  settings.recentFiles = readRoots(settings.recentFiles, (item) => readPaths(item)?.slice(0, RECENT_FILE_LIMIT) ?? null);
+  settings.recentOpenedAt = readRoots(settings.recentOpenedAt, readOpened);
   settings.trashRetentionDays = (TRASH_RETENTION_OPTIONS as unknown[]).includes(settings.trashRetentionDays) ? settings.trashRetentionDays : defaults.trashRetentionDays;
   settings.zoomFontSize = flag(settings.zoomFontSize, defaults.zoomFontSize);
   settings.autoEditorWidth = flag(settings.autoEditorWidth, defaults.autoEditorWidth);
@@ -110,16 +127,77 @@ export function nextTheme(theme: Theme): Theme {
   return theme === 'dark' ? 'light' : 'dark';
 }
 
-// 「すべて初期値に戻す」。最近見たノートの記録・スター・ワークスペースは残す
+// 「すべて初期値に戻す」。最近見たノートの記録・スター・ワークスペースは残す。Svelteの状態は複製できないので、JSONで写す
 export function resetPreferences(current: Settings): Settings {
   return {
     ...defaults,
-    lastProject: current.lastProject,
-    lastFile: current.lastFile,
-    recentFiles: [...current.recentFiles],
-    starred: structuredClone(current.starred),
-    recentOpenedAt: { ...current.recentOpenedAt },
+    recentFiles: copyJson(current.recentFiles),
+    starred: copyJson(current.starred),
+    recentOpenedAt: copyJson(current.recentOpenedAt),
   };
+}
+
+function copyJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+// ルートごとの記録に、送られた差分を重ねる。nullのルートは外し、送られなかったルートは残す
+export function applyRootPatch<T>(current: Record<string, T> = {}, patch: Record<string, T | null>): Record<string, T> {
+  const next = { ...current };
+  for (const [root, value] of Object.entries(patch)) {
+    if (value === null) delete next[root];
+    else next[root] = value;
+  }
+  return next;
+}
+
+// ルートごとに、前回保存した値から変わったものだけを取り出す。消えたルートはnullにする
+function changedRoots<T>(previous: Record<string, T> = {}, next: Record<string, T> = {}): Record<string, T | null> {
+  const changed: Record<string, T | null> = {};
+  for (const root of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    if (JSON.stringify(previous[root]) === JSON.stringify(next[root])) continue;
+    changed[root] = root in next ? next[root] : null;
+  }
+  return changed;
+}
+
+// 前回保存した設定と比べて、値が変わった項目だけを取り出す。ウィンドウごとに送る保存の中身に使う。
+// ルートごとの項目は、変わったルートだけを入れる。ほかのルートは、ほかのウィンドウの変更を消さないよう送らない
+export function changedSettings(previous: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  const changed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    if ((ROOT_KEYS as readonly string[]).includes(key)) {
+      const roots = changedRoots(previous[key] as Record<string, unknown> | undefined, value as Record<string, unknown>);
+      if (Object.keys(roots).length > 0) changed[key] = roots;
+    } else if (JSON.stringify(previous[key]) !== JSON.stringify(value)) {
+      changed[key] = value;
+    }
+  }
+  return changed;
+}
+
+// 別のウィンドウが保存した項目を重ねる。ルートごとの項目は、送られたルートだけを差し替える
+export function applyValues(target: Record<string, unknown>, values: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(values)) {
+    target[key] = (ROOT_KEYS as readonly string[]).includes(key) ? applyRootPatch(target[key] as Record<string, unknown>, value as Record<string, unknown>) : value;
+  }
+}
+
+// 保存できなかった項目を前回保存した値へ戻す。ルートごとの項目は、送ったルートだけを戻す
+export function rollbackSettings(current: Record<string, unknown>, previous: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const restored = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    if ((ROOT_KEYS as readonly string[]).includes(key)) {
+      const before = (previous[key] ?? {}) as Record<string, unknown>;
+      const roots = Object.fromEntries(Object.keys(value as object).map((root) => [root, root in before ? before[root] : null]));
+      restored[key] = applyRootPatch(restored[key] as Record<string, unknown>, roots);
+    } else if (key in previous) {
+      restored[key] = previous[key];
+    } else {
+      delete restored[key];
+    }
+  }
+  return restored;
 }
 
 // 本文の見た目に使うCSS変数の値

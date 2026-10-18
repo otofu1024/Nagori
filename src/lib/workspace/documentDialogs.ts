@@ -2,7 +2,7 @@ import { tick } from 'svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { failure, type EditSession, type Failure, type OpenedDocument } from './session.ts';
-import { recordOpened } from './noteLists.ts';
+import { pushRecentFile, recordOpened } from './noteLists.ts';
 import type { Settings } from './settings.ts';
 import type { Entry } from './navigation.ts';
 import type { EditorApi } from '../editor/editor.ts';
@@ -21,6 +21,7 @@ type DocumentDialogDeps = {
   current: Entry | null;
   selected: string;
   settings: Settings;
+  project: string;
   editor: EditorApi | null;
   openRequestsQueued: boolean;
   settleComposition(): Promise<void>;
@@ -139,9 +140,10 @@ export function createDocumentDialogs(deps: DocumentDialogDeps) {
       deps.selected = opened.path;
       deps.releaseImages();
       deps.editor?.refreshImages();
-      deps.settings.lastFile = opened.path;
-      deps.settings.recentFiles = [opened.path, ...deps.settings.recentFiles.filter((path) => path !== opened.path)].slice(0, 30);
-      deps.settings.recentOpenedAt = recordOpened(deps.settings.recentOpenedAt, opened.path);
+      // 最近見た記録は、今のワークスペースのルートの分だけを更新する
+      const root = deps.project;
+      deps.settings.recentFiles[root] = pushRecentFile(deps.settings.recentFiles[root] ?? [], opened.path);
+      deps.settings.recentOpenedAt[root] = recordOpened(deps.settings.recentOpenedAt[root] ?? {}, opened.path);
       deps.syncSession();
       deps.saveAsDialog?.close();
       deps.errorDialog?.close();
@@ -172,7 +174,6 @@ export function createDocumentDialogs(deps: DocumentDialogDeps) {
       return;
     if (deps.session !== target) return;
     deps.clearDocument();
-    deps.settings.lastFile = null;
     deps.errorDialog?.close();
     void deps.persist();
   }

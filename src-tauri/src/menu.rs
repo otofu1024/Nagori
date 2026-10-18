@@ -34,19 +34,29 @@ pub(crate) fn native_menu(app: &tauri::App) -> tauri::Result<tauri::menu::Menu<t
             &quit,
         ],
     )?;
+    let new_window = action("new-window", "新しいウィンドウ", Some("CmdOrCtrl+Shift+N"))?;
     let open = action("open-project", "プロジェクトを開く…", Some("CmdOrCtrl+O"))?;
     let new = action("new-markdown", "新しい記事", Some("CmdOrCtrl+N"))?;
     let folder = action("new-folder", "新しいフォルダ", None)?;
     let insert = action("image-insert", "画像を挿入…", None)?;
     let quick = action("quick-open", "Quick Open…", Some("CmdOrCtrl+P"))?;
     let save = action("save", "保存", Some("CmdOrCtrl+S"))?;
-    let close = action("quit", "ウィンドウを閉じる", Some("CmdOrCtrl+W"))?;
+    let close = action("close-window", "ウィンドウを閉じる", Some("CmdOrCtrl+W"))?;
     let file = Submenu::with_items(
         app,
         "ファイル",
         true,
         &[
-            &open, &quick, &separator, &new, &folder, &insert, &separator, &save, &close,
+            &new_window,
+            &open,
+            &quick,
+            &separator,
+            &new,
+            &folder,
+            &insert,
+            &separator,
+            &save,
+            &close,
         ],
     )?;
     let undo = P::undo(app, None)?;
