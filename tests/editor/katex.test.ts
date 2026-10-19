@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { renderMath } from '../../src/lib/editor/katex.ts';
+import { MAX_MATH_COUNT, renderMath } from '../../src/lib/editor/katex.ts';
 import { readMathStats, resetMathStats } from '../../src/lib/editor/mathStats.ts';
 import { MAX_MATH_LENGTH, type MathExpression } from '../../src/lib/editor/markdownMath.ts';
 import assert from 'node:assert/strict';
@@ -114,10 +114,33 @@ test('KaTeX refuses unsupported commands and bounds macro expansion', async () =
   let activeChecks = 0;
   assert.equal(await renderMath(expressions(['x']), () => ++activeChecks === 1), null);
   assert.equal(activeChecks, 2);
-  await assert.rejects(() => renderMath(expressions(new Array(513).fill('x'))));
-  await assert.rejects(() => renderMath(expressions(new Array(33).fill('x'.repeat(MAX_MATH_LENGTH)))));
   assert.ok((await renderMath(expressions(['x'.repeat(MAX_MATH_LENGTH + 1)])))?.expressions.get(0)?.error);
   assert.doesNotMatch(markdownParser.parse('$' + 'x'.repeat(MAX_MATH_LENGTH + 1) + '$').toString(), /InlineMath/);
+});
+
+test('数式の数と文字数が上限を超えた分だけをエラーにし、文書全体は描画する', async () => {
+  const many = await renderMath(expressions(new Array(600).fill(String.raw`\frac{a}{b}`)));
+  assert.ok(many);
+  assert.equal(many.expressions.size, 600);
+  for (const result of many.expressions.values()) assert.ok(result.html);
+
+  const count = MAX_MATH_COUNT + 3;
+  const overCount = await renderMath(expressions(new Array(count).fill('x')));
+  assert.ok(overCount);
+  for (let i = 0; i < count; i++) {
+    const result = overCount.expressions.get(i)!;
+    if (i < MAX_MATH_COUNT) assert.ok(result.html, String(i));
+    else assert.equal(result.error, 'この文書の数式表示上限を超えました', String(i));
+  }
+
+  // 1式あたりの上限ちょうどの数式を33個並べると、32個までが262,144文字の範囲に収まる。
+  const overLength = await renderMath(expressions(new Array(33).fill('x'.repeat(MAX_MATH_LENGTH))));
+  assert.ok(overLength);
+  for (let i = 0; i < 33; i++) {
+    const result = overLength.expressions.get(i)!;
+    if (i < 32) assert.ok(result.html, String(i));
+    else assert.equal(result.error, 'この文書の数式表示上限を超えました', String(i));
+  }
 });
 
 test('KaTeX trust:false blocks HTML and network commands, including macro expansion', async () => {
