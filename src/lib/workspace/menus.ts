@@ -21,6 +21,7 @@ type MenuDeps = {
   restoreTrash(item: TrashItem): Promise<void>;
   deleteTrash(item: TrashItem): Promise<void>;
   insertImage(): Promise<void>;
+  copyImage(reference: string): Promise<void>;
   runCli(id: 'cli_install' | 'cli_uninstall'): Promise<void>;
   chooseProject(): Promise<void>;
   quickOpen(): Promise<void>;
@@ -116,9 +117,19 @@ export function createMenus(deps: MenuDeps) {
         if (active()) source.block(kind, context.revision, context.position);
       },
     });
+    // Previewで画像の上なら、選んだ文字ではなく元の画像をクリップボードへ入れる
+    const image = context.image;
     const items: NonNullable<MenuOptions['items']> = [
       context.editable ? { item: 'Cut', text: '切り取り' } : { id: 'editor-cut-disabled', text: '切り取り', enabled: false },
-      { item: 'Copy', text: 'コピー' },
+      image === undefined
+        ? { item: 'Copy', text: 'コピー' }
+        : {
+            id: 'editor-copy-image',
+            text: 'コピー',
+            action: () => {
+              if (active()) void deps.copyImage(image).catch((error) => deps.notify(failure(error).message));
+            },
+          },
       context.editable ? { item: 'Paste', text: '貼り付け' } : { id: 'editor-paste-disabled', text: '貼り付け', enabled: false },
       { item: 'SelectAll', text: 'すべてを選択' },
     ];

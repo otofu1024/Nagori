@@ -190,14 +190,23 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
       if (main.empty && main.head === position) return;
       this.view.dispatch({ selection: { anchor: position } });
     }
-    // 前後の段落へ移し、その中央が画面の中央に来るまでなめらかに動かす。押し続けた時は途中でも次へ進む
+    // 前後の段落へ移し、その中央が画面の中央に来るまでなめらかに動かす。押し続けた時は途中でも次へ進む。
+    // 黒い段落がないか画面の外にある時は移さず、画面の中央の段落を黒くする。ただし動いている途中は、
+    // 向かう先の段落がまだ画面の外にあるため、次へ進む
     step(forward: boolean) {
       if (this.destroyed || !previewing(this.view.state)) return false;
       const state = this.view.state;
       const current = previewTarget(state, state.selection.main.head);
-      const next = current && previewNeighbor(state, current, forward);
+      if (!current || (!this.animating && !this.onScreen(current))) { this.centerFocus(); return true; }
+      const next = previewNeighbor(state, current, forward);
       if (next) { this.select(next.from); this.animateTo(next); }
       return true;
+    }
+    // 段落の一部でも今の画面に見えているか。座標は centerTop と同じ、画面上の位置で求める
+    onScreen(span: Span): boolean {
+      const rect = this.view.scrollDOM.getBoundingClientRect();
+      const top = this.view.documentTop + this.view.lineBlockAt(span.from).top, bottom = this.view.documentTop + this.view.lineBlockAt(span.to).bottom;
+      return bottom > rect.top && top < rect.bottom;
     }
     // 段落の中央が画面の中央に来る scrollTop。未描画の行の高さは動いている間に確定するため、毎回求め直す
     centerTop(span: Span): number {

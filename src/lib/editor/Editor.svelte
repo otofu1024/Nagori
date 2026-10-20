@@ -151,7 +151,9 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     if (!composing) editor.focus();
     const coords = editor.coordsAtPos(editor.state.selection.main.head), bounds = editor.dom.getBoundingClientRect();
     const at = position ?? range.head;
-    onContextMenu?.({ ...contextState(at), position: at, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
+    // Previewで画像の上を右クリックした時は、その画像の参照を渡す。メニューの「コピー」が元の画像を入れるために使う
+    const image = previewOnly && event instanceof MouseEvent && event.target instanceof Element ? event.target.closest<HTMLElement>('.nagori-image[data-image]')?.dataset.image : undefined;
+    onContextMenu?.({ ...contextState(at), position: at, image, x: event instanceof MouseEvent ? event.clientX : coords?.left ?? bounds.left, y: event instanceof MouseEvent ? event.clientY : coords?.bottom ?? bounds.top });
     return true;
   }
   function createState(text: string) {

@@ -766,6 +766,28 @@ pub(crate) async fn image_read(
         .map_err(|e| Error::new("INTERNAL", e.to_string()))?
         .map(tauri::ipc::Response::new)
 }
+// 画像の元のファイルをクリップボードへ入れる。読み込みは image_read と同じ規則で行う
+#[tauri::command]
+pub(crate) async fn image_copy(
+    window: tauri::WebviewWindow,
+    state: State<'_, Backend>,
+    path: String,
+    document_path: Option<String>,
+) -> Result<()> {
+    work(&state, window.label(), move |w| {
+        let picture = image::copy_source(
+            w.root()?,
+            &blog_image_path(w, &path)?,
+            if w.blog_mode && path.starts_with('/') {
+                None
+            } else {
+                document_path.as_deref()
+            },
+        )?;
+        image::copy_to_clipboard(&picture)
+    })
+    .await
+}
 #[tauri::command]
 pub(crate) async fn image_insert(
     app: tauri::AppHandle,

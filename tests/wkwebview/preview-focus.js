@@ -116,6 +116,23 @@ window.run = async () => {
   key('ArrowDown'); await pause(340);
   check('末尾の段落で↓を押すと止まる', activeNumber() === 60 && activeCount() === 1);
 
+  // 黒い段落が画面の外にある時は、↓で前後へ移さず、画面の中央の段落を黒くする。
+  // 手のスクロールの後は中央へ戻すまで150msの待ちがあるため、その間に↓を押して画面の外のまま確かめる
+  view.dispatch({ selection: { anchor: text.indexOf('第60段落') } });
+  await pause(100);
+  check('末尾の段落へ移すと、その段落が黒い', selected() === 60 && activeNumber() === 60);
+  scrollToParagraph(30);
+  const outside = () => { const block = view.lineBlockAt(text.indexOf('第60段落')), scroll = scroller().getBoundingClientRect(); return view.documentTop + block.top > scroll.bottom || view.documentTop + block.bottom < scroll.top; };
+  check('手で動かした直後は、黒い段落(第60段落)が画面の外にある', outside());
+  key('ArrowDown');
+  await pause(340);
+  // 中央の段落は第30段落付近。描き直しの前後で1つずれないよう、番号は範囲で確かめる
+  const picked = selected();
+  check('画面の外の段落で↓を押すと、画面の中央の段落が黒くなる', picked >= 29 && picked <= 31 && activeNumber() === picked && activeCount() === 1 && Math.abs(centerOffset(active()[0])) < 80);
+  key('ArrowDown');
+  await pause(340);
+  check('もう一度↓で次の段落へ移る', selected() === picked + 1 && activeNumber() === picked + 1 && activeCount() === 1);
+
   await create({ focus: false, typewriter: false });
   const start = scroller().scrollTop;
   key('ArrowDown'); await pause(300);

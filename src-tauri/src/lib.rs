@@ -92,6 +92,7 @@ pub fn run() {
             commands::trash_delete,
             commands::trash_empty,
             commands::image_read,
+            commands::image_copy,
             commands::image_insert,
             commands::image_paste,
             commands::settings_get,

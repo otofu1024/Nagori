@@ -42,6 +42,8 @@ export class ImageWidget extends WidgetType {
     } catch {
       /* Invalid percent escape stays literal and resolver reports the path error. */
     }
+    // Previewの右クリックで元の画像をコピーする時に使う。解決と同じ参照を持たせる
+    container.dataset.image = reference;
     this.resolveImage(reference)
       .then((url) => {
         if (!container.isConnected || !/^blob:/.test(url)) return;
