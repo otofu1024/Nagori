@@ -4,6 +4,7 @@ import Editor from '../../src/lib/editor/Editor.svelte';
 import '../../src/app.css';
 
 const pause = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms));
+const frames = async count => { for (let i = 0; i < count; i++) await new Promise(resolve => requestAnimationFrame(resolve)); };
 const checks = [], errors = [];
 let component, view;
 window.addEventListener('error', event => errors.push(event.message));
@@ -25,6 +26,8 @@ const centerOffset = element => {
   const rect = element.getBoundingClientRect(), scroll = scroller().getBoundingClientRect();
   return (rect.top + rect.bottom) / 2 - (scroll.top + scroller().clientHeight / 2);
 };
+// 黒い段落が1つだけ、画面の中央の近くにあるか。段落の高さは未描画の分を見積もるため、既存の確認と同じ80pxまでの差を許す
+const centered = () => activeCount() === 1 && Math.abs(centerOffset(active()[0])) < 80;
 const line = number => lines().find(child => child.textContent.startsWith(`第${number}段落`));
 // 黒い段落は、画面の外へ出ると DOM から外れるため、選択の位置の段落で数える
 const selected = () => Number(/第(\d+)段落/.exec(view.state.doc.lineAt(view.state.selection.main.head).text)?.[1] ?? 0);
@@ -91,12 +94,18 @@ window.run = async () => {
   check('手のスクロールの後は画面の中央の段落が黒くなる', selected() === middle20 && middle20 > 0 && activeCount() === 1 && active()[0] === line(middle20) && Math.abs(centerOffset(active()[0])) < 80);
 
   // 手で動かした直後は待ちの間に黒を移さず、止まってから中央の段落へ移す
+  // 手で少しずつスクロールしている間も、止まるのを待たず、各回の直後のフレームで中央の段落が黒い
+  let stepped = true;
+  const before = selected();
+  for (let i = 0; i < 6; i++) {
+    scroller().scrollTop += 90;
+    await frames(2);
+    stepped &&= centered();
+  }
+  check('スクロール中も、各回の直後のフレームで中央の段落が黒い', stepped && selected() !== before);
   scrollToParagraph(40);
-  await pause(60);
-  check('スクロールの止まる前は黒を移さない', selected() === middle20);
   await pause(400);
-  const middle40 = middleNumber();
-  check('スクロールが止まったら画面の中央の段落へ移す', selected() === middle40 && middle40 > 0 && activeCount() === 1 && active()[0] === line(middle40) && Math.abs(centerOffset(active()[0])) < 80);
+  check('スクロールが止まったら画面の中央の段落へ移す', centered());
 
   // 中央に置ける位置では、↓で次の段落が中央に来て、なめらかに動く
   scrollToParagraph(12);

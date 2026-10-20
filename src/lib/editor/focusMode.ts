@@ -92,16 +92,24 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
     animation = 0;
     animating = false;
     quietUntil = 0;
+    centerKey = {};
     scrollTimer = 0;
     cancelFollow = () => { this.follow = this.scrolling = false; };
     // Previewの集中モード。段落を動かした時と、手でスクロールした時の処理
     wheeled = () => { if (!this.animating) return; cancelAnimationFrame(this.animation); this.animating = false; };
     scrolled = () => {
       if (this.animating || performance.now() < this.quietUntil || !previewing(this.view.state)) return;
+      // 手でスクロールしている間も、描画ごとに中央の段落へ移す
+      this.centerOnMeasure();
+      // 止まった後は、新しく描いた行の高さが決まってから、もう一度求め直す
       clearTimeout(this.scrollTimer);
-      // 位置は計測のreadで求め、選択の変更は計測を抜けた後に行う。計測の中でdispatchすると、EditorViewの更新と衝突するため
-      this.scrollTimer = window.setTimeout(() => this.view.requestMeasure({ read: () => this.centerPosition(), write: position => queueMicrotask(() => { if (!this.destroyed && !this.animating && previewing(this.view.state)) this.placeFocus(position); }) }), 150);
+      this.scrollTimer = window.setTimeout(() => this.centerOnMeasure(), 150);
     };
+    // 同じ鍵の要求は描画1回につき1回にまとめられる。位置は計測のreadで求め、選択の変更は計測を抜けた後に行う。
+    // 計測の中でdispatchすると、EditorViewの更新と衝突するため
+    centerOnMeasure() {
+      this.view.requestMeasure({ key: this.centerKey, read: () => this.centerPosition(), write: position => queueMicrotask(() => { if (!this.destroyed && !this.animating && previewing(this.view.state)) this.placeFocus(position); }) });
+    }
     pointed = (event: PointerEvent) => {
       if (!previewing(this.view.state)) return;
       const position = this.view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
