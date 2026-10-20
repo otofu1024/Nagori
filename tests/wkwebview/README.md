@@ -19,6 +19,7 @@ IME以外の確認はURLを指定します。
 ```sh
 swift tests/wkwebview/probe.swift /private/tmp/nagori-typing-check http://127.0.0.1:1438/tests/wkwebview/typing.html
 swift tests/wkwebview/probe.swift /private/tmp/nagori-inline-code-check http://127.0.0.1:1438/tests/wkwebview/inline-code.html
+swift tests/wkwebview/probe.swift /private/tmp/nagori-preview-focus-check http://127.0.0.1:1438/tests/wkwebview/preview-focus.html
 swift tests/wkwebview/probe.swift /private/tmp/nagori-properties-check http://127.0.0.1:1438/tests/wkwebview/properties.html
 swift tests/wkwebview/probe.swift /private/tmp/nagori-math-check http://127.0.0.1:1438/tests/wkwebview/math.html
 swift tests/wkwebview/probe.swift /private/tmp/nagori-graph-check http://127.0.0.1:1438/tests/wkwebview/graph.html

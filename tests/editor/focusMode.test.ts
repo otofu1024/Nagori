@@ -7,7 +7,7 @@ import { defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
 import { markdownExtensions } from '../../src/lib/editor/markdown.ts';
 import { compositionMode } from '../../src/lib/editor/previewState.ts';
-import { focusBlock, focusSpans, focusMode, followsTyping, centeredScrollTop } from '../../src/lib/editor/focusMode.ts';
+import { focusBlock, focusSpans, focusMode, followsTyping, centeredScrollTop, previewTarget, previewNeighbor } from '../../src/lib/editor/focusMode.ts';
 
 const editor = (doc: string, head = 0) => EditorState.create({ doc, selection: { anchor: head }, extensions: [markdown({ base: commonmarkLanguage, extensions: markdownExtensions })] });
 
@@ -95,4 +95,23 @@ test('100KiBの同じ段落内の移動はDOMを作り直さず、IME中と手�
   assert.equal(measures, beforeComposition + 2);
   mode.destroy();
   assert.equal(classes.size, 0);
+});
+
+test('Previewの段落は空行とFront Matterを飛ばし、先頭と末尾で止まる', () => {
+  const source = '---\ntitle: 題\n---\n\n段落\n続き\n\n# 見出し\n\n- 項目\n\n後';
+  const state = editor(source);
+  const span = (text: string, length: number) => ({ from: source.indexOf(text), to: source.indexOf(text) + length });
+  const body = span('段落', '段落\n続き'.length), heading = span('# 見出し', 5), item = span('- 項目', 4), last = span('後', 1);
+  assert.deepEqual(previewTarget(state, 0), body);
+  assert.deepEqual(previewTarget(state, 5), body);
+  assert.deepEqual(previewTarget(state, source.indexOf('\n\n# ') + 1), heading);
+  assert.deepEqual(previewTarget(state, source.indexOf('見出し')), heading);
+  assert.deepEqual(previewTarget(state, state.doc.length), last);
+  assert.equal(previewNeighbor(state, body, false), null);
+  assert.deepEqual(previewNeighbor(state, body, true), heading);
+  assert.deepEqual(previewNeighbor(state, heading, true), item);
+  assert.deepEqual(previewNeighbor(state, heading, false), body);
+  assert.deepEqual(previewNeighbor(state, item, true), last);
+  assert.equal(previewNeighbor(state, last, true), null);
+  assert.equal(previewTarget(editor('---\ntitle: 題\n---\n'), 0), null);
 });
