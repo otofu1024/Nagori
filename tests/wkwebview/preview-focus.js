@@ -8,7 +8,11 @@ const checks = [], errors = [];
 let component, view;
 window.addEventListener('error', event => errors.push(event.message));
 window.addEventListener('unhandledrejection', event => errors.push(String(event.reason)));
-const check = (name, pass) => checks.push({ name, pass: !!pass });
+// CodeMirrorは更新中の例外を console.error に出すだけなので、それも捕まえる
+const reportError = console.error.bind(console);
+console.error = (...args) => { errors.push(args.map(String).join(' ')); reportError(...args); };
+// 失敗の原因を次の実行で分けるため、各checkの時点の状態を detail に残す
+const check = (name, pass) => checks.push({ name, pass: !!pass, detail: describe() });
 // 段落は1行ずつにして、黒い段落の数と番号を数えやすくする。先頭にFront Matterを置き、対象外であることも確かめる。
 const paragraphs = Array.from({ length: 60 }, (_, i) => `第${i + 1}段落` + '折り返しの確認に使う本文です。'.repeat(i % 3 + 2));
 const text = '---\ntitle: 確認\n---\n\n' + paragraphs.join('\n\n');
@@ -22,11 +26,28 @@ const centerOffset = element => {
   return (rect.top + rect.bottom) / 2 - (scroll.top + scroller().clientHeight / 2);
 };
 const line = number => lines().find(child => child.textContent.startsWith(`第${number}段落`));
-// 指定の段落の中央が画面の中央に来る位置へ、手で動かした時と同じように移す
+// 黒い段落は、画面の外へ出ると DOM から外れるため、選択の位置の段落で数える
+const selected = () => Number(/第(\d+)段落/.exec(view.state.doc.lineAt(view.state.selection.main.head).text)?.[1] ?? 0);
+// 画面の中央の高さにある段落の番号
+const middleNumber = () => {
+  const middle = scroller().getBoundingClientRect().top + scroller().clientHeight / 2;
+  const hit = lines().find(child => { const rect = child.getBoundingClientRect(); return rect.top <= middle && rect.bottom >= middle; });
+  return Number(/第(\d+)段落/.exec(hit?.textContent ?? '')?.[1] ?? 0);
+};
+// 黒い段落の番号と数、中央からのずれ、スクロールの寸法をまとめる
+const describe = () => {
+  if (!view) return '';
+  const first = active()[0], offset = first ? Math.round(centerOffset(first)) : null;
+  const numbers = active().map(child => /第(\d+)段落/.exec(child.textContent)?.[1] ?? '?');
+  const scroll = scroller();
+  return `scrollTop=${scroll.scrollTop} scrollHeight=${scroll.scrollHeight} clientHeight=${scroll.clientHeight} 黒い段落=[${numbers.join(',')}] 数=${activeCount()} 中央からのずれ=${offset ?? 'なし'}`;
+};
+// 指定の段落の中央が画面の中央に来る位置へ、手で動かした時と同じように移す。
+// documentTop は画面上の座標で、scrollTop を変えると一緒に動くため、現在の scrollTop に差を足して求める
 function scrollToParagraph(number) {
   const block = view.lineBlockAt(text.indexOf(`第${number}段落`));
   const scroll = scroller().getBoundingClientRect();
-  scroller().scrollTop = view.documentTop - scroll.top + (block.top + block.bottom) / 2 - scroller().clientHeight / 2;
+  scroller().scrollTop += view.documentTop + (block.top + block.bottom) / 2 - (scroll.top + scroller().clientHeight / 2);
 }
 function key(value) {
   view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
@@ -47,20 +68,17 @@ window.run = async () => {
   check('開いた時は先頭の段落だけが黒い', activeCount() === 1 && activeNumber() === 1);
   check('Front Matterは黒くならない', !view.contentDOM.querySelector('.nagori-focus-active:not(.cm-line)'));
 
+  // 先頭近くは中央まで下げられないため、次の段落へ移っても一番上のまま
   key('ArrowDown');
-  const before = scroller().scrollTop;
-  await pause(60);
-  const middle = scroller().scrollTop;
   await pause(340);
-  check('↓で次の段落へ移り、中央に来る', activeCount() === 1 && activeNumber() === 2 && Math.abs(centerOffset(active()[0])) < 12);
-  check('↓の移動はなめらかに動く', middle > before && middle < scroller().scrollTop);
+  check('↓で次の段落へ移り、一番上のまま', activeCount() === 1 && activeNumber() === 2 && scroller().scrollTop === 0);
 
   key('ArrowUp'); await pause(340);
   check('一番上の段落で↑を押すと止まる', activeNumber() === 1 && scroller().scrollTop === 0);
 
   key('ArrowDown'); key('ArrowDown'); key('ArrowDown');
   await pause(400);
-  check('押し続けた時は途中でも次の段落へ進む', activeCount() === 1 && activeNumber() === 4 && Math.abs(centerOffset(active()[0])) < 12);
+  check('押し続けた時は途中でも次の段落へ進む', activeCount() === 1 && activeNumber() === 4);
 
   const target = line(5), rect = target.getBoundingClientRect();
   target.dispatchEvent(new PointerEvent('pointerdown', { clientX: rect.left + 20, clientY: (rect.top + rect.bottom) / 2, bubbles: true, cancelable: true }));
@@ -69,14 +87,28 @@ window.run = async () => {
 
   scrollToParagraph(20);
   await pause(400);
-  check('手のスクロールの後は中央の段落が黒くなる', activeCount() === 1 && activeNumber() === 20 && Math.abs(centerOffset(active()[0])) < 80);
+  const middle20 = middleNumber();
+  check('手のスクロールの後は画面の中央の段落が黒くなる', selected() === middle20 && middle20 > 0 && activeCount() === 1 && active()[0] === line(middle20) && Math.abs(centerOffset(active()[0])) < 80);
 
   // 手で動かした直後は待ちの間に黒を移さず、止まってから中央の段落へ移す
   scrollToParagraph(40);
   await pause(60);
-  check('スクロールの止まる前は黒を移さない', activeCount() === 1 && activeNumber() === 20);
+  check('スクロールの止まる前は黒を移さない', selected() === middle20);
   await pause(400);
-  check('スクロールが止まったら中央の段落へ移す', activeCount() === 1 && activeNumber() === 40 && Math.abs(centerOffset(active()[0])) < 80);
+  const middle40 = middleNumber();
+  check('スクロールが止まったら画面の中央の段落へ移す', selected() === middle40 && middle40 > 0 && activeCount() === 1 && active()[0] === line(middle40) && Math.abs(centerOffset(active()[0])) < 80);
+
+  // 中央に置ける位置では、↓で次の段落が中央に来て、なめらかに動く
+  scrollToParagraph(12);
+  await pause(400);
+  check('中央に置ける位置では手で移した後に第12段落が黒い', activeCount() === 1 && activeNumber() === 12 && Math.abs(centerOffset(active()[0])) < 80);
+  const beforeCentered = scroller().scrollTop;
+  key('ArrowDown');
+  await pause(60);
+  const middleCentered = scroller().scrollTop;
+  await pause(340);
+  check('中央に置ける位置で↓を押すと第13段落が中央に来る', activeCount() === 1 && activeNumber() === 13 && Math.abs(centerOffset(active()[0])) < 12);
+  check('中央に置ける位置での↓の移動はなめらかに動く', beforeCentered < middleCentered && middleCentered < scroller().scrollTop);
 
   for (let i = 0; i < 60; i++) key('ArrowDown');
   await pause(400);

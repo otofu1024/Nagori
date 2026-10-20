@@ -85,6 +85,8 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
     follow = false;
     scrolling = false;
     scrollKey = {};
+    // 高さが決まった後に描き直す必要がある時だけ立てる
+    stale = false;
     destroyed = false;
     view: EditorView;
     animation = 0;
@@ -97,7 +99,8 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
     scrolled = () => {
       if (this.animating || performance.now() < this.quietUntil || !previewing(this.view.state)) return;
       clearTimeout(this.scrollTimer);
-      this.scrollTimer = window.setTimeout(() => { if (!this.destroyed && !this.animating && previewing(this.view.state)) this.centerFocus(); }, 150);
+      // 位置は計測のreadで求め、選択の変更は計測を抜けた後に行う。計測の中でdispatchすると、EditorViewの更新と衝突するため
+      this.scrollTimer = window.setTimeout(() => this.view.requestMeasure({ read: () => this.centerPosition(), write: position => queueMicrotask(() => { if (!this.destroyed && !this.animating && previewing(this.view.state)) this.placeFocus(position); }) }), 150);
     };
     pointed = (event: PointerEvent) => {
       if (!previewing(this.view.state)) return;
@@ -117,9 +120,10 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
         view.scrollDOM.addEventListener('scroll', this.scrolled, { passive: true });
         view.scrollDOM.addEventListener('pointerdown', this.pointed, true);
         previewControllers.set(view, this);
-        // 開いた時や集中モードをオンにした時は、Previewなら画面の中央の段落を黒くする
+        // 開いた時や集中モードをオンにした時は、Previewなら画面の中央の段落を黒くする。
+        // 構築時は本文の高さが決まっていないため、Previewでは描かずに次のframeで描き直す
         if (previewing(view.state)) this.centerLater();
-        this.decorate(); this.refresh();
+        else { this.decorate(); this.refresh(); }
       }
     }
     update(update: ViewUpdate) {
@@ -136,7 +140,7 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
       const next = activeSpans(update.state);
       const changed = next.length !== this.spans.length || next.some((span, i) => span.from !== this.spans[i].from || span.to !== this.spans[i].to);
       this.spans = next;
-      if (changed || wasComposing || update.docChanged || update.viewportChanged || update.geometryChanged) this.decorate();
+      if (changed || wasComposing || update.docChanged || update.viewportChanged || update.geometryChanged || this.stale) { this.stale = false; this.decorate(); }
       if (update.transactions.length || update.viewportChanged || update.geometryChanged) this.refresh();
     }
     decorate() {
@@ -165,12 +169,19 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
       });
     }
     centerLater() {
-      requestAnimationFrame(() => { if (!this.destroyed && previewing(this.view.state)) this.centerFocus(); });
+      // 先頭の段落が選ばれたままだと選択は変わらないため、描き直しを予約してから空の取引を送り、中央を選ぶ
+      requestAnimationFrame(() => { if (!this.destroyed && previewing(this.view.state)) { this.stale = true; this.view.dispatch({}); this.centerFocus(); } });
     }
     // 一番上なら最初の段落、それ以外は画面の中央の段落を黒くする
-    centerFocus() {
-      const scroll = this.view.scrollDOM, rect = scroll.getBoundingClientRect();
-      const position = scroll.scrollTop <= 0 ? 0 : this.view.posAtCoords({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, false) ?? 0;
+    centerFocus() { this.placeFocus(this.centerPosition()); }
+    // 画面の中央の高さにある位置。高さを読むため、計測のread段階で呼ぶ。座標からの判定は手で動かした直後に誤ることがあるため使わない
+    centerPosition(): number {
+      const scroll = this.view.scrollDOM;
+      if (scroll.scrollTop <= 0) return 0;
+      const middle = scroll.getBoundingClientRect().top + scroll.clientHeight / 2 - this.view.documentTop;
+      return this.view.lineBlockAtHeight(Math.max(0, middle)).from;
+    }
+    placeFocus(position: number) {
       const span = previewTarget(this.view.state, position);
       if (span) this.select(span.from);
     }
@@ -188,10 +199,14 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
       if (next) { this.select(next.from); this.animateTo(next); }
       return true;
     }
-    animateTo(span: Span) {
+    // 段落の中央が画面の中央に来る scrollTop。未描画の行の高さは動いている間に確定するため、毎回求め直す
+    centerTop(span: Span): number {
       const scroll = this.view.scrollDOM, rect = scroll.getBoundingClientRect();
       const middle = this.view.documentTop + (this.view.lineBlockAt(span.from).top + this.view.lineBlockAt(span.to).bottom) / 2;
-      const to = Math.min(Math.max(0, scroll.scrollTop + middle - (rect.top + scroll.clientHeight / 2)), scroll.scrollHeight - scroll.clientHeight);
+      return Math.min(Math.max(0, scroll.scrollTop + middle - (rect.top + scroll.clientHeight / 2)), scroll.scrollHeight - scroll.clientHeight);
+    }
+    animateTo(span: Span) {
+      const scroll = this.view.scrollDOM;
       const from = scroll.scrollTop;
       let started: number | undefined;
       cancelAnimationFrame(this.animation);
@@ -199,6 +214,7 @@ export function focusMode(focus: boolean, typewriter: boolean, plain = false): E
       const frame = (now: number) => {
         started ??= now;
         const progress = Math.min(1, (now - started) / 200), eased = 1 - (1 - progress) ** 3;
+        const to = this.centerTop(span);
         scroll.scrollTop = from + (to - from) * eased;
         // 動かした後の scroll イベントを、手のスクロールとして扱わない
         this.quietUntil = now + 100;
