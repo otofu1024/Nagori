@@ -4,6 +4,7 @@ use crate::files::{
 };
 use serde::Serialize;
 use std::{
+    ffi::CStr,
     fs, io,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -22,6 +23,17 @@ const PREVIEW_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub struct Image {
     pub data: Vec<u8>,
     format: image::ImageFormat,
+}
+impl Image {
+    // 元の画像の型に対応するUTI。読み込みの時点で対応形式に限られている
+    pub fn uti(&self) -> &'static CStr {
+        match self.format {
+            image::ImageFormat::Png => c"public.png",
+            image::ImageFormat::Jpeg => c"public.jpeg",
+            image::ImageFormat::Gif => c"com.compuserve.gif",
+            _ => c"org.webmproject.webp",
+        }
+    }
 }
 #[derive(Serialize)]
 pub struct InsertedImage {
@@ -46,6 +58,31 @@ pub fn read_image(path: &Path) -> Result<Image> {
     }
     read_image_file(open_limited(path, IMAGE_LIMIT)?)
 }
+// クリップボードへ入れる元の画像。読み込みは画像の表示と同じ規則で行い、外部のURLは扱わない
+pub fn copy_source(root: &Path, path: &str, document_path: Option<&str>) -> Result<Image> {
+    if path.contains("://") || path.starts_with("//") {
+        return Err(Error::new(
+            "UNSUPPORTED",
+            "外部のURLの画像はコピーできません。",
+        ));
+    }
+    read_image(&image_path(root, path, document_path)?)
+}
+// 画像を一般のクリップボードへ入れる
+#[cfg(target_os = "macos")]
+pub fn copy_to_clipboard(image: &Image) -> Result<()> {
+    pasteboard::write(pasteboard::general(), image)
+}
+#[cfg(not(target_os = "macos"))]
+pub fn copy_to_clipboard(_image: &Image) -> Result<()> {
+    Err(Error::new(
+        "UNSUPPORTED",
+        "この環境では画像をクリップボードへ入れられません。",
+    ))
+}
+#[cfg(target_os = "macos")]
+#[path = "image/pasteboard.rs"]
+mod pasteboard;
 fn read_image_file(file: fs::File) -> Result<Image> {
     image_from_bytes(read_file_limited(file, IMAGE_LIMIT)?)
 }

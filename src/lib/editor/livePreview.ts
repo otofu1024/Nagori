@@ -6,6 +6,7 @@ import { buildPreview } from './previewDecorations.ts';
 import { LinkCardWidget, TalkWidget } from './previewBlog.ts';
 import { previewContext, type PreviewContext } from './previewContext.ts';
 import { refreshImagesEffect, previewOnlyField, compositionField, type Options } from './previewState.ts';
+import { previewFocusStep } from './focusMode.ts';
 
 export function livePreview(options: Options): Extension {
   const resolver = options.resolveImage;
@@ -104,6 +105,11 @@ export function livePreview(options: Options): Extension {
           if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return false;
           if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.isComposing || view.composing) return false;
           if (view.state.field(previewOnlyField)) {
+            // 集中モードでは黒い段落を前後へ移す。オフの時は下の1行分の移動のまま。
+            if (previewFocusStep(view, event.key === 'ArrowDown')) {
+              event.preventDefault();
+              return true;
+            }
             // 閲覧時はカーソルを動かさず、キーの繰り返しごとに本文を1行分動かす。
             view.scrollDOM.scrollTop += view.defaultLineHeight * (event.key === 'ArrowDown' ? 1 : -1);
             event.preventDefault();

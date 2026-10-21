@@ -43,10 +43,18 @@ export function createImageLoader(currentPath: () => string | undefined) {
     }
   }
 
+  // 画像の元のファイルをクリップボードへ入れる。解決と同じ規則で、ワークスペースの外や外部のURLは扱わない
+  async function copyImage(ref: string) {
+    const path = currentPath();
+    if (!path) throw new Error('記事を開いてください。');
+    await invoke('image_copy', { path: ref, documentPath: path });
+  }
+
   return {
     releaseImages,
     blobImage,
     resolveImage,
+    copyImage,
     discard: (url: string) => {
       URL.revokeObjectURL(url);
       imageUrls.delete(url);

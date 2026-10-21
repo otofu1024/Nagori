@@ -2,7 +2,8 @@ import type { BlockKind, ListKind } from './blockEdit.ts';
 
 export type FormatKind = 'bold' | 'italic' | 'strike' | 'code' | 'link';
 export type EditorContextState = { plain: boolean; editable: boolean; block: boolean; heading: boolean; revision: number };
-export type EditorContextMenu = EditorContextState & { x: number; y: number; position: number };
+// image は、Previewで画像の上を右クリックした時だけ入る。画像の参照(記事からの相対パスなど)
+export type EditorContextMenu = EditorContextState & { x: number; y: number; position: number; image?: string };
 export interface EditorApi {
   replaceText(text: string): void;
   insertText(text: string): void;

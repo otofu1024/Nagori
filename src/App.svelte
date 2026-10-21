@@ -872,7 +872,7 @@
     get selected() { return selected; }, set selected(value) { selected = value; },
     get starredPaths() { return starredPaths; }, get editor() { return editor; }, get documentKey() { return documentKey; },
     get blocked() { return !!(errorDialog?.open || saveAsDialog?.open || quick || searchOpen); },
-    notify, reveal, toggleStar, startName, trash, restoreTrash, deleteTrash, insertImage, runCli, chooseProject, quickOpen,
+    notify, reveal, toggleStar, startName, trash, restoreTrash, deleteTrash, insertImage, copyImage: images.copyImage, runCli, chooseProject, quickOpen,
     flush, workspaceSearchOpen, togglePreview, toggleOutline, toggleWritingMode, openSettings, zoomFont,
   });
   // この窓で開いているファイルを覚える。ウィンドウを開き直す時に、同じファイルを開くため

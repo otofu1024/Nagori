@@ -392,3 +392,55 @@ fn images_validate_and_copy_without_clobber() {
     assert!(insert_image(root, source.to_str().unwrap(), "article.md").is_err());
     assert_eq!(list(root, "assets").unwrap().len(), 2);
 }
+
+#[test]
+fn copied_images_keep_their_original_type_and_stay_in_the_workspace() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    fs::create_dir(root.join("posts")).unwrap();
+    create(root, "posts/article.md", "markdown").unwrap();
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::new(2, 1)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let png = png.into_inner();
+    fs::write(root.join("posts/pic.png"), &png).unwrap();
+    fs::write(root.join("posts/note.txt"), b"text").unwrap();
+    let document = Some("posts/article.md");
+    // 記事と同じフォルダの画像は、元のバイト列と型を保ったまま読める
+    let copied = copy_source(root, "pic.png", document).unwrap();
+    assert_eq!(copied.data, png);
+    assert_eq!(copied.uti(), c"public.png");
+    // 画像でない、外部のURL、ワークスペースの外、見つからないファイルは拒否する
+    assert_eq!(
+        copy_source(root, "note.txt", document).err().unwrap().code,
+        "UNSUPPORTED"
+    );
+    assert_eq!(
+        copy_source(root, "https://example.com/pic.png", document)
+            .err()
+            .unwrap()
+            .code,
+        "UNSUPPORTED"
+    );
+    assert!(copy_source(root, "../../outside.png", document).is_err());
+    assert!(copy_source(root, "missing.png", document).is_err());
+}
+
+#[test]
+fn copied_images_report_the_uti_of_each_format() {
+    let cases = [
+        (image::ImageFormat::Png, c"public.png"),
+        (image::ImageFormat::Jpeg, c"public.jpeg"),
+        (image::ImageFormat::Gif, c"com.compuserve.gif"),
+        (image::ImageFormat::WebP, c"org.webmproject.webp"),
+    ];
+    for (format, uti) in cases {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbImage::new(1, 1)
+            .write_to(&mut bytes, format)
+            .unwrap();
+        let image = image_from_bytes(bytes.into_inner()).unwrap();
+        assert_eq!(image.uti(), uti);
+    }
+}
