@@ -16,6 +16,7 @@
   import { focusMode } from './focusMode.ts';
   import { activityScrollbar } from './activityScrollbar.ts';
   import { smoothWheel } from './smoothWheel.ts';
+  import { marginClick } from './marginClick.ts';
   import { livePreview } from './livePreview.ts';
 import { previewOnlyMode, compositionMode, refreshImagesEffect } from './previewState.ts';
   import { inputEndsComposition, keyEndsComposition, createBlurFailsafe } from './composition.ts';
@@ -159,6 +160,7 @@ import { previewOnlyMode, compositionMode, refreshImagesEffect } from './preview
     return EditorState.create({ doc: text, extensions: [
       history(), highlightActiveLine(), EditorView.lineWrapping,
       smoothWheel,
+      marginClick(),
       imageDrop({ state: () => ({ plain, readonly, busy, saving, previewOnly, composing: composition, saved: !!onDropImages }), importImages: images => onDropImages?.(images) ?? Promise.resolve(null), notify: reason => onImageError?.(reason) }),
       focusConfig.of(focusMode(focus, typewriter, plain)),
       // 選択の塗りは文字の高さに収めて本文の下へ描く(selectionLayer.ts)。
